@@ -753,13 +753,24 @@
         setButtonBusy(button, true, "確認中..."); $("#check-alert").innerHTML = "";
         const [healthResult, systemResult, phoneResult, pagesResult] = await Promise.allSettled([
           api("/api/health"), api("/api/admin/system-check", { adminKey: key }), api("/api/admin/phone-normalize-check", { adminKey: key }),
-          Promise.all(["index.html", "member.html", "owner.html", "owner-ipad.html"].map((file) => fetch(file, { cache: "no-store" }).then((response) => response.ok))),
+          Promise.all(["index.html", "member.html", "owner.html", "owner-ipad.html", "system-check.html"].map((file) => fetch(file, { cache: "no-store" }).then((response) => response.ok))),
         ]);
         if (healthResult.status === "fulfilled") { setCheck("api", true, `${healthResult.value.version}／応答正常`); setCheck("db", healthResult.value.database?.ok === true, `${healthResult.value.database?.schema_version || "DB未確認"}／顧問先${healthResult.value.database?.counts?.clients ?? "－"}件`); setCheck("demo", healthResult.value.database?.office?.is_demo === true, `案件${healthResult.value.database?.counts?.cases ?? "－"}件・資料依頼${healthResult.value.database?.counts?.document_requests ?? "－"}件`); } else { setCheck("api", false, healthResult.reason.message); setCheck("db", false, "API確認後に再実行してください"); setCheck("demo", false, "未確認"); }
         if (systemResult.status === "fulfilled") setCheck("storage", systemResult.value.storage?.ok && systemResult.value.storage?.public === false, systemResult.value.storage?.public === false ? "非公開バケット・正常" : "公開設定を確認してください"); else setCheck("storage", false, systemResult.reason.message);
         if (phoneResult.status === "fulfilled") setCheck("phone", phoneResult.value.ok, phoneResult.value.ok ? "4形式すべて09011112201へ一致" : "不一致があります"); else setCheck("phone", false, phoneResult.reason.message);
-        if (pagesResult.status === "fulfilled") setCheck("pages", pagesResult.value.every(Boolean), pagesResult.value.every(Boolean) ? "主要4画面・読込正常" : "読込できない画面があります"); else setCheck("pages", false, pagesResult.reason.message);
-        const allOk = [healthResult, systemResult, phoneResult, pagesResult].every((result) => result.status === "fulfilled"); $("#check-alert").innerHTML = alertBox(allOk ? "一括チェックが完了しました。各項目を確認してください。" : "一部の確認に失敗しました。赤い項目をご確認ください。", allOk ? "success" : "error");
+        if (pagesResult.status === "fulfilled") setCheck("pages", pagesResult.value.every(Boolean), pagesResult.value.every(Boolean) ? "主要5画面・読込正常" : "読込できない画面があります"); else setCheck("pages", false, pagesResult.reason.message);
+        const allOk = healthResult.status === "fulfilled"
+          && healthResult.value?.ok === true
+          && healthResult.value?.database?.ok === true
+          && systemResult.status === "fulfilled"
+          && systemResult.value?.ok === true
+          && systemResult.value?.storage?.ok === true
+          && systemResult.value?.storage?.public === false
+          && phoneResult.status === "fulfilled"
+          && phoneResult.value?.ok === true
+          && pagesResult.status === "fulfilled"
+          && pagesResult.value.every(Boolean);
+        $("#check-alert").innerHTML = alertBox(allOk ? "全項目OKです。営業デモを開始できます。" : "一部の確認に失敗しました。赤い項目をご確認ください。", allOk ? "success" : "error");
       } finally { setButtonBusy(button, false); }
     });
     $("#prepare-demo").addEventListener("click", async (event) => { if (!code.value) { toast("管理コードを入力してください。", "error"); return; } if (!confirm("デモデータを再準備しますか？本番データには使用しないでください。")) return; const button = event.currentTarget; try { setButtonBusy(button, true, "準備中..."); const data = await api("/api/admin/demo-prepare", { method: "POST", body: { confirm: "PREPARE_DEMO" }, adminKey: code.value }); $("#demo-result").textContent = `準備完了：${JSON.stringify(data.result)}`; toast("デモデータを準備しました。"); } catch (error) { toast(error.message, "error"); } finally { setButtonBusy(button, false); } });
