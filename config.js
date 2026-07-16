@@ -1,6 +1,6 @@
 window.DPRO_TAX_CONFIG = Object.freeze({
   APP_NAME: "DPRO 税理士・会計事務所 LINE",
-  VERSION: "TAX-9-PRIVATE-DOCUMENT-VIEWER-20260716",
+  VERSION: "TAX-10-APPOINTMENT-OPERATIONS-20260716",
   API_BASE: "https://dpro-tax-accounting-line-api.dpromstk2000.workers.dev",
   OFFICE_CODE: "dpro_taxacc_demo",
   DEFAULT_ADMIN_CODE: "1234",

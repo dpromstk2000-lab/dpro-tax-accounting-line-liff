@@ -425,7 +425,7 @@
 
   function renderAppointments() {
     const status = $("#appointment-status-filter")?.value || ""; const list = adminState.appointments.filter((item) => !status || item.status === status);
-    $("#appointments-table-body").innerHTML = list.length ? list.map((item) => `<tr><td><strong>${formatDate(item.confirmed_start_at || item.requested_start_at, true)}</strong><div class="small muted">${item.duration_minutes}分</div></td><td>${esc(item.requester_name)}<div class="small muted">${esc(item.requester_phone || item.requester_email || "")}</div></td><td>${esc(label(item.appointment_channel))}</td><td>${esc(staffName(item.assigned_staff_id))}</td><td>${badge(item.status)}</td><td><div class="table-actions"><button class="btn btn-primary btn-sm" data-appointment-status="confirmed" data-id="${item.id}" type="button">確定</button><button class="btn btn-secondary btn-sm" data-appointment-status="completed" data-id="${item.id}" type="button">完了</button><button class="btn btn-danger btn-sm" data-soft-delete="appointment" data-id="${item.id}" type="button">取消</button></div></td></tr>`).join("") : `<tr><td colspan="6">${empty("予約がありません。")}</td></tr>`;
+    $("#appointments-table-body").innerHTML = list.length ? list.map((item) => `<tr><td><strong>${formatDate(item.confirmed_start_at || item.requested_start_at, true)}</strong><div class="small muted">${item.duration_minutes}分${item.change_requested_start_at ? ` ／ 変更希望 ${formatDate(item.change_requested_start_at, true)}` : ""}</div></td><td>${esc(item.requester_name)}<div class="small muted">${esc(item.requester_phone || item.requester_email || "")}</div></td><td>${esc(label(item.appointment_channel))}</td><td>${esc(staffName(item.assigned_staff_id))}</td><td>${badge(item.status)}</td><td><div class="table-actions"><button class="btn btn-secondary btn-sm" data-appointment-edit="${item.id}" type="button">日時変更</button><button class="btn btn-primary btn-sm" data-appointment-status="confirmed" data-id="${item.id}" type="button">確定</button><button class="btn btn-secondary btn-sm" data-appointment-status="completed" data-id="${item.id}" type="button">完了</button><button class="btn btn-danger btn-sm" data-soft-delete="appointment" data-id="${item.id}" type="button">取消</button></div></td></tr>`).join("") : `<tr><td colspan="6">${empty("予約がありません。")}</td></tr>`;
   }
 
   function renderInquiries() {
@@ -480,6 +480,7 @@
 
   async function initOwner() {
     const auth = $("#owner-auth"); const app = $("#owner-app"); const code = $("#owner-admin-code");
+    const appointmentDateInput = $('#admin-appointment-form input[name="requested_start_at"]'); if (appointmentDateInput) appointmentDateInput.min = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
     if (isDemo) code.value = CONFIG.DEFAULT_ADMIN_CODE;
     $("#owner-code-clear").addEventListener("click", () => { code.value = ""; code.focus(); });
     async function login(key) {
@@ -499,6 +500,7 @@
       const review = event.target.closest("[data-document-review-open]"); if (review) await openDocumentReview(review.dataset.documentReviewOpen);
       const view = event.target.closest("[data-document-view]"); if (view) await viewDocument(view.dataset.documentView);
       const appointment = event.target.closest("[data-appointment-status]"); if (appointment) await patchAdmin(`/api/admin/appointments/${appointment.dataset.id}`, { status: appointment.dataset.appointmentStatus }, "予約を更新しました。");
+      const appointmentEdit = event.target.closest("[data-appointment-edit]"); if (appointmentEdit) await editAppointmentDate(appointmentEdit.dataset.appointmentEdit);
       const inquiry = event.target.closest("[data-inquiry-status]"); if (inquiry) await patchAdmin(`/api/admin/inquiries/${inquiry.dataset.id}`, { status: inquiry.dataset.inquiryStatus }, "相談状態を更新しました。");
       const task = event.target.closest("[data-task-complete]"); if (task) await patchAdmin(`/api/admin/tasks/${task.dataset.taskComplete}`, { status: "completed" }, "タスクを完了しました。");
       const del = event.target.closest("[data-soft-delete]"); if (del) await softDeleteAdmin(del.dataset.softDelete, del.dataset.id);
@@ -526,6 +528,16 @@
   async function updateCaseProgress(id) {
     const item = adminState.cases.find((row) => row.id === id); const input = prompt("進捗率を0～100で入力してください。", String(item?.progress_percent || 0)); if (input === null) return; const progress = Number(input); if (!Number.isInteger(progress) || progress < 0 || progress > 100) { toast("0～100の整数で入力してください。", "error"); return; }
     const status = progress === 100 ? "completed" : item.status === "received" ? "in_progress" : item.status; await patchAdmin(`/api/admin/cases/${id}`, { progress_percent: progress, status }, "案件進捗を更新しました。");
+  }
+
+  async function editAppointmentDate(id) {
+    const item = adminState.appointments.find((row) => row.id === id); if (!item) return;
+    const current = new Date(item.change_requested_start_at || item.confirmed_start_at || item.requested_start_at);
+    const offset = current.getTimezoneOffset() * 60000; const initial = new Date(current.getTime() - offset).toISOString().slice(0, 16);
+    const input = prompt("新しい予約日時を入力してください（30分単位）。", initial); if (input === null) return;
+    const date = new Date(input); if (Number.isNaN(date.getTime()) || ![0, 30].includes(date.getMinutes()) || date.getSeconds() !== 0) { toast("日時は30分単位で入力してください。", "error"); return; }
+    if (date <= new Date()) { toast("過去日時は指定できません。", "error"); return; }
+    await patchAdmin(`/api/admin/appointments/${id}`, { requested_start_at: date.toISOString(), confirmed_start_at: date.toISOString(), status: "confirmed" }, "予約日時を変更して確定しました。");
   }
 
   let documentReviewDetail = null;
