@@ -423,14 +423,22 @@
     const office = adminState.settings?.office; if (!office) return;
     $("#setting-office-name").value = office.office_name || ""; $("#setting-phone").value = office.phone || ""; $("#setting-email").value = office.email || ""; $("#setting-booking-days").value = office.booking_open_days || 90; $("#setting-postal-code").value = office.postal_code || ""; $("#setting-address").value = office.address || ""; $("#setting-subtitle").value = office.subtitle || ""; $("#setting-security").value = office.security_notice || "";
     const services = adminState.settings?.services || [];
-    $("#settings-services").innerHTML = services.length ? services.map((item) => `<div class="list-item"><div class="list-item-head"><strong>${esc(item.service_name)}</strong><span class="status" data-tone="${item.is_active !== false ? "success" : "default"}">${item.is_active !== false ? "有効" : "無効"}</span></div><div class="meta-row"><span>${Number(item.duration_minutes)}分</span><span>${esc((item.channel_options || []).map(label).join("・"))}</span><span>${item.is_public !== false ? "顧客画面に表示" : "内部用"}</span></div></div>`).join("") : empty("面談メニューがありません。");
+    $("#settings-services").innerHTML = services.length ? services.map((item) => `<div class="list-item"><div class="list-item-head"><strong>${esc(item.service_name)}</strong><span class="status" data-tone="${item.is_active !== false ? "success" : "default"}">${item.is_active !== false ? "有効" : "無効"}</span></div><div class="meta-row"><span>${Number(item.duration_minutes)}分</span><span>${esc((item.channel_options || []).map(label).join("・"))}</span><span>${item.is_public !== false ? "顧客画面に表示" : "内部用"}</span></div><div class="table-actions settings-item-actions"><button class="btn btn-secondary btn-sm" type="button" data-edit-service="${esc(item.id)}">編集</button>${item.is_active !== false ? `<button class="btn btn-danger btn-sm" type="button" data-disable-service="${esc(item.id)}">無効化</button>` : ""}</div></div>`).join("") : empty("面談メニューがありません。");
     const dayNames = ["日", "月", "火", "水", "木", "金", "土"];
-    const hours = adminState.settings?.business_hours || [];
-    const hourRows = hours.map((item) => `<div class="schedule-row"><strong>${dayNames[Number(item.day_of_week)] || "－"}曜日</strong><span>${item.is_closed ? "休業" : `${esc(String(item.open_time || "").slice(0, 5))}～${esc(String(item.close_time || "").slice(0, 5))}`}</span></div>`).join("");
-    const closed = (adminState.settings?.closed_dates || []).filter((item) => item.closed_date >= todayJst()).slice(0, 3);
-    const closedRows = closed.length ? `<div class="schedule-note"><strong>臨時休業・特別時間</strong>${closed.map((item) => `<div>${formatDate(item.closed_date)}　${esc(item.reason || (item.is_closed_all_day ? "休業" : "時間変更"))}</div>`).join("")}</div>` : "";
-    $("#settings-business-hours").innerHTML = hourRows || empty("受付時間が設定されていません。");
-    $("#settings-business-hours").insertAdjacentHTML("beforeend", closedRows);
+    const hourMap = new Map((adminState.settings?.business_hours || []).map((item) => [Number(item.day_of_week), item]));
+    $("#business-hours-editor").innerHTML = dayNames.map((day, index) => {
+      const item = hourMap.get(index) || { day_of_week: index, is_closed: index === 0 || index === 6, open_time: "09:00", close_time: "17:00" };
+      return `<div class="hours-row" data-business-day="${index}"><strong>${day}曜日</strong><label class="hours-closed"><input type="checkbox" data-hour-closed ${item.is_closed ? "checked" : ""}> 休業</label><select aria-label="${day}曜日の開始" data-hour-open ${item.is_closed ? "disabled" : ""}>${halfHourOptions(String(item.open_time || "09:00").slice(0, 5))}</select><span>～</span><select aria-label="${day}曜日の終了" data-hour-close ${item.is_closed ? "disabled" : ""}>${halfHourOptions(String(item.close_time || "17:00").slice(0, 5))}</select></div>`;
+    }).join("");
+    const closed = (adminState.settings?.closed_dates || []).filter((item) => item.closed_date >= todayJst());
+    $("#closed-date-value").min = todayJst();
+    $("#closed-date-list").innerHTML = closed.length ? closed.map((item) => `<div class="closed-date-row"><div><strong>${formatDate(item.closed_date)}</strong><span>${esc(item.reason || (item.is_closed_all_day ? "終日休業" : "特別受付"))}</span>${item.is_closed_all_day ? "" : `<small>${esc(String(item.open_time || "").slice(0, 5))}～${esc(String(item.close_time || "").slice(0, 5))}</small>`}</div><button class="btn btn-danger btn-sm" type="button" data-delete-closed-date="${esc(item.id)}">削除</button></div>`).join("") : `<div class="empty compact-empty">今後の休業日・特別時間はありません。</div>`;
+  }
+
+  function halfHourOptions(selected = "") {
+    const values = [];
+    for (let hour = 0; hour < 24; hour += 1) for (const minute of ["00", "30"]) values.push(`${String(hour).padStart(2, "0")}:${minute}`);
+    return values.map((value) => `<option value="${value}" ${value === selected ? "selected" : ""}>${value}</option>`).join("");
   }
 
   function showAdminView(view) {
@@ -468,6 +476,10 @@
       const inquiry = event.target.closest("[data-inquiry-status]"); if (inquiry) await patchAdmin(`/api/admin/inquiries/${inquiry.dataset.id}`, { status: inquiry.dataset.inquiryStatus }, "相談状態を更新しました。");
       const task = event.target.closest("[data-task-complete]"); if (task) await patchAdmin(`/api/admin/tasks/${task.dataset.taskComplete}`, { status: "completed" }, "タスクを完了しました。");
       const del = event.target.closest("[data-soft-delete]"); if (del) await softDeleteAdmin(del.dataset.softDelete, del.dataset.id);
+      const editService = event.target.closest("[data-edit-service]"); if (editService) openServiceEditor(editService.dataset.editService);
+      const newService = event.target.closest("[data-new-service]"); if (newService) resetServiceEditor();
+      const disableService = event.target.closest("[data-disable-service]"); if (disableService) await disableConsultationService(disableService.dataset.disableService);
+      const deleteClosed = event.target.closest("[data-delete-closed-date]"); if (deleteClosed) await deleteClosedDate(deleteClosed.dataset.deleteClosedDate);
     });
     $("#client-search-button").addEventListener("click", renderClients); $("#client-search").addEventListener("input", renderClients); $("#client-status-filter").addEventListener("change", renderClients);
     $("#case-search-button").addEventListener("click", renderCases); $("#case-search").addEventListener("input", renderCases); $("#case-status-filter").addEventListener("change", renderCases);
@@ -552,6 +564,57 @@
       const contact = adminState.appointmentClientDetail?.contacts?.find((item) => item.id === target.dataset.selectAppointmentContact); if (!contact) return;
       $("#appointment-contact-id").value = contact.id; $("#admin-requester-name").value = contact.full_name || ""; $("#admin-requester-phone").value = contact.phone || ""; $("#admin-requester-email").value = contact.email || ""; toast(`${contact.full_name}さんを予約者に選択しました。`);
     });
+    $("#business-hours-editor").addEventListener("change", (event) => {
+      const closed = event.target.closest("[data-hour-closed]"); if (!closed) return; const row = closed.closest("[data-business-day]"); $$('select', row).forEach((select) => { select.disabled = closed.checked; });
+    });
+    $("#business-hours-form").addEventListener("submit", saveBusinessHours);
+    $("#closed-date-type").addEventListener("change", (event) => { $("#closed-date-time-fields").hidden = event.currentTarget.value !== "special"; });
+    $$('[data-half-hour-options]').forEach((select) => { select.innerHTML = halfHourOptions(select.id.includes("close") ? "17:00" : "09:00"); });
+    $("#closed-date-form").addEventListener("submit", saveClosedDate);
+    $("#service-edit-form").addEventListener("submit", saveConsultationService);
+  }
+
+  function resetServiceEditor() {
+    const form = $("#service-edit-form"); form.reset(); $("#service-edit-id").value = ""; $("#service-edit-title").textContent = "面談メニューを追加"; $$('[name="channel_options"]', form).forEach((item) => { item.checked = true; }); $("#service-edit-public").checked = true; $("#service-edit-active").checked = true;
+  }
+
+  function openServiceEditor(id) {
+    const item = adminState.settings?.services?.find((row) => row.id === id); if (!item) return;
+    resetServiceEditor(); $("#service-edit-id").value = item.id; $("#service-edit-title").textContent = "面談メニューを編集"; $("#service-edit-name").value = item.service_name || ""; $("#service-edit-duration").value = String(item.duration_minutes || 30); $("#service-edit-booking-type").value = item.booking_type || "both"; $("#service-edit-description").value = item.description || ""; $("#service-edit-public").checked = item.is_public !== false; $("#service-edit-active").checked = item.is_active !== false; $$('[name="channel_options"]', $("#service-edit-form")).forEach((checkbox) => { checkbox.checked = (item.channel_options || []).includes(checkbox.value); }); openModal("service-edit-modal");
+  }
+
+  async function saveConsultationService(event) {
+    event.preventDefault(); const form = event.currentTarget; const button = $("button[type=submit]", form); const id = $("#service-edit-id").value;
+    const channels = $$('[name="channel_options"]:checked', form).map((item) => item.value); if (!channels.length) { toast("対応方法を1つ以上選択してください。", "error"); return; }
+    const body = { service_name: $("#service-edit-name").value.trim(), duration_minutes: Number($("#service-edit-duration").value), booking_type: $("#service-edit-booking-type").value, description: $("#service-edit-description").value.trim(), channel_options: channels, is_public: $("#service-edit-public").checked, is_active: $("#service-edit-active").checked };
+    try { setButtonBusy(button, true, "保存中..."); await api(id ? `/api/admin/consultation-services/${id}` : "/api/admin/consultation-services", { method: id ? "PATCH" : "POST", body, adminKey: adminState.key }); toast("面談メニューを保存しました。"); closeModal("service-edit-modal"); await refreshOwner(); showAdminView("settings"); }
+    catch (error) { toast(error.message, "error"); } finally { setButtonBusy(button, false); }
+  }
+
+  async function disableConsultationService(id) {
+    if (!confirm("この面談メニューを無効化しますか？既存予約は残ります。")) return;
+    try { await api(`/api/admin/consultation-services/${id}`, { method: "DELETE", adminKey: adminState.key }); toast("面談メニューを無効化しました。"); await refreshOwner(); showAdminView("settings"); } catch (error) { toast(error.message, "error"); }
+  }
+
+  async function saveBusinessHours(event) {
+    event.preventDefault(); const form = event.currentTarget; const button = $("button[type=submit]", form);
+    const items = $$('[data-business-day]', form).map((row) => { const isClosed = $('[data-hour-closed]', row).checked; return { day_of_week: Number(row.dataset.businessDay), is_closed: isClosed, open_time: isClosed ? null : $('[data-hour-open]', row).value, close_time: isClosed ? null : $('[data-hour-close]', row).value }; });
+    if (items.some((item) => !item.is_closed && item.close_time <= item.open_time)) { toast("終了時間は開始時間より後にしてください。", "error"); return; }
+    try { setButtonBusy(button, true, "保存中..."); await api("/api/admin/business-hours", { method: "PATCH", body: { items }, adminKey: adminState.key }); toast("曜日別受付時間を保存しました。"); await refreshOwner(); showAdminView("settings"); }
+    catch (error) { toast(error.message, "error"); } finally { setButtonBusy(button, false); }
+  }
+
+  async function saveClosedDate(event) {
+    event.preventDefault(); const form = event.currentTarget; const button = $("button[type=submit]", form); const special = $("#closed-date-type").value === "special";
+    const body = { closed_date: $("#closed-date-value").value, reason: $("#closed-date-reason").value.trim(), is_closed_all_day: !special, ...(special ? { open_time: $("#closed-date-open").value, close_time: $("#closed-date-close").value } : {}) };
+    if (special && body.close_time <= body.open_time) { toast("終了時間は開始時間より後にしてください。", "error"); return; }
+    try { setButtonBusy(button, true, "登録中..."); await api("/api/admin/closed-dates", { method: "POST", body, adminKey: adminState.key }); toast(special ? "特別受付時間を登録しました。" : "休業日を登録しました。"); form.reset(); $("#closed-date-time-fields").hidden = true; await refreshOwner(); showAdminView("settings"); }
+    catch (error) { toast(error.message, "error"); } finally { setButtonBusy(button, false); }
+  }
+
+  async function deleteClosedDate(id) {
+    if (!confirm("この休業日・特別時間を削除しますか？")) return;
+    try { await api(`/api/admin/closed-dates/${id}`, { method: "DELETE", adminKey: adminState.key }); toast("休業日・特別時間を削除しました。"); await refreshOwner(); showAdminView("settings"); } catch (error) { toast(error.message, "error"); }
   }
 
   function clearAppointmentClientSelection() {
