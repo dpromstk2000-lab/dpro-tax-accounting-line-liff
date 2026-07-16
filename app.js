@@ -449,7 +449,11 @@
 
   async function refreshOwner() {
     $("#owner-loading").hidden = false; $("#owner-content").hidden = true;
-    await loadAdminData(); renderOwner(); $("#owner-loading").hidden = true; $("#owner-content").hidden = false;
+    try {
+      await loadAdminData(); renderOwner(); $("#owner-content").hidden = false;
+    } finally {
+      $("#owner-loading").hidden = true;
+    }
   }
 
   async function initOwner() {
@@ -457,11 +461,11 @@
     if (isDemo) code.value = CONFIG.DEFAULT_ADMIN_CODE;
     $("#owner-code-clear").addEventListener("click", () => { code.value = ""; code.focus(); });
     async function login(key) {
-      adminState.key = key; await api("/api/admin/dashboard", { adminKey: key }); sessionStorage.setItem("dpro_tax_admin", key); auth.hidden = true; app.hidden = false; await refreshOwner();
+      adminState.key = key; await api("/api/admin/dashboard", { adminKey: key }); await refreshOwner(); sessionStorage.setItem("dpro_tax_admin", key); auth.hidden = true; app.hidden = false;
     }
     $("#owner-login-form").addEventListener("submit", async (event) => { event.preventDefault(); const button = $("button[type=submit]", event.currentTarget); try { setButtonBusy(button, true, "確認中..."); await login(code.value); } catch (error) { $("#owner-login-alert").innerHTML = alertBox(error.message); } finally { setButtonBusy(button, false); } });
-    const stored = sessionStorage.getItem("dpro_tax_admin");
-    if (stored) { try { code.value = stored; await login(stored); } catch { sessionStorage.removeItem("dpro_tax_admin"); } }
+    const stored = isDemo ? CONFIG.DEFAULT_ADMIN_CODE : sessionStorage.getItem("dpro_tax_admin");
+    if (stored) { try { code.value = stored; await login(stored); } catch (error) { sessionStorage.removeItem("dpro_tax_admin"); adminState.key = ""; app.hidden = true; auth.hidden = false; $("#owner-login-alert").innerHTML = alertBox(`${error.message} 再度ログインしてください。`); } }
     $("#owner-logout").addEventListener("click", () => { sessionStorage.removeItem("dpro_tax_admin"); location.reload(); });
     $("#sidebar-toggle").addEventListener("click", () => $("#admin-sidebar").classList.toggle("open"));
     document.addEventListener("click", async (event) => {

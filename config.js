@@ -1,6 +1,6 @@
 window.DPRO_TAX_CONFIG = Object.freeze({
   APP_NAME: "DPRO 税理士・会計事務所 LINE",
-  VERSION: "TAX-6-OFFICE-SCHEDULE-EDITOR-20260716",
+  VERSION: "TAX-6-R1-ADMIN-LOADING-RECOVERY-20260716",
   API_BASE: "https://dpro-tax-accounting-line-api.dpromstk2000.workers.dev",
   OFFICE_CODE: "dpro_taxacc_demo",
   DEFAULT_ADMIN_CODE: "1234",
