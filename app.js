@@ -1,6 +1,8 @@
 (() => {
   "use strict";
 
+  // STEP TAX-12-R1: demo=1 のスタッフiPadを管理コード1234で自動ログイン（通常URLは従来どおり）
+
   const CONFIG = window.DPRO_TAX_CONFIG;
   const page = document.body.dataset.page;
   const $ = (selector, root = document) => root.querySelector(selector);
@@ -714,7 +716,19 @@
     }
     async function login(key) { adminState.key = key; await load(); sessionStorage.setItem("dpro_tax_ipad_admin", key); auth.hidden = true; app.hidden = false; }
     $("#ipad-login-form").addEventListener("submit", async (event) => { event.preventDefault(); const button = $("button[type=submit]", event.currentTarget); try { setButtonBusy(button, true, "確認中..."); await login(code.value); } catch (error) { $("#ipad-login-alert").innerHTML = alertBox(error.message); } finally { setButtonBusy(button, false); } });
-    const stored = sessionStorage.getItem("dpro_tax_ipad_admin"); if (stored) { try { code.value = stored; await login(stored); } catch { sessionStorage.removeItem("dpro_tax_ipad_admin"); } }
+    const stored = isDemo ? CONFIG.DEFAULT_ADMIN_CODE : sessionStorage.getItem("dpro_tax_ipad_admin");
+    if (stored) {
+      try {
+        code.value = stored;
+        await login(stored);
+      } catch (error) {
+        sessionStorage.removeItem("dpro_tax_ipad_admin");
+        adminState.key = "";
+        app.hidden = true;
+        auth.hidden = false;
+        $("#ipad-login-alert").innerHTML = alertBox(`${error.message} 再度ログインしてください。`);
+      }
+    }
     $("#ipad-refresh").addEventListener("click", async () => { try { await load(); toast("最新情報に更新しました。"); } catch (error) { toast(error.message, "error"); } });
     $("#ipad-logout").addEventListener("click", () => { sessionStorage.removeItem("dpro_tax_ipad_admin"); location.reload(); });
     $("#ipad-app").addEventListener("click", async (event) => {
