@@ -1,0 +1,577 @@
+(() => {
+  "use strict";
+
+  const CONFIG = window.DPRO_TAX_CONFIG;
+  const page = document.body.dataset.page;
+  const $ = (selector, root = document) => root.querySelector(selector);
+  const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
+  const params = new URLSearchParams(location.search);
+  const isDemo = params.get("demo") === "1";
+  const lineUserId = params.get("line_user_id") || (isDemo ? CONFIG.DEMO_LINE_USER_ID : "");
+  const apiBase = location.hostname === "terminal.local" ? "/tax-api" : CONFIG.API_BASE;
+
+  const labels = {
+    corporation: "法人", sole_proprietor: "個人事業", individual: "個人", spot: "スポット",
+    onboarding: "初期登録", active: "契約中", paused: "休止", ended: "終了",
+    received: "受付", checking: "確認中", waiting_client: "顧問先待ち", waiting_documents: "資料待ち",
+    in_progress: "対応中", staff_review: "担当確認", final_review: "最終確認", completed: "完了",
+    on_hold: "保留", cancelled: "取消", requested: "依頼中", partial: "一部提出", reviewing: "確認中",
+    rejected: "差戻し", not_notified: "未通知", not_required: "不要", missing: "未提出", accepted: "確認済み",
+    new: "新着", quarantined: "隔離", deleted: "削除済み", confirmed: "確定", change_requested: "変更希望",
+    cancel_requested: "取消希望", no_show: "無断欠席", open: "対応中", waiting_office: "事務所対応待ち",
+    resolved: "解決", closed: "終了", todo: "未着手", waiting_staff: "職員待ち",
+    low: "低", normal: "通常", high: "高", urgent: "至急",
+    owner: "代表", manager: "管理者", reviewer: "確認者", staff: "担当者",
+    in_person: "事務所", online: "オンライン", phone: "電話",
+    tax_consultation: "税務相談", documents: "資料", appointment: "面談", contract: "契約", billing: "料金・請求", other: "その他",
+    monthly_documents: "月次資料", corporate_tax_return: "法人税申告", individual_tax_return: "確定申告",
+    consumption_tax: "消費税", year_end_adjustment: "年末調整", depreciable_assets: "償却資産",
+    statutory_reports: "法定調書", new_engagement: "新規契約", tax_audit_support: "税務調査", tax_return: "申告",
+    monthly: "月次", closing: "決算", consultation: "相談", document_check: "資料確認", reply: "返信",
+    review: "レビュー", deadline: "期限", follow_up: "フォロー",
+  };
+
+  function esc(value) {
+    return String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[char]);
+  }
+
+  function label(value) { return labels[value] || value || "－"; }
+
+  function tone(value) {
+    if (["active", "accepted", "completed", "confirmed", "resolved"].includes(value)) return "success";
+    if (["urgent", "rejected", "cancelled", "quarantined", "deleted"].includes(value)) return "danger";
+    if (["high", "waiting_client", "waiting_documents", "change_requested", "cancel_requested", "partial"].includes(value)) return "warning";
+    if (["new", "requested", "checking", "in_progress", "reviewing", "open"].includes(value)) return "info";
+    return "default";
+  }
+
+  function badge(value) { return `<span class="status" data-tone="${tone(value)}">${esc(label(value))}</span>`; }
+
+  function formatDate(value, withTime = false) {
+    if (!value) return "－";
+    const date = new Date(value.length === 10 ? `${value}T00:00:00+09:00` : value);
+    if (Number.isNaN(date.getTime())) return esc(value);
+    return new Intl.DateTimeFormat("ja-JP", {
+      timeZone: CONFIG.TIMEZONE, year: "numeric", month: "numeric", day: "numeric", weekday: "short",
+      ...(withTime ? { hour: "2-digit", minute: "2-digit" } : {}),
+    }).format(date);
+  }
+
+  function toIso(localValue) {
+    if (!localValue) return null;
+    const value = String(localValue);
+    return new Date(value.length === 16 ? `${value}:00+09:00` : value).toISOString();
+  }
+
+  function formatBytes(value) {
+    const bytes = Number(value || 0);
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / 1048576).toFixed(1)} MB`;
+  }
+
+  function normalizePhone(value) {
+    let text = String(value || "").normalize("NFKC").replace(/[^0-9+]/g, "");
+    if (text.startsWith("+81")) text = `0${text.slice(3)}`;
+    return text.replace(/\D/g, "");
+  }
+
+  function empty(message) { return `<div class="empty">${esc(message)}</div>`; }
+
+  function alertBox(message, type = "error") {
+    return `<div class="alert alert-${type}">${esc(message)}</div>`;
+  }
+
+  function toast(message, type = "success") {
+    const stack = $("#toast-stack");
+    if (!stack) return;
+    const node = document.createElement("div");
+    node.className = `toast ${type === "error" ? "error" : ""}`;
+    node.textContent = message;
+    stack.append(node);
+    setTimeout(() => node.remove(), 4300);
+  }
+
+  function setButtonBusy(button, busy, labelText = "処理中...") {
+    if (!button) return;
+    if (busy) {
+      button.dataset.originalText = button.textContent;
+      button.disabled = true;
+      button.innerHTML = `<span class="spinner" style="width:18px;height:18px"></span>${esc(labelText)}`;
+    } else {
+      button.disabled = false;
+      button.textContent = button.dataset.originalText || "完了";
+    }
+  }
+
+  async function api(path, { method = "GET", body, adminKey, lineId, formData } = {}) {
+    const headers = { Accept: "application/json" };
+    if (adminKey) headers["X-Admin-Key"] = adminKey;
+    if (lineId) headers["X-Line-User-Id"] = lineId;
+    if (!formData && body !== undefined) headers["Content-Type"] = "application/json";
+    const response = await fetch(`${apiBase}${path}`, {
+      method,
+      headers,
+      body: formData || (body !== undefined ? JSON.stringify(body) : undefined),
+    });
+    const text = await response.text();
+    let data;
+    try { data = text ? JSON.parse(text) : {}; } catch { data = { message: text }; }
+    if (!response.ok || data.ok === false) {
+      const error = new Error(data.message || `通信エラー（${response.status}）`);
+      error.status = response.status;
+      error.code = data.error;
+      error.data = data;
+      throw error;
+    }
+    return data;
+  }
+
+  function formObject(form) {
+    const result = {};
+    for (const [key, value] of new FormData(form).entries()) {
+      if (typeof value === "string") result[key] = value.trim();
+    }
+    return result;
+  }
+
+  function openModal(id) {
+    const modal = document.getElementById(id);
+    if (!modal) return;
+    modal.hidden = false;
+    document.body.style.overflow = "hidden";
+    setTimeout(() => $("input, select, textarea, button", modal)?.focus(), 0);
+  }
+
+  function closeModal(modal) {
+    const target = typeof modal === "string" ? document.getElementById(modal) : modal?.closest?.(".modal-backdrop") || modal;
+    if (target) target.hidden = true;
+    document.body.style.overflow = "";
+  }
+
+  function bindModals() {
+    document.addEventListener("click", (event) => {
+      const opener = event.target.closest("[data-open-modal]");
+      if (opener) openModal(opener.dataset.openModal);
+      if (event.target.closest("[data-close-modal]")) closeModal(event.target);
+      if (event.target.classList.contains("modal-backdrop")) closeModal(event.target);
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") $$(".modal-backdrop:not([hidden])").forEach(closeModal);
+    });
+  }
+
+  function todayJst() {
+    return new Intl.DateTimeFormat("en-CA", { timeZone: CONFIG.TIMEZONE, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  }
+
+  async function initPublic() {
+    const officeData = await api("/api/public/office");
+    const office = officeData.office;
+    const serviceSelect = $("#booking-service");
+    serviceSelect.innerHTML = `<option value="">選択してください</option>${officeData.services.map((service) => `<option value="${esc(service.id)}" data-duration="${service.duration_minutes}" data-channels="${esc((service.channel_options || []).join(","))}">${esc(service.service_name)}（${service.duration_minutes}分）</option>`).join("")}`;
+    $("#security-notice-text").textContent = office.security_notice;
+    const dateInput = $("#booking-date");
+    dateInput.min = todayJst();
+    const max = new Date(`${todayJst()}T12:00:00+09:00`);
+    max.setDate(max.getDate() + Number(office.booking_open_days || 90));
+    dateInput.max = new Intl.DateTimeFormat("en-CA", { timeZone: CONFIG.TIMEZONE }).format(max);
+
+    async function loadSlots() {
+      const serviceId = serviceSelect.value;
+      const date = dateInput.value;
+      $("#booking-start").value = "";
+      $("#slot-grid").innerHTML = "";
+      if (!serviceId || !date) { $("#slot-message").textContent = "相談内容と希望日を選択してください。"; return; }
+      $("#slot-message").textContent = "空き時間を確認中...";
+      try {
+        const data = await api(`/api/public/slots?date=${encodeURIComponent(date)}&service_id=${encodeURIComponent(serviceId)}`);
+        $("#slot-message").textContent = data.slots.length ? "希望時間を選択してください。" : "この日は予約可能な時間がありません。別の日を選択してください。";
+        $("#slot-grid").innerHTML = data.slots.map((slot) => `<button class="slot-button" type="button" data-slot="${esc(slot.start_at)}" ${slot.available ? "" : "disabled"}>${esc(slot.local_time)}</button>`).join("");
+      } catch (error) {
+        $("#slot-message").textContent = error.message;
+      }
+    }
+    serviceSelect.addEventListener("change", () => {
+      const option = serviceSelect.selectedOptions[0];
+      const allowed = String(option?.dataset.channels || "").split(",").filter(Boolean);
+      $$("#appointment-channel option").forEach((node) => { node.hidden = allowed.length && !allowed.includes(node.value); });
+      if (allowed.length && !allowed.includes($("#appointment-channel").value)) $("#appointment-channel").value = allowed[0];
+      loadSlots();
+    });
+    dateInput.addEventListener("change", loadSlots);
+    $("#slot-grid").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-slot]");
+      if (!button) return;
+      $$(".slot-button", $("#slot-grid")).forEach((node) => node.classList.toggle("selected", node === button));
+      $("#booking-start").value = button.dataset.slot;
+    });
+
+    $("#booking-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const submit = $("button[type=submit]", form);
+      const values = formObject(form);
+      if (!values.requested_start_at) { $("#public-alert").innerHTML = alertBox("希望時間を選択してください。"); return; }
+      delete values.booking_date;
+      if (lineUserId) values.line_user_id = lineUserId;
+      try {
+        setButtonBusy(submit, true, "送信中...");
+        const data = await api("/api/public/appointments", { method: "POST", body: values, lineId: lineUserId });
+        $("#public-alert").innerHTML = alertBox(data.message, "success");
+        form.reset(); $("#slot-grid").innerHTML = ""; $("#slot-message").textContent = "相談内容と希望日を選択してください。";
+        scrollTo({ top: $("#booking").offsetTop - 90, behavior: "smooth" });
+      } catch (error) { $("#public-alert").innerHTML = alertBox(error.message); }
+      finally { setButtonBusy(submit, false); }
+    });
+
+    $("#inquiry-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget; const submit = $("button[type=submit]", form); const values = formObject(form);
+      if (lineUserId) values.line_user_id = lineUserId;
+      try {
+        setButtonBusy(submit, true, "送信中...");
+        const data = await api("/api/public/inquiries", { method: "POST", body: values, lineId: lineUserId });
+        toast(data.message); form.reset();
+      } catch (error) { toast(error.message, "error"); }
+      finally { setButtonBusy(submit, false); }
+    });
+
+    $("#register-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget; const submit = $("button[type=submit]", form); const values = formObject(form);
+      values.privacy_consent = $("input[name=privacy_consent]", form).checked;
+      values.terms_consent = $("input[name=terms_consent]", form).checked;
+      values.line_user_id = lineUserId || (isDemo ? `demo_tax_new_${Date.now()}` : "");
+      if (!values.line_user_id) { toast("初回登録はLINEメニューから開いてください。", "error"); return; }
+      try {
+        setButtonBusy(submit, true, "登録中...");
+        const data = await api("/api/public/register", { method: "POST", body: values, lineId: values.line_user_id });
+        toast(data.message); closeModal("register-modal"); form.reset();
+      } catch (error) { toast(error.message, "error"); }
+      finally { setButtonBusy(submit, false); }
+    });
+  }
+
+  async function initMember() {
+    $("#member-version").textContent = CONFIG.VERSION;
+    if (!lineUserId) {
+      $("#member-loading").hidden = true;
+      $("#member-alert").innerHTML = alertBox("LINE連携情報がありません。LINEメニューからマイページを開いてください。");
+      return;
+    }
+    let home;
+    let documents;
+    async function loadMember() {
+      [home, documents] = await Promise.all([
+        api("/api/member", { lineId: lineUserId }),
+        api("/api/member/documents", { lineId: lineUserId }),
+      ]);
+      renderMember();
+    }
+    function renderMember() {
+      const contact = home.contact; const client = home.client;
+      $("#member-name").textContent = contact.full_name;
+      $("#member-position").textContent = contact.position_title || "顧問先ご担当者";
+      $("#member-avatar").textContent = contact.full_name.slice(0, 1);
+      $("#client-name").textContent = `${client.legal_name} 様`;
+      $("#client-meta").textContent = `${client.client_code} ／ ${label(client.client_type)} ／ ${label(client.status)}`;
+      $("#member-security-notice").textContent = home.office.security_notice;
+      const activeCases = home.cases.filter((item) => !["completed", "cancelled"].includes(item.status));
+      const missing = documents.requests.reduce((sum, request) => sum + request.items.filter((item) => item.status === "missing" && item.is_required).length, 0);
+      const future = home.appointments.filter((item) => !["completed", "cancelled", "no_show"].includes(item.status) && new Date(item.confirmed_start_at || item.requested_start_at) > new Date());
+      const openInquiries = home.inquiries.filter((item) => !["resolved", "closed"].includes(item.status));
+      $("#summary-cases").textContent = activeCases.length;
+      $("#summary-documents").textContent = missing;
+      $("#summary-appointments").textContent = future.length;
+      $("#summary-inquiries").textContent = openInquiries.length;
+      $("#case-list").innerHTML = home.cases.length ? home.cases.map((item) => `<article class="list-item"><div class="list-item-head"><div><h3>${esc(item.title)}</h3><div class="meta-row"><span>${esc(label(item.case_type))}</span><span>案件番号：${esc(item.case_code)}</span></div></div>${badge(item.status)}</div><p>${esc(item.public_summary || item.client_status_label || "事務所で確認を進めています。")}</p><div class="progress"><span style="width:${Number(item.progress_percent || 0)}%"></span></div><div class="meta-row"><span>進捗 ${Number(item.progress_percent || 0)}%</span><span>期限：${formatDate(item.deadline_date)}</span>${item.next_action ? `<span>次：${esc(item.next_action)}</span>` : ""}</div></article>`).join("") : empty("表示できる案件はありません。");
+      $("#document-request-list").innerHTML = documents.requests.length ? documents.requests.map((request) => `<article class="list-item"><div class="list-item-head"><div><h3>${esc(request.title)}</h3><div class="meta-row"><span>${esc(request.target_period_label || label(request.request_category))}</span><span>期限：${formatDate(request.due_on)}</span></div></div>${badge(request.status)}</div><p>${esc(request.public_message || "必要な資料をご確認ください。")}</p><div class="list" style="margin-top:15px">${request.items.map((item) => `<div class="list-item" style="padding:15px"><div class="list-item-head"><div><strong>${esc(item.item_name)}</strong>${item.is_required ? '<span class="required">必須</span>' : ""}<div class="small muted">${esc(item.description || "")}</div></div><div class="button-row">${badge(item.status)}${home.permissions.can_submit_documents && !["accepted", "not_required"].includes(item.status) ? `<button class="btn btn-primary btn-sm" type="button" data-upload-request="${esc(request.id)}" data-upload-item="${esc(item.id)}" data-upload-name="${esc(item.item_name)}">提出</button>` : ""}</div></div></div>`).join("")}</div></article>`).join("") : empty("現在、提出依頼はありません。");
+      $("#appointment-list").innerHTML = home.appointments.length ? home.appointments.map((item) => `<article class="list-item"><div class="list-item-head"><div><h3>${formatDate(item.confirmed_start_at || item.requested_start_at, true)}</h3><div class="meta-row"><span>${esc(label(item.appointment_channel))}</span><span>${Number(item.duration_minutes)}分</span><span>${esc(item.appointment_code)}</span></div></div>${badge(item.status)}</div><p>${esc(item.public_message || "")}</p>${["requested", "confirmed", "change_requested", "cancel_requested"].includes(item.status) ? `<div class="button-row" style="margin-top:14px"><button class="btn btn-secondary btn-sm" type="button" data-appointment-action="change" data-appointment-id="${esc(item.id)}">変更希望</button><button class="btn btn-danger btn-sm" type="button" data-appointment-action="cancel" data-appointment-id="${esc(item.id)}">取消希望</button></div>` : ""}</article>`).join("") : empty("面談予約はありません。");
+      $("#inquiry-list").innerHTML = home.inquiries.length ? home.inquiries.map((item) => `<article class="list-item"><div class="list-item-head"><div><h3>${esc(item.subject)}</h3><div class="meta-row"><span>${esc(label(item.category))}</span><span>${formatDate(item.created_at, true)}</span></div></div>${badge(item.status)}</div><p>${esc(item.body)}</p></article>`).join("") : empty("相談履歴はありません。");
+      $("#member-loading").hidden = true;
+    }
+
+    document.addEventListener("click", (event) => {
+      const tab = event.target.closest("[data-member-tab]");
+      if (tab) {
+        $$("[data-member-tab]").forEach((node) => node.classList.toggle("active", node === tab));
+        $$("[data-member-panel]").forEach((node) => { node.hidden = node.dataset.memberPanel !== tab.dataset.memberTab; });
+      }
+      const upload = event.target.closest("[data-upload-request]");
+      if (upload) {
+        $("#upload-request-id").value = upload.dataset.uploadRequest;
+        $("#upload-item-id").value = upload.dataset.uploadItem;
+        $("#upload-title").textContent = `${upload.dataset.uploadName}を提出`;
+        openModal("upload-modal");
+      }
+      const appointmentAction = event.target.closest("[data-appointment-action]");
+      if (appointmentAction) {
+        $("#appointment-action-id").value = appointmentAction.dataset.appointmentId;
+        $("#appointment-action-type").value = appointmentAction.dataset.appointmentAction;
+        $("#appointment-change-field").hidden = appointmentAction.dataset.appointmentAction === "cancel";
+        $("#appointment-action-title").textContent = appointmentAction.dataset.appointmentAction === "cancel" ? "予約取消の希望" : "予約変更の希望";
+        openModal("appointment-modal");
+      }
+    });
+
+    $("#upload-form").addEventListener("submit", async (event) => {
+      event.preventDefault(); const form = event.currentTarget; const button = $("button[type=submit]", form);
+      const data = new FormData(); data.set("file", $("#upload-file").files[0]); data.set("request_id", $("#upload-request-id").value); data.set("request_item_id", $("#upload-item-id").value); data.set("sensitive_data_confirmed", String($("#sensitive-confirm").checked));
+      try { setButtonBusy(button, true, "提出中..."); const result = await api("/api/member/documents/upload", { method: "POST", lineId: lineUserId, formData: data }); toast(result.message); closeModal("upload-modal"); form.reset(); await loadMember(); }
+      catch (error) { toast(error.message, "error"); } finally { setButtonBusy(button, false); }
+    });
+
+    $("#member-inquiry-form").addEventListener("submit", async (event) => {
+      event.preventDefault(); const form = event.currentTarget; const button = $("button[type=submit]", form);
+      try { setButtonBusy(button, true, "送信中..."); const result = await api("/api/public/inquiries", { method: "POST", body: { ...formObject(form), line_user_id: lineUserId }, lineId: lineUserId }); toast(result.message); closeModal("inquiry-modal"); form.reset(); await loadMember(); }
+      catch (error) { toast(error.message, "error"); } finally { setButtonBusy(button, false); }
+    });
+
+    $("#appointment-action-form").addEventListener("submit", async (event) => {
+      event.preventDefault(); const form = event.currentTarget; const button = $("button[type=submit]", form); const id = $("#appointment-action-id").value; const type = $("#appointment-action-type").value; const body = { message: $("#appointment-action-message").value, line_user_id: lineUserId };
+      if (type === "change") body.change_requested_start_at = toIso($("#appointment-change-at").value);
+      try { setButtonBusy(button, true, "送信中..."); const result = await api(`/api/member/appointments/${id}/${type}`, { method: "PATCH", body, lineId: lineUserId }); toast(result.message); closeModal("appointment-modal"); form.reset(); await loadMember(); }
+      catch (error) { toast(error.message, "error"); } finally { setButtonBusy(button, false); }
+    });
+
+    try { await loadMember(); } catch (error) { $("#member-loading").hidden = true; $("#member-alert").innerHTML = alertBox(error.message); }
+  }
+
+  const adminState = { key: "", dashboard: null, clients: [], cases: [], requests: [], documents: [], appointments: [], inquiries: [], tasks: [], staff: [], settings: null };
+
+  function clientName(id) { return adminState.clients.find((item) => item.id === id)?.legal_name || "－"; }
+  function staffName(id) { return adminState.staff.find((item) => item.id === id)?.display_name || "未割当"; }
+
+  async function loadAdminData() {
+    const key = adminState.key;
+    const [dashboard, clients, cases, requests, documents, appointments, inquiries, tasks, staff, settings, officePublic] = await Promise.all([
+      api("/api/admin/dashboard", { adminKey: key }), api("/api/admin/clients?limit=500", { adminKey: key }),
+      api("/api/admin/cases?limit=500", { adminKey: key }), api("/api/admin/document-requests?limit=500", { adminKey: key }),
+      api("/api/admin/documents?limit=500", { adminKey: key }), api("/api/admin/appointments?limit=500", { adminKey: key }),
+      api("/api/admin/inquiries?limit=500", { adminKey: key }), api("/api/admin/tasks?limit=500", { adminKey: key }),
+      api("/api/admin/staff?limit=500", { adminKey: key }), api("/api/admin/settings", { adminKey: key }), api("/api/public/office"),
+    ]);
+    Object.assign(adminState, { dashboard, clients: clients.clients, cases: cases.cases, requests: requests.document_requests, documents: documents.documents, appointments: appointments.appointments, inquiries: inquiries.inquiries, tasks: tasks.tasks, staff: staff.staff, settings, services: officePublic.services });
+  }
+
+  function fillAdminOptions() {
+    const clientOptions = `<option value="">選択してください</option>${adminState.clients.filter((item) => item.status !== "ended").map((item) => `<option value="${esc(item.id)}">${esc(item.legal_name)}（${esc(item.client_code)}）</option>`).join("")}`;
+    $$('[data-client-options]').forEach((select) => { select.innerHTML = clientOptions; });
+    const serviceOptions = `<option value="">選択してください</option>${(adminState.services || []).map((item) => `<option value="${esc(item.id)}">${esc(item.service_name)}（${item.duration_minutes}分）</option>`).join("")}`;
+    $$('[data-service-options]').forEach((select) => { select.innerHTML = serviceOptions; });
+  }
+
+  function renderOwner() {
+    const counts = adminState.dashboard.counts || {};
+    $("#metric-clients").textContent = counts.clients ?? adminState.clients.length;
+    $("#metric-cases").textContent = counts.open_cases ?? adminState.cases.filter((item) => !["completed", "cancelled"].includes(item.status)).length;
+    $("#metric-documents").textContent = counts.new_documents ?? adminState.documents.filter((item) => item.status === "new").length;
+    $("#metric-inquiries").textContent = counts.open_inquiries ?? adminState.inquiries.filter((item) => !["resolved", "closed"].includes(item.status)).length;
+    $("#dashboard-date").textContent = `${formatDate(new Date().toISOString())} の業務状況`;
+    $("#owner-office-name").textContent = adminState.dashboard.office?.office_name || "DPRO税理士・会計事務所";
+    const dc = adminState.dashboard.urgent_cases || [];
+    $("#dashboard-cases").innerHTML = dc.length ? dc.slice(0, 5).map((item) => `<div class="list-item"><div class="list-item-head"><strong>${esc(item.title)}</strong>${badge(item.priority)}</div><div class="meta-row"><span>${esc(clientName(item.client_id))}</span><span>期限：${formatDate(item.deadline_date)}</span><span>進捗 ${item.progress_percent}%</span></div></div>`).join("") : empty("優先案件はありません。");
+    const dt = adminState.dashboard.due_tasks || [];
+    $("#dashboard-tasks").innerHTML = dt.length ? dt.slice(0, 6).map((item) => `<div class="list-item"><div class="list-item-head"><strong>${esc(item.title)}</strong>${badge(item.priority)}</div><div class="meta-row"><span>${formatDate(item.due_at, true)}</span><span>${esc(staffName(item.assigned_staff_id))}</span></div></div>`).join("") : empty("未完了タスクはありません。");
+    const dd = adminState.dashboard.documents_to_review || [];
+    $("#dashboard-documents").innerHTML = dd.length ? dd.slice(0, 5).map((item) => `<div class="list-item"><div class="list-item-head"><strong>${esc(item.original_filename)}</strong>${badge(item.status)}</div><div class="meta-row"><span>${esc(clientName(item.client_id))}</span><span>${formatDate(item.submitted_at, true)}</span></div></div>`).join("") : empty("確認待ち書類はありません。");
+    const contactWork = [...(adminState.dashboard.active_appointments || []).slice(0, 3).map((item) => ({ title: `${formatDate(item.confirmed_start_at || item.requested_start_at, true)} ${item.requester_name}`, status: item.status })), ...(adminState.dashboard.open_inquiries || []).slice(0, 3).map((item) => ({ title: item.subject, status: item.status }))];
+    $("#dashboard-contact-work").innerHTML = contactWork.length ? contactWork.map((item) => `<div class="list-item"><div class="list-item-head"><strong>${esc(item.title)}</strong>${badge(item.status)}</div></div>`).join("") : empty("対応中の面談・相談はありません。");
+    renderClients(); renderCases(); renderDocuments(); renderAppointments(); renderInquiries(); renderTasks(); renderStaff(); renderSettings(); fillAdminOptions();
+  }
+
+  function renderClients() {
+    const q = normalizePhone($("#client-search")?.value) || $("#client-search")?.value?.toLowerCase() || "";
+    const status = $("#client-status-filter")?.value || "";
+    const list = adminState.clients.filter((item) => (!status || item.status === status) && (!q || [item.client_code, item.legal_name, item.trade_name, item.representative_name, item.phone_normalized, item.phone, item.email].some((value) => String(value || "").normalize("NFKC").toLowerCase().includes(q))));
+    $("#clients-table-body").innerHTML = list.length ? list.map((item) => `<tr><td><strong>${esc(item.legal_name)}</strong><div class="small muted">${esc(item.client_code)}${item.representative_name ? ` ／ ${esc(item.representative_name)}` : ""}</div></td><td>${esc(label(item.client_type))}</td><td>${esc(item.phone || "－")}</td><td>${esc(staffName(item.assigned_staff_id))}</td><td>${badge(item.status)}</td><td><div class="table-actions"><button class="btn btn-secondary btn-sm" data-client-detail="${item.id}" type="button">詳細</button><button class="btn btn-danger btn-sm" data-soft-delete="client" data-id="${item.id}" type="button">終了</button></div></td></tr>`).join("") : `<tr><td colspan="6">${empty("一致する顧問先がありません。")}</td></tr>`;
+  }
+
+  function renderCases() {
+    const q = $("#case-search")?.value?.toLowerCase() || ""; const status = $("#case-status-filter")?.value || "";
+    const list = adminState.cases.filter((item) => (!status || item.status === status) && (!q || [item.case_code, item.title, item.next_action, item.public_summary].some((value) => String(value || "").toLowerCase().includes(q))));
+    $("#cases-table-body").innerHTML = list.length ? list.map((item) => `<tr><td><strong>${esc(item.title)}</strong><div class="small muted">${esc(item.case_code)} ／ ${esc(label(item.case_type))}</div></td><td>${esc(clientName(item.client_id))}</td><td>${formatDate(item.deadline_date)}${item.deadline_is_confirmed ? " ✓" : ""}</td><td><div style="min-width:110px"><strong>${item.progress_percent}%</strong><div class="progress"><span style="width:${item.progress_percent}%"></span></div></div></td><td>${badge(item.status)}</td><td><div class="table-actions"><button class="btn btn-secondary btn-sm" data-case-progress="${item.id}" type="button">進捗更新</button><button class="btn btn-danger btn-sm" data-soft-delete="case" data-id="${item.id}" type="button">取消</button></div></td></tr>`).join("") : `<tr><td colspan="6">${empty("案件がありません。")}</td></tr>`;
+  }
+
+  function renderDocuments() {
+    $("#documents-table-body").innerHTML = adminState.documents.length ? adminState.documents.map((item) => `<tr><td>${formatDate(item.submitted_at, true)}</td><td>${esc(clientName(item.client_id))}</td><td><strong>${esc(item.original_filename)}</strong><div class="small muted">${esc(item.mime_type)} ／ ${formatBytes(item.file_size_bytes)}</div></td><td>${badge(item.status)}</td><td><div class="table-actions">${!item.is_demo_placeholder ? `<button class="btn btn-secondary btn-sm" data-document-view="${item.id}" type="button">表示</button>` : ""}<button class="btn btn-primary btn-sm" data-document-review="accepted" data-id="${item.id}" type="button">確認済み</button><button class="btn btn-danger btn-sm" data-document-review="rejected" data-id="${item.id}" type="button">差戻し</button></div></td></tr>`).join("") : `<tr><td colspan="5">${empty("提出書類がありません。")}</td></tr>`;
+    $("#requests-table-body").innerHTML = adminState.requests.length ? adminState.requests.map((item) => `<tr><td><strong>${esc(item.title)}</strong><div class="small muted">${esc(item.request_code)} ／ ${item.items?.length || 0}項目</div></td><td>${esc(clientName(item.client_id))}</td><td>${formatDate(item.due_on)}</td><td>${badge(item.status)}</td><td><button class="btn btn-danger btn-sm" data-soft-delete="request" data-id="${item.id}" type="button">終了</button></td></tr>`).join("") : `<tr><td colspan="5">${empty("資料依頼がありません。")}</td></tr>`;
+  }
+
+  function renderAppointments() {
+    const status = $("#appointment-status-filter")?.value || ""; const list = adminState.appointments.filter((item) => !status || item.status === status);
+    $("#appointments-table-body").innerHTML = list.length ? list.map((item) => `<tr><td><strong>${formatDate(item.confirmed_start_at || item.requested_start_at, true)}</strong><div class="small muted">${item.duration_minutes}分</div></td><td>${esc(item.requester_name)}<div class="small muted">${esc(item.requester_phone || item.requester_email || "")}</div></td><td>${esc(label(item.appointment_channel))}</td><td>${esc(staffName(item.assigned_staff_id))}</td><td>${badge(item.status)}</td><td><div class="table-actions"><button class="btn btn-primary btn-sm" data-appointment-status="confirmed" data-id="${item.id}" type="button">確定</button><button class="btn btn-secondary btn-sm" data-appointment-status="completed" data-id="${item.id}" type="button">完了</button><button class="btn btn-danger btn-sm" data-soft-delete="appointment" data-id="${item.id}" type="button">取消</button></div></td></tr>`).join("") : `<tr><td colspan="6">${empty("予約がありません。")}</td></tr>`;
+  }
+
+  function renderInquiries() {
+    const status = $("#inquiry-status-filter")?.value || ""; const list = adminState.inquiries.filter((item) => !status || item.status === status);
+    $("#inquiries-table-body").innerHTML = list.length ? list.map((item) => `<tr><td>${formatDate(item.created_at, true)}</td><td><strong>${esc(item.subject)}</strong><div class="small muted" style="max-width:360px">${esc(item.body)}</div></td><td>${esc(label(item.category))}</td><td>${badge(item.priority)}</td><td>${badge(item.status)}</td><td><div class="table-actions"><button class="btn btn-secondary btn-sm" data-inquiry-status="open" data-id="${item.id}" type="button">対応中</button><button class="btn btn-primary btn-sm" data-inquiry-status="resolved" data-id="${item.id}" type="button">解決</button><button class="btn btn-danger btn-sm" data-soft-delete="inquiry" data-id="${item.id}" type="button">終了</button></div></td></tr>`).join("") : `<tr><td colspan="6">${empty("相談がありません。")}</td></tr>`;
+  }
+
+  function renderTasks() {
+    $("#tasks-table-body").innerHTML = adminState.tasks.length ? adminState.tasks.map((item) => `<tr><td>${formatDate(item.due_at, true)}</td><td><strong>${esc(item.title)}</strong><div class="small muted">${esc(label(item.task_type))}</div></td><td>${esc(clientName(item.client_id))}</td><td>${badge(item.priority)}</td><td>${badge(item.status)}</td><td><div class="table-actions"><button class="btn btn-primary btn-sm" data-task-complete="${item.id}" type="button">完了</button><button class="btn btn-danger btn-sm" data-soft-delete="task" data-id="${item.id}" type="button">取消</button></div></td></tr>`).join("") : `<tr><td colspan="6">${empty("タスクがありません。")}</td></tr>`;
+  }
+
+  function renderStaff() {
+    $("#staff-table-body").innerHTML = adminState.staff.length ? adminState.staff.map((item) => `<tr><td><strong>${esc(item.display_name)}</strong><div class="small muted">${esc(item.staff_code)}</div></td><td>${esc(label(item.role))}</td><td>${esc(item.email || item.phone || "－")}</td><td>${item.can_review_documents ? "可" : "不可"}</td><td>${badge(item.is_active ? "active" : "ended")}</td><td><button class="btn btn-danger btn-sm" data-soft-delete="staff" data-id="${item.id}" type="button">無効化</button></td></tr>`).join("") : `<tr><td colspan="6">${empty("職員がいません。")}</td></tr>`;
+  }
+
+  function renderSettings() {
+    const office = adminState.settings?.office; if (!office) return;
+    $("#setting-office-name").value = office.office_name || ""; $("#setting-phone").value = office.phone || ""; $("#setting-email").value = office.email || ""; $("#setting-booking-days").value = office.booking_open_days || 90; $("#setting-subtitle").value = office.subtitle || ""; $("#setting-security").value = office.security_notice || "";
+  }
+
+  function showAdminView(view) {
+    $$("[data-admin-view]").forEach((node) => node.classList.toggle("active", node.dataset.adminView === view));
+    $$("[data-admin-panel]").forEach((node) => { node.hidden = node.dataset.adminPanel !== view; });
+    const button = $(`[data-admin-view="${view}"]`); $("#admin-view-title").textContent = button?.textContent.trim() || "管理画面"; $("#admin-sidebar").classList.remove("open");
+  }
+
+  async function refreshOwner() {
+    $("#owner-loading").hidden = false; $("#owner-content").hidden = true;
+    await loadAdminData(); renderOwner(); $("#owner-loading").hidden = true; $("#owner-content").hidden = false;
+  }
+
+  async function initOwner() {
+    const auth = $("#owner-auth"); const app = $("#owner-app"); const code = $("#owner-admin-code");
+    if (isDemo) code.value = CONFIG.DEFAULT_ADMIN_CODE;
+    $("#owner-code-clear").addEventListener("click", () => { code.value = ""; code.focus(); });
+    async function login(key) {
+      adminState.key = key; await api("/api/admin/dashboard", { adminKey: key }); sessionStorage.setItem("dpro_tax_admin", key); auth.hidden = true; app.hidden = false; await refreshOwner();
+    }
+    $("#owner-login-form").addEventListener("submit", async (event) => { event.preventDefault(); const button = $("button[type=submit]", event.currentTarget); try { setButtonBusy(button, true, "確認中..."); await login(code.value); } catch (error) { $("#owner-login-alert").innerHTML = alertBox(error.message); } finally { setButtonBusy(button, false); } });
+    const stored = sessionStorage.getItem("dpro_tax_admin");
+    if (stored) { try { code.value = stored; await login(stored); } catch { sessionStorage.removeItem("dpro_tax_admin"); } }
+    $("#owner-logout").addEventListener("click", () => { sessionStorage.removeItem("dpro_tax_admin"); location.reload(); });
+    $("#sidebar-toggle").addEventListener("click", () => $("#admin-sidebar").classList.toggle("open"));
+    document.addEventListener("click", async (event) => {
+      const nav = event.target.closest("[data-admin-view]"); if (nav) showAdminView(nav.dataset.adminView);
+      const go = event.target.closest("[data-go-view]"); if (go) showAdminView(go.dataset.goView);
+      if (event.target.closest("[data-refresh-admin]")) { try { await refreshOwner(); toast("最新情報に更新しました。"); } catch (error) { toast(error.message, "error"); } }
+      const detail = event.target.closest("[data-client-detail]"); if (detail) await showClientDetail(detail.dataset.clientDetail);
+      const progress = event.target.closest("[data-case-progress]"); if (progress) await updateCaseProgress(progress.dataset.caseProgress);
+      const review = event.target.closest("[data-document-review]"); if (review) await reviewDocument(review.dataset.id, review.dataset.documentReview);
+      const view = event.target.closest("[data-document-view]"); if (view) await viewDocument(view.dataset.documentView);
+      const appointment = event.target.closest("[data-appointment-status]"); if (appointment) await patchAdmin(`/api/admin/appointments/${appointment.dataset.id}`, { status: appointment.dataset.appointmentStatus }, "予約を更新しました。");
+      const inquiry = event.target.closest("[data-inquiry-status]"); if (inquiry) await patchAdmin(`/api/admin/inquiries/${inquiry.dataset.id}`, { status: inquiry.dataset.inquiryStatus }, "相談状態を更新しました。");
+      const task = event.target.closest("[data-task-complete]"); if (task) await patchAdmin(`/api/admin/tasks/${task.dataset.taskComplete}`, { status: "completed" }, "タスクを完了しました。");
+      const del = event.target.closest("[data-soft-delete]"); if (del) await softDeleteAdmin(del.dataset.softDelete, del.dataset.id);
+    });
+    $("#client-search-button").addEventListener("click", renderClients); $("#client-search").addEventListener("input", renderClients); $("#client-status-filter").addEventListener("change", renderClients);
+    $("#case-search-button").addEventListener("click", renderCases); $("#case-search").addEventListener("input", renderCases); $("#case-status-filter").addEventListener("change", renderCases);
+    $("#appointment-filter-button").addEventListener("click", renderAppointments); $("#inquiry-filter-button").addEventListener("click", renderInquiries);
+    $$('[data-document-tab]').forEach((button) => button.addEventListener("click", () => { $$('[data-document-tab]').forEach((node) => node.classList.toggle("active", node === button)); $("#document-submission-table").hidden = button.dataset.documentTab !== "submissions"; $("#document-request-table").hidden = button.dataset.documentTab !== "requests"; }));
+    bindOwnerForms();
+  }
+
+  async function showClientDetail(id) {
+    try {
+      $("#client-detail-content").innerHTML = '<div class="loading"><span class="spinner"></span></div>'; openModal("client-detail-modal");
+      const data = await api(`/api/admin/clients/${id}`, { adminKey: adminState.key }); const client = data.client;
+      $("#client-detail-content").innerHTML = `<div class="list"><div class="list-item"><h3>${esc(client.legal_name)}</h3><div class="meta-row"><span>${esc(client.client_code)}</span><span>${esc(label(client.client_type))}</span>${badge(client.status)}</div><p>代表者：${esc(client.representative_name || "－")}<br>電話：${esc(client.phone || "－")}<br>メール：${esc(client.email || "－")}</p></div><div class="list-item"><h3>連絡先</h3>${data.contacts.length ? data.contacts.map((item) => `<p>${esc(item.full_name)} ／ ${esc(item.position_title || "")} ／ ${esc(item.phone || "")}</p>`).join("") : "<p>登録なし</p>"}</div><div class="summary-grid"><div class="summary-card"><div class="label">案件</div><div class="value">${data.cases.length}</div></div><div class="summary-card"><div class="label">資料依頼</div><div class="value">${data.document_requests.length}</div></div><div class="summary-card"><div class="label">予約</div><div class="value">${data.appointments.length}</div></div><div class="summary-card"><div class="label">相談</div><div class="value">${data.inquiries.length}</div></div></div></div>`;
+    } catch (error) { toast(error.message, "error"); closeModal("client-detail-modal"); }
+  }
+
+  async function updateCaseProgress(id) {
+    const item = adminState.cases.find((row) => row.id === id); const input = prompt("進捗率を0～100で入力してください。", String(item?.progress_percent || 0)); if (input === null) return; const progress = Number(input); if (!Number.isInteger(progress) || progress < 0 || progress > 100) { toast("0～100の整数で入力してください。", "error"); return; }
+    const status = progress === 100 ? "completed" : item.status === "received" ? "in_progress" : item.status; await patchAdmin(`/api/admin/cases/${id}`, { progress_percent: progress, status }, "案件進捗を更新しました。");
+  }
+
+  async function reviewDocument(id, status) {
+    const body = { status }; if (status === "rejected") { const reason = prompt("差戻し理由を入力してください。"); if (!reason) return; body.rejection_reason = reason; }
+    await patchAdmin(`/api/admin/documents/${id}/review`, body, status === "accepted" ? "書類を確認済みにしました。" : "書類を差し戻しました。");
+  }
+
+  async function viewDocument(id) {
+    try { const data = await api(`/api/admin/documents/${id}/signed-url`, { adminKey: adminState.key }); window.open(data.signed_url, "_blank", "noopener,noreferrer"); }
+    catch (error) { toast(error.message, "error"); }
+  }
+
+  async function patchAdmin(path, body, message) {
+    try { await api(path, { method: "PATCH", body, adminKey: adminState.key }); toast(message); await refreshOwner(); }
+    catch (error) { toast(error.message, "error"); }
+  }
+
+  async function softDeleteAdmin(type, id) {
+    const config = {
+      client: ["/api/admin/clients/", "この顧問先を終了状態にしますか？"], case: ["/api/admin/cases/", "この案件を取消状態にしますか？"],
+      request: ["/api/admin/document-requests/", "この資料依頼を終了しますか？"], appointment: ["/api/admin/appointments/", "この予約を取り消しますか？"],
+      inquiry: ["/api/admin/inquiries/", "この相談を終了しますか？"], task: ["/api/admin/tasks/", "このタスクを取り消しますか？"], staff: ["/api/admin/staff/", "この職員を無効化しますか？"],
+    }[type];
+    if (!config || !confirm(config[1])) return;
+    try { await api(`${config[0]}${id}`, { method: "DELETE", adminKey: adminState.key }); toast("安全に無効化・取消しました。"); await refreshOwner(); }
+    catch (error) { toast(error.message, "error"); }
+  }
+
+  function bindOwnerForms() {
+    const forms = [
+      ["#client-create-form", "/api/admin/clients", (v) => v, "顧問先を登録しました。"],
+      ["#case-create-form", "/api/admin/cases", (v) => v, "案件を登録しました。"],
+      ["#request-create-form", "/api/admin/document-requests", (v) => ({ ...v, status: "requested", items: [] }), "資料依頼を登録しました。"],
+      ["#task-create-form", "/api/admin/tasks", (v) => ({ ...v, due_at: v.due_at ? toIso(v.due_at) : null }), "タスクを登録しました。"],
+      ["#staff-create-form", "/api/admin/staff", (v) => ({ ...v, can_review_documents: true, is_active: true }), "職員を登録しました。"],
+      ["#admin-appointment-form", "/api/admin/appointments", (v) => ({ ...v, requested_start_at: toIso(v.requested_start_at) }), "予約を登録しました。"],
+    ];
+    forms.forEach(([selector, path, transform, message]) => $(selector).addEventListener("submit", async (event) => {
+      event.preventDefault(); const form = event.currentTarget; const button = $("button[type=submit]", form);
+      try { setButtonBusy(button, true, "登録中..."); await api(path, { method: "POST", body: transform(formObject(form)), adminKey: adminState.key }); toast(message); closeModal(form); form.reset(); await refreshOwner(); }
+      catch (error) { toast(error.message, "error"); } finally { setButtonBusy(button, false); }
+    }));
+    $("#settings-form").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const button = $("button[type=submit]", form); const body = formObject(form); body.booking_open_days = Number(body.booking_open_days); try { setButtonBusy(button, true, "保存中..."); await api("/api/admin/settings", { method: "PATCH", body, adminKey: adminState.key }); toast("設定を保存しました。"); await refreshOwner(); } catch (error) { toast(error.message, "error"); } finally { setButtonBusy(button, false); } });
+    $("#appointment-client-search-button").addEventListener("click", () => {
+      const raw = $("#appointment-client-search").value; const q = normalizePhone(raw) || raw.toLowerCase(); const results = adminState.clients.filter((item) => [item.legal_name, item.client_code, item.phone, item.phone_normalized].some((value) => String(value || "").normalize("NFKC").toLowerCase().includes(q))).slice(0, 8);
+      $("#appointment-client-results").innerHTML = results.length ? results.map((item) => `<button class="list-item" style="width:100%;text-align:left;cursor:pointer" type="button" data-select-appointment-client="${item.id}"><strong>${esc(item.legal_name)}</strong><div class="small muted">${esc(item.client_code)} ／ ${esc(item.phone || "電話未登録")}</div></button>`).join("") : empty("一致する顧問先がありません。");
+    });
+    $("#appointment-client-results").addEventListener("click", (event) => { const target = event.target.closest("[data-select-appointment-client]"); if (!target) return; const client = adminState.clients.find((item) => item.id === target.dataset.selectAppointmentClient); $("#appointment-client-id").value = client.id; $("#admin-requester-name").value = client.representative_name || client.legal_name; $("#admin-requester-phone").value = client.phone || ""; $("#appointment-client-results").innerHTML = alertBox(`${client.legal_name}を選択しました。`, "success"); });
+  }
+
+  async function initIpad() {
+    const auth = $("#ipad-auth"); const app = $("#ipad-app"); const code = $("#ipad-admin-code"); if (isDemo) code.value = CONFIG.DEFAULT_ADMIN_CODE;
+    $("#ipad-code-clear").addEventListener("click", () => { code.value = ""; code.focus(); });
+    async function load() {
+      const data = await api("/api/admin/dashboard", { adminKey: adminState.key }); adminState.dashboard = data; renderIpad();
+    }
+    async function login(key) { adminState.key = key; await load(); sessionStorage.setItem("dpro_tax_ipad_admin", key); auth.hidden = true; app.hidden = false; }
+    $("#ipad-login-form").addEventListener("submit", async (event) => { event.preventDefault(); const button = $("button[type=submit]", event.currentTarget); try { setButtonBusy(button, true, "確認中..."); await login(code.value); } catch (error) { $("#ipad-login-alert").innerHTML = alertBox(error.message); } finally { setButtonBusy(button, false); } });
+    const stored = sessionStorage.getItem("dpro_tax_ipad_admin"); if (stored) { try { code.value = stored; await login(stored); } catch { sessionStorage.removeItem("dpro_tax_ipad_admin"); } }
+    $("#ipad-refresh").addEventListener("click", async () => { try { await load(); toast("最新情報に更新しました。"); } catch (error) { toast(error.message, "error"); } });
+    $("#ipad-logout").addEventListener("click", () => { sessionStorage.removeItem("dpro_tax_ipad_admin"); location.reload(); });
+    $("#ipad-app").addEventListener("click", async (event) => { const documentButton = event.target.closest("[data-ipad-document]"); if (documentButton) { try { await api(`/api/admin/documents/${documentButton.dataset.ipadDocument}/review`, { method: "PATCH", body: { status: "accepted" }, adminKey: adminState.key }); toast("書類を確認済みにしました。"); await load(); } catch (error) { toast(error.message, "error"); } } const inquiryButton = event.target.closest("[data-ipad-inquiry]"); if (inquiryButton) { try { await api(`/api/admin/inquiries/${inquiryButton.dataset.ipadInquiry}`, { method: "PATCH", body: { status: "open" }, adminKey: adminState.key }); toast("相談を対応中にしました。"); await load(); } catch (error) { toast(error.message, "error"); } } });
+  }
+
+  function renderIpad() {
+    const data = adminState.dashboard; $("#ipad-date").textContent = formatDate(new Date().toISOString());
+    $("#ipad-metric-appointments").textContent = data.active_appointments.length; $("#ipad-metric-documents").textContent = data.documents_to_review.length; $("#ipad-metric-inquiries").textContent = data.open_inquiries.length; $("#ipad-metric-tasks").textContent = data.due_tasks.length;
+    $("#ipad-appointments").innerHTML = data.active_appointments.length ? data.active_appointments.slice(0, 8).map((item) => `<div class="list-item"><div class="list-item-head"><strong>${formatDate(item.confirmed_start_at || item.requested_start_at, true)}<br>${esc(item.requester_name)}</strong>${badge(item.status)}</div><div class="meta-row"><span>${esc(label(item.appointment_channel))}</span><span>${item.duration_minutes}分</span></div></div>`).join("") : empty("対応する予約はありません。");
+    $("#ipad-documents").innerHTML = data.documents_to_review.length ? data.documents_to_review.slice(0, 8).map((item) => `<div class="list-item"><div class="list-item-head"><div><strong>${esc(item.original_filename)}</strong><div class="small muted">${formatDate(item.submitted_at, true)}</div></div>${badge(item.status)}</div><button class="btn btn-primary btn-block ipad-action" style="margin-top:12px" type="button" data-ipad-document="${item.id}">確認済みにする</button></div>`).join("") : empty("新着書類はありません。");
+    $("#ipad-inquiries").innerHTML = data.open_inquiries.length ? data.open_inquiries.slice(0, 8).map((item) => `<div class="list-item"><div class="list-item-head"><strong>${esc(item.subject)}</strong>${badge(item.status)}</div><div class="meta-row"><span>${esc(label(item.category))}</span><span>${formatDate(item.created_at, true)}</span></div>${item.status === "new" ? `<button class="btn btn-primary btn-block ipad-action" style="margin-top:12px" type="button" data-ipad-inquiry="${item.id}">対応を開始</button>` : ""}</div>`).join("") : empty("未対応相談はありません。");
+    $("#ipad-tasks").innerHTML = data.due_tasks.length ? data.due_tasks.slice(0, 8).map((item) => `<div class="list-item"><div class="list-item-head"><strong>${esc(item.title)}</strong>${badge(item.priority)}</div><div class="meta-row"><span>${formatDate(item.due_at, true)}</span></div></div>`).join("") : empty("期限タスクはありません。");
+  }
+
+  async function initSystemCheck() {
+    const code = $("#check-admin-code"); if (isDemo) code.value = CONFIG.DEFAULT_ADMIN_CODE; $("#check-code-clear").addEventListener("click", () => { code.value = ""; code.focus(); }); $("#system-version").textContent = CONFIG.VERSION;
+    const base = CONFIG.PAGES_BASE; $("#url-index").textContent = `${base}index.html`; $("#url-member").textContent = `${base}member.html?demo=1&line_user_id=${CONFIG.DEMO_LINE_USER_ID}`; $("#url-owner").textContent = `${base}owner.html?demo=1`; $("#url-ipad").textContent = `${base}owner-ipad.html?demo=1`;
+    function setCheck(name, ok, message) { const icon = $(`#check-${name}-icon`); icon.className = `check-indicator ${ok ? "ok" : "ng"}`; icon.textContent = ok ? "✓" : "×"; $(`#check-${name}-text`).textContent = message; }
+    $("#run-system-check").addEventListener("click", async (event) => {
+      const button = event.currentTarget; const key = code.value; if (!key) { $("#check-alert").innerHTML = alertBox("管理コードを入力してください。"); return; }
+      try {
+        setButtonBusy(button, true, "確認中..."); $("#check-alert").innerHTML = "";
+        const [healthResult, systemResult, phoneResult, pagesResult] = await Promise.allSettled([
+          api("/api/health"), api("/api/admin/system-check", { adminKey: key }), api("/api/admin/phone-normalize-check", { adminKey: key }),
+          Promise.all(["index.html", "member.html", "owner.html", "owner-ipad.html"].map((file) => fetch(file, { cache: "no-store" }).then((response) => response.ok))),
+        ]);
+        if (healthResult.status === "fulfilled") { setCheck("api", true, `${healthResult.value.version}／応答正常`); setCheck("db", healthResult.value.database?.ok === true, `${healthResult.value.database?.schema_version || "DB未確認"}／顧問先${healthResult.value.database?.counts?.clients ?? "－"}件`); setCheck("demo", healthResult.value.database?.office?.is_demo === true, `案件${healthResult.value.database?.counts?.cases ?? "－"}件・資料依頼${healthResult.value.database?.counts?.document_requests ?? "－"}件`); } else { setCheck("api", false, healthResult.reason.message); setCheck("db", false, "API確認後に再実行してください"); setCheck("demo", false, "未確認"); }
+        if (systemResult.status === "fulfilled") setCheck("storage", systemResult.value.storage?.ok && systemResult.value.storage?.public === false, systemResult.value.storage?.public === false ? "非公開バケット・正常" : "公開設定を確認してください"); else setCheck("storage", false, systemResult.reason.message);
+        if (phoneResult.status === "fulfilled") setCheck("phone", phoneResult.value.ok, phoneResult.value.ok ? "4形式すべて09011112201へ一致" : "不一致があります"); else setCheck("phone", false, phoneResult.reason.message);
+        if (pagesResult.status === "fulfilled") setCheck("pages", pagesResult.value.every(Boolean), pagesResult.value.every(Boolean) ? "主要4画面・読込正常" : "読込できない画面があります"); else setCheck("pages", false, pagesResult.reason.message);
+        const allOk = [healthResult, systemResult, phoneResult, pagesResult].every((result) => result.status === "fulfilled"); $("#check-alert").innerHTML = alertBox(allOk ? "一括チェックが完了しました。各項目を確認してください。" : "一部の確認に失敗しました。赤い項目をご確認ください。", allOk ? "success" : "error");
+      } finally { setButtonBusy(button, false); }
+    });
+    $("#prepare-demo").addEventListener("click", async (event) => { if (!code.value) { toast("管理コードを入力してください。", "error"); return; } if (!confirm("デモデータを再準備しますか？本番データには使用しないでください。")) return; const button = event.currentTarget; try { setButtonBusy(button, true, "準備中..."); const data = await api("/api/admin/demo-prepare", { method: "POST", body: { confirm: "PREPARE_DEMO" }, adminKey: code.value }); $("#demo-result").textContent = `準備完了：${JSON.stringify(data.result)}`; toast("デモデータを準備しました。"); } catch (error) { toast(error.message, "error"); } finally { setButtonBusy(button, false); } });
+  }
+
+  bindModals();
+  const boot = { public: initPublic, member: initMember, owner: initOwner, ipad: initIpad, "system-check": initSystemCheck }[page];
+  if (boot) boot().catch((error) => { console.error(error); toast(error.message || "画面の初期化に失敗しました。", "error"); const loading = $(".loading"); if (loading) loading.innerHTML = alertBox(error.message || "読み込みに失敗しました。"); });
+})();

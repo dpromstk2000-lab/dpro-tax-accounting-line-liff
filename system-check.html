@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#17324D">
+  <title>システム確認｜DPRO 税理士・会計事務所</title>
+  <link rel="stylesheet" href="styles.css"><script src="config.js" defer></script><script src="app.js" defer></script>
+</head>
+<body data-page="system-check">
+  <header class="site-header"><div class="header-inner"><a class="brand" href="index.html"><span class="brand-mark">D</span><span class="brand-copy"><span>DPRO 税理士・会計事務所</span><small>営業前システム確認</small></span></a><div class="button-row"><a class="btn btn-secondary btn-sm" href="owner.html?demo=1">管理画面</a></div></div></header>
+  <main class="page-main"><div class="container">
+    <div class="page-heading"><p class="eyebrow">System Check / STEP TAX-4</p><h1>システム確認</h1><p class="lead">営業デモ前に、Worker・Supabase・非公開Storage・電話番号正規化・各画面導線をまとめて確認します。</p></div>
+    <div class="card form-card" style="margin-bottom:22px"><div class="form-grid"><div class="field"><label for="check-admin-code">管理コード</label><div class="admin-code-row"><input id="check-admin-code" type="password" inputmode="numeric" autocomplete="current-password"><button id="check-code-clear" class="btn btn-secondary" type="button">削除</button></div></div><div class="field" style="align-self:end"><button id="run-system-check" class="btn btn-primary btn-block" type="button">一括チェックを実行</button></div></div></div>
+    <div id="check-alert"></div>
+    <section class="check-grid">
+      <article class="check-card"><div id="check-api-icon" class="check-indicator">…</div><h3>Worker API</h3><p id="check-api-text">未確認</p></article>
+      <article class="check-card"><div id="check-db-icon" class="check-indicator">…</div><h3>Supabase DB</h3><p id="check-db-text">未確認</p></article>
+      <article class="check-card"><div id="check-storage-icon" class="check-indicator">…</div><h3>非公開Storage</h3><p id="check-storage-text">未確認</p></article>
+      <article class="check-card"><div id="check-phone-icon" class="check-indicator">…</div><h3>電話番号正規化</h3><p id="check-phone-text">未確認</p></article>
+      <article class="check-card"><div id="check-demo-icon" class="check-indicator">…</div><h3>デモデータ</h3><p id="check-demo-text">未確認</p></article>
+      <article class="check-card"><div id="check-pages-icon" class="check-indicator">…</div><h3>画面ファイル</h3><p id="check-pages-text">未確認</p></article>
+    </section>
+    <section class="card form-card" style="margin-top:22px"><div class="section-head"><div><h2>営業前デモ準備</h2><p>既存のデモデータを安全に再準備します。本番事務所では実行できません。</p></div><button id="prepare-demo" class="btn btn-navy" type="button">デモデータを準備</button></div><div id="demo-result" class="small muted"></div></section>
+    <section class="card form-card" style="margin-top:22px"><h2>全画面URL</h2><div class="list" style="margin-top:16px"><a class="list-item" href="index.html"><strong>顧客受付・面談予約</strong><p id="url-index"></p></a><a class="list-item" href="member.html?demo=1&line_user_id=demo_tax_line_001"><strong>顧問先マイページ</strong><p id="url-member"></p></a><a class="list-item" href="owner.html?demo=1"><strong>オーナーPC管理</strong><p id="url-owner"></p></a><a class="list-item" href="owner-ipad.html?demo=1"><strong>スタッフiPad</strong><p id="url-ipad"></p></a></div></section>
+    <section class="security-notice" style="margin-top:22px"><span>⚠️</span><div><strong>機密情報の保護</strong>マイナンバー保存は無効です。管理コードやSupabaseの秘密鍵を顧客向け資料・画面・スクリーンショットへ載せないでください。</div></section>
+  </div></main>
+  <footer class="site-footer"><div class="container footer-row"><span id="system-version"></span><span>営業担当・内部確認用</span></div></footer>
+  <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
+</body>
+</html>

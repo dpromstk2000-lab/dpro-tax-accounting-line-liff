@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0B1F33">
+  <title>オーナー管理｜DPRO 税理士・会計事務所</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="config.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body data-page="owner">
+  <section id="owner-auth" class="auth-screen">
+    <form id="owner-login-form" class="auth-card">
+      <div class="brand"><span class="brand-mark">D</span><span class="brand-copy"><span>DPRO 税理士・会計事務所</span><small>オーナーPC管理</small></span></div>
+      <p class="eyebrow">Secure Administration</p>
+      <h1 style="font-size:31px">管理画面を開く</h1>
+      <p class="muted">管理コードを入力してください。デモ環境では「1234」です。</p>
+      <div id="owner-login-alert"></div>
+      <div class="field">
+        <label for="owner-admin-code">管理コード</label>
+        <div class="admin-code-row"><input id="owner-admin-code" type="password" inputmode="numeric" autocomplete="current-password" required><button id="owner-code-clear" class="btn btn-secondary" type="button">削除</button></div>
+      </div>
+      <button class="btn btn-primary btn-block" style="margin-top:18px" type="submit">管理画面を開く</button>
+    </form>
+  </section>
+
+  <div id="owner-app" class="admin-layout" hidden>
+    <aside id="admin-sidebar" class="sidebar">
+      <a class="brand" href="index.html"><span class="brand-mark">D</span><span class="brand-copy"><span>DPRO 税理士・会計事務所</span><small>オーナーPC管理</small></span></a>
+      <div class="side-label">日常業務</div>
+      <nav class="side-nav" aria-label="管理メニュー">
+        <button class="nav-button active" type="button" data-admin-view="dashboard"><span class="nav-icon">⌂</span>ダッシュボード</button>
+        <button class="nav-button" type="button" data-admin-view="clients"><span class="nav-icon">▣</span>顧問先・電話検索</button>
+        <button class="nav-button" type="button" data-admin-view="cases"><span class="nav-icon">▤</span>案件・申告進捗</button>
+        <button class="nav-button" type="button" data-admin-view="documents"><span class="nav-icon">▱</span>資料依頼・提出確認</button>
+        <button class="nav-button" type="button" data-admin-view="appointments"><span class="nav-icon">◫</span>面談予約・電話受付</button>
+        <button class="nav-button" type="button" data-admin-view="inquiries"><span class="nav-icon">◌</span>相談・問い合わせ</button>
+        <button class="nav-button" type="button" data-admin-view="tasks"><span class="nav-icon">✓</span>タスク・期限</button>
+      </nav>
+      <div class="side-label">設定・確認</div>
+      <nav class="side-nav" aria-label="設定メニュー">
+        <button class="nav-button" type="button" data-admin-view="staff"><span class="nav-icon">♙</span>職員</button>
+        <button class="nav-button" type="button" data-admin-view="settings"><span class="nav-icon">⚙</span>基本設定</button>
+        <a class="nav-button" href="system-check.html?demo=1"><span class="nav-icon">●</span>システム確認</a>
+      </nav>
+    </aside>
+
+    <main class="admin-main">
+      <header class="admin-topbar">
+        <div class="button-row"><button id="sidebar-toggle" class="btn btn-secondary mobile-menu" type="button">メニュー</button><strong id="admin-view-title">ダッシュボード</strong></div>
+        <div class="button-row"><span id="owner-office-name" class="muted small">DPRO税理士・会計事務所</span><button id="owner-logout" class="btn btn-secondary btn-sm" type="button">ログアウト</button></div>
+      </header>
+
+      <div id="owner-loading" class="loading"><span class="spinner" role="status" aria-label="読み込み中"></span></div>
+      <div id="owner-content" class="admin-content" hidden>
+        <div id="owner-alert"></div>
+
+        <section data-admin-panel="dashboard">
+          <div class="admin-page-head"><div><p class="eyebrow">Today Overview</p><h1>ダッシュボード</h1><p class="muted" id="dashboard-date"></p></div><button class="btn btn-secondary" type="button" data-refresh-admin>最新情報に更新</button></div>
+          <div class="metric-grid">
+            <div class="metric"><div class="metric-top"><span>顧問先</span><span>▣</span></div><div id="metric-clients" class="metric-value">－</div><div class="metric-note">登録済み顧問先</div></div>
+            <div class="metric"><div class="metric-top"><span>進行中案件</span><span>▤</span></div><div id="metric-cases" class="metric-value">－</div><div class="metric-note">完了・取消を除く</div></div>
+            <div class="metric"><div class="metric-top"><span>新着書類</span><span>▱</span></div><div id="metric-documents" class="metric-value">－</div><div class="metric-note">確認待ち</div></div>
+            <div class="metric"><div class="metric-top"><span>未対応相談</span><span>◌</span></div><div id="metric-inquiries" class="metric-value">－</div><div class="metric-note">解決・終了を除く</div></div>
+          </div>
+          <div class="dashboard-grid">
+            <div class="panel-card"><div class="panel-card-head"><h2>優先して確認する案件</h2><button class="btn btn-ghost btn-sm" data-go-view="cases" type="button">すべて見る</button></div><div id="dashboard-cases" class="list"></div></div>
+            <div class="panel-card"><div class="panel-card-head"><h2>今日やること</h2><button class="btn btn-ghost btn-sm" data-go-view="tasks" type="button">タスク一覧</button></div><div id="dashboard-tasks" class="list"></div></div>
+          </div>
+          <div class="dashboard-grid">
+            <div class="panel-card"><div class="panel-card-head"><h2>書類確認待ち</h2><button class="btn btn-ghost btn-sm" data-go-view="documents" type="button">提出書類へ</button></div><div id="dashboard-documents" class="list"></div></div>
+            <div class="panel-card"><div class="panel-card-head"><h2>面談・相談</h2></div><div id="dashboard-contact-work" class="list"></div></div>
+          </div>
+        </section>
+
+        <section data-admin-panel="clients" hidden>
+          <div class="admin-page-head"><div><p class="eyebrow">Clients</p><h1>顧問先・電話検索</h1><p class="muted">氏名、顧問先コード、電話番号で検索できます。ハイフン・全角・+81も同一判定します。</p></div><button class="btn btn-primary" type="button" data-open-modal="client-create-modal">顧問先を登録</button></div>
+          <div class="toolbar"><input id="client-search" class="search" type="search" placeholder="顧問先名・コード・電話番号で検索"><select id="client-status-filter"><option value="">すべての状態</option><option value="onboarding">初期登録</option><option value="active">契約中</option><option value="paused">休止</option><option value="ended">終了</option></select><button id="client-search-button" class="btn btn-secondary" type="button">検索</button></div>
+          <div class="table-wrap"><table><thead><tr><th>顧問先</th><th>区分</th><th>電話番号</th><th>担当</th><th>状態</th><th>操作</th></tr></thead><tbody id="clients-table-body"></tbody></table></div>
+        </section>
+
+        <section data-admin-panel="cases" hidden>
+          <div class="admin-page-head"><div><p class="eyebrow">Case Management</p><h1>案件・申告進捗</h1></div><button class="btn btn-primary" type="button" data-open-modal="case-create-modal">案件を登録</button></div>
+          <div class="toolbar"><input id="case-search" class="search" type="search" placeholder="案件名・案件コード・次回対応"><select id="case-status-filter"><option value="">すべての状態</option><option value="received">受付</option><option value="checking">確認中</option><option value="waiting_client">顧問先待ち</option><option value="waiting_documents">資料待ち</option><option value="in_progress">対応中</option><option value="staff_review">担当確認</option><option value="final_review">最終確認</option><option value="completed">完了</option></select><button id="case-search-button" class="btn btn-secondary" type="button">検索</button></div>
+          <div class="table-wrap"><table><thead><tr><th>案件</th><th>顧問先</th><th>期限</th><th>進捗</th><th>状態</th><th>操作</th></tr></thead><tbody id="cases-table-body"></tbody></table></div>
+        </section>
+
+        <section data-admin-panel="documents" hidden>
+          <div class="admin-page-head"><div><p class="eyebrow">Documents</p><h1>資料依頼・提出確認</h1></div><button class="btn btn-primary" type="button" data-open-modal="request-create-modal">資料依頼を作成</button></div>
+          <div class="tabs"><button class="tab-button active" type="button" data-document-tab="submissions">提出書類</button><button class="tab-button" type="button" data-document-tab="requests">資料依頼</button></div>
+          <div id="document-submission-table" class="table-wrap" style="margin-top:16px"><table><thead><tr><th>提出日時</th><th>顧問先</th><th>ファイル</th><th>状態</th><th>操作</th></tr></thead><tbody id="documents-table-body"></tbody></table></div>
+          <div id="document-request-table" class="table-wrap" style="margin-top:16px" hidden><table><thead><tr><th>依頼</th><th>顧問先</th><th>期限</th><th>状態</th><th>操作</th></tr></thead><tbody id="requests-table-body"></tbody></table></div>
+        </section>
+
+        <section data-admin-panel="appointments" hidden>
+          <div class="admin-page-head"><div><p class="eyebrow">Appointments</p><h1>面談予約・電話受付</h1><p class="muted">電話予約では先に既存顧問先を検索して選択します。</p></div><button class="btn btn-primary" type="button" data-open-modal="appointment-create-modal">電話・来所予約を登録</button></div>
+          <div class="toolbar"><select id="appointment-status-filter"><option value="">すべて</option><option value="requested">希望受付</option><option value="confirmed">確定</option><option value="change_requested">変更希望</option><option value="cancel_requested">取消希望</option><option value="completed">完了</option><option value="cancelled">取消済み</option></select><button id="appointment-filter-button" class="btn btn-secondary" type="button">絞り込む</button></div>
+          <div class="table-wrap"><table><thead><tr><th>日時</th><th>予約者</th><th>方法</th><th>担当</th><th>状態</th><th>操作</th></tr></thead><tbody id="appointments-table-body"></tbody></table></div>
+        </section>
+
+        <section data-admin-panel="inquiries" hidden>
+          <div class="admin-page-head"><div><p class="eyebrow">Inquiries</p><h1>相談・問い合わせ</h1></div></div>
+          <div class="toolbar"><select id="inquiry-status-filter"><option value="">すべて</option><option value="new">新着</option><option value="open">対応中</option><option value="waiting_client">顧問先待ち</option><option value="waiting_office">事務所対応待ち</option><option value="resolved">解決</option><option value="closed">終了</option></select><button id="inquiry-filter-button" class="btn btn-secondary" type="button">絞り込む</button></div>
+          <div class="table-wrap"><table><thead><tr><th>受付</th><th>件名・内容</th><th>区分</th><th>優先度</th><th>状態</th><th>操作</th></tr></thead><tbody id="inquiries-table-body"></tbody></table></div>
+        </section>
+
+        <section data-admin-panel="tasks" hidden>
+          <div class="admin-page-head"><div><p class="eyebrow">Tasks</p><h1>タスク・期限</h1></div><button class="btn btn-primary" type="button" data-open-modal="task-create-modal">タスクを登録</button></div>
+          <div class="table-wrap"><table><thead><tr><th>期限</th><th>タスク</th><th>顧問先</th><th>優先度</th><th>状態</th><th>操作</th></tr></thead><tbody id="tasks-table-body"></tbody></table></div>
+        </section>
+
+        <section data-admin-panel="staff" hidden>
+          <div class="admin-page-head"><div><p class="eyebrow">Staff</p><h1>職員</h1></div><button class="btn btn-primary" type="button" data-open-modal="staff-create-modal">職員を登録</button></div>
+          <div class="table-wrap"><table><thead><tr><th>職員</th><th>権限</th><th>連絡先</th><th>書類確認</th><th>状態</th><th>操作</th></tr></thead><tbody id="staff-table-body"></tbody></table></div>
+        </section>
+
+        <section data-admin-panel="settings" hidden>
+          <div class="admin-page-head"><div><p class="eyebrow">Settings</p><h1>基本設定</h1><p class="muted">税理士事務所向けの読みやすい文字サイズと信頼感のある配色を標準採用しています。</p></div></div>
+          <form id="settings-form" class="card form-card">
+            <div class="form-grid">
+              <div class="field"><label for="setting-office-name">事務所名</label><input type="text" id="setting-office-name" name="office_name" required></div>
+              <div class="field"><label for="setting-phone">電話番号</label><input type="text" id="setting-phone" name="phone"></div>
+              <div class="field"><label for="setting-email">メールアドレス</label><input id="setting-email" name="email" type="email"></div>
+              <div class="field"><label for="setting-booking-days">予約受付日数</label><input id="setting-booking-days" name="booking_open_days" type="number" min="1" max="365"></div>
+              <div class="field field-full"><label for="setting-subtitle">説明</label><textarea id="setting-subtitle" name="subtitle"></textarea></div>
+              <div class="field field-full"><label for="setting-security">セキュリティ注意文</label><textarea id="setting-security" name="security_notice"></textarea></div>
+              <div class="field field-full"><button class="btn btn-primary" type="submit">設定を保存</button></div>
+            </div>
+          </form>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <div id="client-detail-modal" class="modal-backdrop" hidden><div class="modal" role="dialog" aria-modal="true"><div class="modal-head"><h2>顧問先詳細</h2><button class="icon-button" type="button" data-close-modal>×</button></div><div id="client-detail-content" class="modal-body"></div></div></div>
+
+  <div id="client-create-modal" class="modal-backdrop" hidden><div class="modal" role="dialog" aria-modal="true"><div class="modal-head"><h2>顧問先を登録</h2><button class="icon-button" type="button" data-close-modal>×</button></div><form id="client-create-form" class="modal-body"><div class="form-grid"><div class="field"><label>顧問先名</label><input type="text" name="legal_name" required></div><div class="field"><label>区分</label><select name="client_type"><option value="corporation">法人</option><option value="sole_proprietor">個人事業</option><option value="individual">個人</option><option value="spot">スポット</option></select></div><div class="field"><label>電話番号</label><input type="text" name="phone"></div><div class="field"><label>メール</label><input name="email" type="email"></div><div class="field field-full"><label>代表者名</label><input type="text" name="representative_name"></div><div class="field field-full"><button class="btn btn-primary btn-block" type="submit">登録する</button></div></div></form></div></div>
+
+  <div id="case-create-modal" class="modal-backdrop" hidden><div class="modal"><div class="modal-head"><h2>案件を登録</h2><button class="icon-button" type="button" data-close-modal>×</button></div><form id="case-create-form" class="modal-body"><div class="form-grid"><div class="field field-full"><label>顧問先</label><select name="client_id" data-client-options required></select></div><div class="field"><label>案件名</label><input type="text" name="title" required></div><div class="field"><label>案件区分</label><select name="case_type"><option value="monthly_documents">月次資料</option><option value="corporate_tax_return">法人税申告</option><option value="individual_tax_return">確定申告</option><option value="consumption_tax">消費税</option><option value="year_end_adjustment">年末調整</option><option value="tax_consultation">税務相談</option><option value="other">その他</option></select></div><div class="field"><label>期限日</label><input name="deadline_date" type="date"></div><div class="field"><label>優先度</label><select name="priority"><option value="normal">通常</option><option value="high">高</option><option value="urgent">至急</option></select></div><div class="field field-full"><label>顧問先向け説明</label><textarea name="public_summary"></textarea></div><div class="field field-full"><button class="btn btn-primary btn-block" type="submit">登録する</button></div></div></form></div></div>
+
+  <div id="request-create-modal" class="modal-backdrop" hidden><div class="modal"><div class="modal-head"><h2>資料依頼を作成</h2><button class="icon-button" type="button" data-close-modal>×</button></div><form id="request-create-form" class="modal-body"><div class="form-grid"><div class="field field-full"><label>顧問先</label><select name="client_id" data-client-options required></select></div><div class="field"><label>依頼名</label><input type="text" name="title" required></div><div class="field"><label>区分</label><select name="request_category"><option value="monthly">月次</option><option value="closing">決算</option><option value="tax_return">申告</option><option value="year_end_adjustment">年末調整</option><option value="other">その他</option></select></div><div class="field"><label>提出期限</label><input name="due_on" type="date"></div><div class="field"><label>対象期間</label><input type="text" name="target_period_label"></div><div class="field field-full"><label>顧問先向けメッセージ</label><textarea name="public_message"></textarea></div><div class="field field-full"><button class="btn btn-primary btn-block" type="submit">依頼を登録する</button></div></div></form></div></div>
+
+  <div id="appointment-create-modal" class="modal-backdrop" hidden><div class="modal"><div class="modal-head"><h2>電話・来所予約を登録</h2><button class="icon-button" type="button" data-close-modal>×</button></div><form id="admin-appointment-form" class="modal-body"><div class="form-grid"><div class="field field-full"><label>既存顧問先検索</label><div class="button-row"><input type="text" id="appointment-client-search" placeholder="名前・電話番号・顧問先コード" style="flex:1"><button id="appointment-client-search-button" class="btn btn-secondary" type="button">検索</button></div><div id="appointment-client-results" class="list" style="margin-top:10px"></div><input id="appointment-client-id" name="client_id" type="hidden"></div><div class="field"><label>予約者名</label><input type="text" id="admin-requester-name" name="requester_name" required></div><div class="field"><label>電話番号</label><input type="text" id="admin-requester-phone" name="requester_phone"></div><div class="field"><label>面談サービス</label><select name="service_id" data-service-options></select></div><div class="field"><label>希望日時</label><input name="requested_start_at" type="datetime-local" step="1800" required></div><div class="field"><label>面談方法</label><select name="appointment_channel"><option value="in_person">事務所</option><option value="online">オンライン</option><option value="phone">電話</option></select></div><div class="field"><label>状態</label><select name="status"><option value="requested">希望受付</option><option value="confirmed">確定</option></select></div><div class="field field-full"><label>内部メモ</label><textarea name="internal_notes"></textarea></div><div class="field field-full"><button class="btn btn-primary btn-block" type="submit">予約を登録する</button></div></div></form></div></div>
+
+  <div id="task-create-modal" class="modal-backdrop" hidden><div class="modal"><div class="modal-head"><h2>タスクを登録</h2><button class="icon-button" type="button" data-close-modal>×</button></div><form id="task-create-form" class="modal-body"><div class="form-grid"><div class="field field-full"><label>顧問先</label><select name="client_id" data-client-options required></select></div><div class="field"><label>タスク名</label><input type="text" name="title" required></div><div class="field"><label>区分</label><select name="task_type"><option value="document_check">資料確認</option><option value="reply">返信</option><option value="review">確認・レビュー</option><option value="deadline">期限</option><option value="appointment">面談</option><option value="follow_up">フォロー</option><option value="other">その他</option></select></div><div class="field"><label>期限</label><input name="due_at" type="datetime-local" step="1800"></div><div class="field"><label>優先度</label><select name="priority"><option value="normal">通常</option><option value="high">高</option><option value="urgent">至急</option></select></div><div class="field field-full"><label>説明</label><textarea name="description"></textarea></div><div class="field field-full"><button class="btn btn-primary btn-block" type="submit">登録する</button></div></div></form></div></div>
+
+  <div id="staff-create-modal" class="modal-backdrop" hidden><div class="modal"><div class="modal-head"><h2>職員を登録</h2><button class="icon-button" type="button" data-close-modal>×</button></div><form id="staff-create-form" class="modal-body"><div class="form-grid"><div class="field"><label>表示名</label><input type="text" name="display_name" required></div><div class="field"><label>権限</label><select name="role"><option value="staff">担当者</option><option value="reviewer">確認者</option><option value="manager">管理者</option><option value="owner">代表</option></select></div><div class="field"><label>メール</label><input name="email" type="email"></div><div class="field"><label>電話番号</label><input type="text" name="phone"></div><div class="field field-full"><button class="btn btn-primary btn-block" type="submit">登録する</button></div></div></form></div></div>
+
+  <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
+</body>
+</html>

@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#17324D">
+  <title>顧問先マイページ｜DPRO 税理士・会計事務所</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="config.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body data-page="member" class="portal-shell">
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="portal-topbar">
+    <div class="header-inner">
+      <a class="brand" href="index.html"><span class="brand-mark">D</span><span class="brand-copy"><span>DPRO 税理士・会計事務所</span><small>顧問先マイページ</small></span></a>
+      <div class="user-chip"><div id="member-avatar" class="user-avatar">顧</div><div><strong id="member-name">確認中...</strong><div class="small" style="color:rgba(255,255,255,.7)" id="member-position"></div></div></div>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="portal-hero">
+      <div class="container">
+        <div class="portal-hero-row">
+          <div><p class="eyebrow">Client Portal</p><h1 id="client-name">顧問先情報を読み込み中...</h1><p class="lead" id="client-meta"></p></div>
+          <div class="button-row"><a class="btn btn-secondary" href="index.html#booking">面談予約</a><button class="btn btn-primary" type="button" data-open-modal="inquiry-modal">相談を送る</button></div>
+        </div>
+        <div class="summary-grid">
+          <div class="summary-card"><div class="label">進行中の案件</div><div id="summary-cases" class="value">－</div></div>
+          <div class="summary-card"><div class="label">提出待ち資料</div><div id="summary-documents" class="value">－</div></div>
+          <div class="summary-card"><div class="label">今後の面談</div><div id="summary-appointments" class="value">－</div></div>
+          <div class="summary-card"><div class="label">対応中の相談</div><div id="summary-inquiries" class="value">－</div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section-tight">
+      <div class="container">
+        <div id="member-alert"></div>
+        <div class="security-notice"><span aria-hidden="true">⚠️</span><div><strong>書類提出前に必ずご確認ください</strong><span id="member-security-notice">マイナンバー、暗証番号、パスワードが写った資料は送信しないでください。</span></div></div>
+      </div>
+    </section>
+
+    <section class="section-tight">
+      <div class="container">
+        <div class="tabs" role="tablist" aria-label="マイページメニュー">
+          <button class="tab-button active" type="button" data-member-tab="cases">案件進捗</button>
+          <button class="tab-button" type="button" data-member-tab="documents">提出資料</button>
+          <button class="tab-button" type="button" data-member-tab="appointments">面談予約</button>
+          <button class="tab-button" type="button" data-member-tab="inquiries">相談履歴</button>
+        </div>
+
+        <div id="member-loading" class="loading"><span class="spinner" role="status" aria-label="読み込み中"></span></div>
+        <section id="member-panel-cases" class="panel" data-member-panel="cases"><div id="case-list" class="list"></div></section>
+        <section id="member-panel-documents" class="panel" data-member-panel="documents" hidden><div id="document-request-list" class="list"></div></section>
+        <section id="member-panel-appointments" class="panel" data-member-panel="appointments" hidden><div class="section-head"><div><h2>面談予約</h2><p>変更・取消の希望もこちらから送信できます。</p></div><a class="btn btn-primary" href="index.html#booking">新しい予約</a></div><div id="appointment-list" class="list"></div></section>
+        <section id="member-panel-inquiries" class="panel" data-member-panel="inquiries" hidden><div class="section-head"><div><h2>相談履歴</h2></div><button class="btn btn-primary" type="button" data-open-modal="inquiry-modal">新しい相談</button></div><div id="inquiry-list" class="list"></div></section>
+      </div>
+    </section>
+  </main>
+
+  <div id="upload-modal" class="modal-backdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="upload-title">
+      <div class="modal-head"><h2 id="upload-title">書類を提出</h2><button class="icon-button" type="button" data-close-modal aria-label="閉じる">×</button></div>
+      <form id="upload-form" class="modal-body">
+        <input id="upload-request-id" name="request_id" type="hidden"><input id="upload-item-id" name="request_item_id" type="hidden">
+        <div class="field"><label for="upload-file">提出ファイル<span class="required">必須</span></label><input id="upload-file" name="file" type="file" accept="application/pdf,image/jpeg,image/png,image/webp,image/heic,image/heif" required><div class="small muted">PDF・JPEG・PNG・WebP・HEIC・HEIF、最大10MB</div></div>
+        <div class="security-notice" style="margin:18px 0"><span>⚠️</span><div><strong>送信禁止情報</strong>マイナンバー、暗証番号、パスワードが写っていないか確認してください。</div></div>
+        <label class="check-row"><input id="sensitive-confirm" type="checkbox" required><span>送信禁止情報を含んでいないことを確認しました。</span></label>
+        <div class="button-row" style="margin-top:22px"><button class="btn btn-secondary" type="button" data-close-modal>戻る</button><button class="btn btn-primary" type="submit">安全に提出する</button></div>
+      </form>
+    </div>
+  </div>
+
+  <div id="inquiry-modal" class="modal-backdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="member-inquiry-title">
+      <div class="modal-head"><h2 id="member-inquiry-title">新しい相談</h2><button class="icon-button" type="button" data-close-modal aria-label="閉じる">×</button></div>
+      <form id="member-inquiry-form" class="modal-body">
+        <div class="form-grid">
+          <div class="field"><label for="member-inquiry-category">相談区分</label><select id="member-inquiry-category" name="category"><option value="tax_consultation">税務相談</option><option value="documents">資料について</option><option value="appointment">面談について</option><option value="contract">ご契約について</option><option value="billing">料金・請求について</option><option value="other">その他</option></select></div>
+          <div class="field"><label for="member-inquiry-subject">件名</label><input type="text" id="member-inquiry-subject" name="subject" required></div>
+          <div class="field field-full"><label for="member-inquiry-body">相談内容</label><textarea id="member-inquiry-body" name="body" required></textarea></div>
+          <div class="field field-full"><button class="btn btn-primary btn-block" type="submit">相談を送信する</button></div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="appointment-modal" class="modal-backdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="appointment-action-title">
+      <div class="modal-head"><h2 id="appointment-action-title">予約の変更・取消</h2><button class="icon-button" type="button" data-close-modal aria-label="閉じる">×</button></div>
+      <form id="appointment-action-form" class="modal-body">
+        <input id="appointment-action-id" type="hidden"><input id="appointment-action-type" type="hidden">
+        <div id="appointment-change-field" class="field"><label for="appointment-change-at">変更希望日時</label><input id="appointment-change-at" type="datetime-local" step="1800"></div>
+        <div class="field" style="margin-top:16px"><label for="appointment-action-message">事務所への連絡</label><textarea id="appointment-action-message"></textarea></div>
+        <button class="btn btn-primary btn-block" style="margin-top:20px" type="submit">希望を送信する</button>
+      </form>
+    </div>
+  </div>
+
+  <footer class="site-footer"><div class="container footer-row"><a href="index.html">トップへ戻る</a><span id="member-version"></span></div></footer>
+  <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
+</body>
+</html>

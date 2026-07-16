@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#17324D">
+  <title>スタッフiPad｜DPRO 税理士・会計事務所</title>
+  <link rel="stylesheet" href="styles.css"><script src="config.js" defer></script><script src="app.js" defer></script>
+</head>
+<body data-page="ipad" class="ipad-body">
+  <section id="ipad-auth" class="auth-screen"><form id="ipad-login-form" class="auth-card"><div class="brand"><span class="brand-mark">D</span><span class="brand-copy"><span>DPRO 税理士・会計事務所</span><small>スタッフiPad</small></span></div><h1 style="font-size:30px">今日の業務を開く</h1><p class="muted">管理コードを入力してください。</p><div id="ipad-login-alert"></div><div class="field"><label for="ipad-admin-code">管理コード</label><div class="admin-code-row"><input id="ipad-admin-code" type="password" inputmode="numeric" autocomplete="current-password" required><button id="ipad-code-clear" class="btn btn-secondary" type="button">削除</button></div></div><button class="btn btn-primary btn-block ipad-action" style="margin-top:18px" type="submit">開く</button></form></section>
+  <div id="ipad-app" hidden>
+    <header class="ipad-header"><div class="brand"><span class="brand-mark">D</span><span class="brand-copy"><span>DPRO 税理士・会計事務所</span><small>スタッフiPad・今日の業務</small></span></div><div class="button-row"><span id="ipad-date"></span><button id="ipad-refresh" class="btn btn-light" type="button">更新</button><button id="ipad-logout" class="btn btn-light" type="button">終了</button></div></header>
+    <main class="ipad-main">
+      <div id="ipad-alert"></div>
+      <section class="ipad-metrics"><div class="ipad-card"><div class="muted">面談・変更希望</div><div id="ipad-metric-appointments" class="value">－</div></div><div class="ipad-card"><div class="muted">新着書類</div><div id="ipad-metric-documents" class="value">－</div></div><div class="ipad-card"><div class="muted">未対応相談</div><div id="ipad-metric-inquiries" class="value">－</div></div><div class="ipad-card"><div class="muted">期限タスク</div><div id="ipad-metric-tasks" class="value">－</div></div></section>
+      <section class="ipad-columns"><div class="panel-card"><div class="panel-card-head"><h2>面談・予約対応</h2></div><div id="ipad-appointments" class="list"></div></div><div class="panel-card"><div class="panel-card-head"><h2>提出書類の確認</h2></div><div id="ipad-documents" class="list"></div></div></section>
+      <section class="ipad-columns"><div class="panel-card"><div class="panel-card-head"><h2>相談・問い合わせ</h2></div><div id="ipad-inquiries" class="list"></div></div><div class="panel-card"><div class="panel-card-head"><h2>タスク・期限</h2></div><div id="ipad-tasks" class="list"></div></div></section>
+      <div class="button-row" style="margin-top:18px"><a class="btn btn-navy ipad-action" href="owner.html?demo=1">PC管理画面へ</a><a class="btn btn-secondary ipad-action" href="system-check.html?demo=1">システム確認</a></div>
+    </main>
+  </div>
+  <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
+</body>
+</html>

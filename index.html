@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="DPRO税理士・会計事務所の面談予約、税務相談、資料提出をLINEで分かりやすく管理します。">
+  <meta name="theme-color" content="#17324D">
+  <title>DPRO 税理士・会計事務所 LINE</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="config.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body data-page="public">
+  <a class="skip-link" href="#main">本文へ移動</a>
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="index.html" aria-label="トップへ">
+        <span class="brand-mark">D</span>
+        <span class="brand-copy"><span>DPRO 税理士・会計事務所</span><small>顧問先サポート LINE</small></span>
+      </a>
+      <nav class="top-nav" aria-label="メインメニュー">
+        <a href="#booking">面談予約</a>
+        <a href="#inquiry">税務・会計相談</a>
+        <a href="member.html?demo=1&line_user_id=demo_tax_line_001">顧問先マイページ</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero">
+      <div class="container hero-grid">
+        <div>
+          <p class="eyebrow">Tax &amp; Accounting Client Support</p>
+          <h1>税務・会計のやり取りを、<br>LINEでもっと分かりやすく。</h1>
+          <p class="lead">資料提出、案件の進捗確認、面談予約、税務相談をひとつの窓口に。電話やメールに分散しがちな連絡を、安心して確認できます。</p>
+          <div class="hero-actions">
+            <a class="btn btn-primary" href="member.html?demo=1&line_user_id=demo_tax_line_001">顧問先マイページを開く</a>
+            <a class="btn btn-light" href="#booking">面談を予約する</a>
+            <button class="btn btn-light" type="button" data-open-modal="register-modal">はじめての方</button>
+          </div>
+        </div>
+        <aside class="hero-panel" aria-label="主な機能">
+          <h2>この窓口でできること</h2>
+          <ul>
+            <li>提出が必要な資料と期限を確認</li>
+            <li>申告・月次業務の進捗を共有</li>
+            <li>30分単位で面談希望を送信</li>
+            <li>相談内容を履歴として管理</li>
+          </ul>
+        </aside>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <div class="section-head">
+          <div><p class="eyebrow">Quick Access</p><h2>ご希望の手続きからお進みください</h2></div>
+        </div>
+        <div class="card-grid">
+          <article class="card action-card">
+            <div class="icon-tile" aria-hidden="true">📄</div>
+            <h3>資料提出・進捗確認</h3>
+            <p>依頼資料の一覧、提出状況、案件の進み具合を確認できます。</p>
+            <a class="btn btn-navy btn-block" href="member.html?demo=1&line_user_id=demo_tax_line_001">マイページへ</a>
+          </article>
+          <article class="card action-card">
+            <div class="icon-tile" aria-hidden="true">📅</div>
+            <h3>面談予約</h3>
+            <p>税務相談、月次確認、決算前相談などの希望日時を送信します。</p>
+            <a class="btn btn-secondary btn-block" href="#booking">空き時間を確認</a>
+          </article>
+          <article class="card action-card">
+            <div class="icon-tile" aria-hidden="true">💬</div>
+            <h3>税務・会計相談</h3>
+            <p>相談内容を記録して送信できます。担当者が確認後にご連絡します。</p>
+            <a class="btn btn-secondary btn-block" href="#inquiry">相談を送る</a>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="booking" class="section" style="background:#fff">
+      <div class="container">
+        <div class="section-head">
+          <div><p class="eyebrow">Appointment</p><h2>面談予約</h2><p>希望日時を送信後、事務所からの確定連絡をお待ちください。</p></div>
+        </div>
+        <div id="public-alert"></div>
+        <form id="booking-form" class="card form-card">
+          <div class="form-grid">
+            <div class="field">
+              <label for="booking-service">ご相談内容<span class="required">必須</span></label>
+              <select id="booking-service" name="service_id" required><option value="">読み込み中...</option></select>
+            </div>
+            <div class="field">
+              <label for="booking-date">希望日<span class="required">必須</span></label>
+              <input id="booking-date" name="booking_date" type="date" required>
+            </div>
+            <div class="field field-full">
+              <span class="label">希望時間<span class="required">必須</span></span>
+              <div id="slot-message" class="muted small">相談内容と希望日を選択してください。</div>
+              <div id="slot-grid" class="slot-grid" aria-live="polite"></div>
+              <input id="booking-start" name="requested_start_at" type="hidden">
+            </div>
+            <div class="field">
+              <label for="requester-name">お名前<span class="required">必須</span></label>
+              <input type="text" id="requester-name" name="requester_name" autocomplete="name" placeholder="例：田中 一郎" required>
+            </div>
+            <div class="field">
+              <label for="requester-phone">電話番号<span class="required">必須</span></label>
+              <input type="text" id="requester-phone" name="requester_phone" inputmode="tel" autocomplete="tel" placeholder="例：090-1111-2201" required>
+            </div>
+            <div class="field">
+              <label for="requester-email">メールアドレス</label>
+              <input id="requester-email" name="requester_email" type="email" autocomplete="email" placeholder="例：sample@example.com">
+            </div>
+            <div class="field">
+              <label for="appointment-channel">面談方法<span class="required">必須</span></label>
+              <select id="appointment-channel" name="appointment_channel" required>
+                <option value="in_person">事務所で面談</option><option value="online">オンライン</option><option value="phone">電話</option>
+              </select>
+            </div>
+            <div class="field field-full">
+              <label for="booking-message">事前に伝えたいこと</label>
+              <textarea id="booking-message" name="message" placeholder="ご相談の概要や確認したいことをご入力ください。"></textarea>
+            </div>
+            <div class="field field-full">
+              <button class="btn btn-primary btn-block" type="submit">面談希望を送信する</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <section id="inquiry" class="section">
+      <div class="container">
+        <div class="section-head">
+          <div><p class="eyebrow">Inquiry</p><h2>税務・会計のご相談</h2><p>マイページ連携前の方も相談を送信できます。</p></div>
+        </div>
+        <form id="inquiry-form" class="card form-card">
+          <div class="security-notice field-full" style="margin-bottom:22px"><span aria-hidden="true">⚠️</span><div><strong>機密情報は送らないでください</strong>マイナンバー、暗証番号、パスワード、秘密鍵は入力しないでください。</div></div>
+          <div class="form-grid">
+            <div class="field">
+              <label for="inquiry-category">相談区分<span class="required">必須</span></label>
+              <select id="inquiry-category" name="category" required>
+                <option value="tax_consultation">税務相談</option><option value="documents">資料について</option><option value="appointment">面談について</option><option value="contract">ご契約について</option><option value="billing">料金・請求について</option><option value="other">その他</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="inquiry-subject">件名<span class="required">必須</span></label>
+              <input type="text" id="inquiry-subject" name="subject" placeholder="例：決算前の確認について" required>
+            </div>
+            <div class="field field-full">
+              <label for="inquiry-body">相談内容<span class="required">必須</span></label>
+              <textarea id="inquiry-body" name="body" placeholder="確認したい内容をご入力ください。" required></textarea>
+            </div>
+            <div class="field field-full"><button class="btn btn-navy btn-block" type="submit">相談を送信する</button></div>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <section class="section-tight">
+      <div class="container security-notice"><span aria-hidden="true">🔒</span><div><strong>お預かりする書類は非公開領域で管理します</strong><span id="security-notice-text">マイナンバー、暗証番号、パスワードが写った資料は送信しないでください。</span></div></div>
+    </section>
+  </main>
+
+  <footer class="site-footer"><div class="container footer-row"><span>© 2026 DPRO 税理士・会計事務所</span><span>顧問先対応・資料回収・面談予約・進捗共有</span></div></footer>
+  <div id="register-modal" class="modal-backdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="register-title">
+      <div class="modal-head"><h2 id="register-title">初回登録</h2><button class="icon-button" type="button" data-close-modal aria-label="閉じる">×</button></div>
+      <form id="register-form" class="modal-body">
+        <div class="form-grid">
+          <div class="field"><label for="register-name">ご担当者名<span class="required">必須</span></label><input type="text" id="register-name" name="full_name" autocomplete="name" required></div>
+          <div class="field"><label for="register-legal-name">会社名・屋号・お名前<span class="required">必須</span></label><input type="text" id="register-legal-name" name="legal_name" required></div>
+          <div class="field"><label for="register-client-type">区分</label><select id="register-client-type" name="client_type"><option value="corporation">法人</option><option value="sole_proprietor">個人事業</option><option value="individual">個人</option><option value="spot">スポット相談</option></select></div>
+          <div class="field"><label for="register-role">ご関係</label><select id="register-role" name="relationship_role"><option value="representative">代表者</option><option value="accounting_contact">経理担当</option><option value="general_affairs">総務担当</option><option value="other">その他</option></select></div>
+          <div class="field"><label for="register-phone">電話番号<span class="required">必須</span></label><input type="text" id="register-phone" name="phone" inputmode="tel" autocomplete="tel" required></div>
+          <div class="field"><label for="register-email">メールアドレス</label><input id="register-email" name="email" type="email" autocomplete="email"></div>
+          <div class="field field-full"><label class="check-row"><input name="privacy_consent" type="checkbox" required><span>プライバシーポリシーに同意します。</span></label></div>
+          <div class="field field-full"><label class="check-row"><input name="terms_consent" type="checkbox" required><span>利用規約に同意します。</span></label></div>
+          <div class="field field-full"><button class="btn btn-primary btn-block" type="submit">登録する</button></div>
+        </div>
+      </form>
+    </div>
+  </div>
+  <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
+</body>
+</html>
