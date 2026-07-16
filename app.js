@@ -360,6 +360,8 @@
     $$('[data-client-options]').forEach((select) => { select.innerHTML = clientOptions; });
     const serviceOptions = `<option value="">選択してください</option>${(adminState.services || []).map((item) => `<option value="${esc(item.id)}">${esc(item.service_name)}（${item.duration_minutes}分）</option>`).join("")}`;
     $$('[data-service-options]').forEach((select) => { select.innerHTML = serviceOptions; });
+    const staffOptions = `<option value="">担当者を指定しない</option>${adminState.staff.filter((item) => item.is_active).map((item) => `<option value="${esc(item.id)}">${esc(item.display_name)}（${esc(label(item.role))}）</option>`).join("")}`;
+    $$('[data-staff-options]').forEach((select) => { select.innerHTML = staffOptions; });
   }
 
   function renderOwner() {
@@ -419,7 +421,16 @@
 
   function renderSettings() {
     const office = adminState.settings?.office; if (!office) return;
-    $("#setting-office-name").value = office.office_name || ""; $("#setting-phone").value = office.phone || ""; $("#setting-email").value = office.email || ""; $("#setting-booking-days").value = office.booking_open_days || 90; $("#setting-subtitle").value = office.subtitle || ""; $("#setting-security").value = office.security_notice || "";
+    $("#setting-office-name").value = office.office_name || ""; $("#setting-phone").value = office.phone || ""; $("#setting-email").value = office.email || ""; $("#setting-booking-days").value = office.booking_open_days || 90; $("#setting-postal-code").value = office.postal_code || ""; $("#setting-address").value = office.address || ""; $("#setting-subtitle").value = office.subtitle || ""; $("#setting-security").value = office.security_notice || "";
+    const services = adminState.settings?.services || [];
+    $("#settings-services").innerHTML = services.length ? services.map((item) => `<div class="list-item"><div class="list-item-head"><strong>${esc(item.service_name)}</strong><span class="status" data-tone="${item.is_active !== false ? "success" : "default"}">${item.is_active !== false ? "有効" : "無効"}</span></div><div class="meta-row"><span>${Number(item.duration_minutes)}分</span><span>${esc((item.channel_options || []).map(label).join("・"))}</span><span>${item.is_public !== false ? "顧客画面に表示" : "内部用"}</span></div></div>`).join("") : empty("面談メニューがありません。");
+    const dayNames = ["日", "月", "火", "水", "木", "金", "土"];
+    const hours = adminState.settings?.business_hours || [];
+    const hourRows = hours.map((item) => `<div class="schedule-row"><strong>${dayNames[Number(item.day_of_week)] || "－"}曜日</strong><span>${item.is_closed ? "休業" : `${esc(String(item.open_time || "").slice(0, 5))}～${esc(String(item.close_time || "").slice(0, 5))}`}</span></div>`).join("");
+    const closed = (adminState.settings?.closed_dates || []).filter((item) => item.closed_date >= todayJst()).slice(0, 3);
+    const closedRows = closed.length ? `<div class="schedule-note"><strong>臨時休業・特別時間</strong>${closed.map((item) => `<div>${formatDate(item.closed_date)}　${esc(item.reason || (item.is_closed_all_day ? "休業" : "時間変更"))}</div>`).join("")}</div>` : "";
+    $("#settings-business-hours").innerHTML = hourRows || empty("受付時間が設定されていません。");
+    $("#settings-business-hours").insertAdjacentHTML("beforeend", closedRows);
   }
 
   function showAdminView(view) {
@@ -515,15 +526,49 @@
     ];
     forms.forEach(([selector, path, transform, message]) => $(selector).addEventListener("submit", async (event) => {
       event.preventDefault(); const form = event.currentTarget; const button = $("button[type=submit]", form);
-      try { setButtonBusy(button, true, "登録中..."); await api(path, { method: "POST", body: transform(formObject(form)), adminKey: adminState.key }); toast(message); closeModal(form); form.reset(); await refreshOwner(); }
+      try { setButtonBusy(button, true, "登録中..."); await api(path, { method: "POST", body: transform(formObject(form)), adminKey: adminState.key }); toast(message); closeModal(form); form.reset(); if (selector === "#admin-appointment-form") clearAppointmentClientSelection(); await refreshOwner(); }
       catch (error) { toast(error.message, "error"); } finally { setButtonBusy(button, false); }
     }));
-    $("#settings-form").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const button = $("button[type=submit]", form); const body = formObject(form); body.booking_open_days = Number(body.booking_open_days); try { setButtonBusy(button, true, "保存中..."); await api("/api/admin/settings", { method: "PATCH", body, adminKey: adminState.key }); toast("設定を保存しました。"); await refreshOwner(); } catch (error) { toast(error.message, "error"); } finally { setButtonBusy(button, false); } });
-    $("#appointment-client-search-button").addEventListener("click", () => {
-      const raw = $("#appointment-client-search").value; const q = normalizePhone(raw) || raw.toLowerCase(); const results = adminState.clients.filter((item) => [item.legal_name, item.client_code, item.phone, item.phone_normalized].some((value) => String(value || "").normalize("NFKC").toLowerCase().includes(q))).slice(0, 8);
-      $("#appointment-client-results").innerHTML = results.length ? results.map((item) => `<button class="list-item" style="width:100%;text-align:left;cursor:pointer" type="button" data-select-appointment-client="${item.id}"><strong>${esc(item.legal_name)}</strong><div class="small muted">${esc(item.client_code)} ／ ${esc(item.phone || "電話未登録")}</div></button>`).join("") : empty("一致する顧問先がありません。");
+    $("#settings-form").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const button = $("button[type=submit]", form); const body = formObject(form); body.booking_open_days = Number(body.booking_open_days); try { setButtonBusy(button, true, "保存中..."); await api("/api/admin/settings", { method: "PATCH", body, adminKey: adminState.key }); $("#settings-save-status").textContent = `保存しました：${formatDate(new Date().toISOString(), true)}`; toast("事務所・予約設定を保存しました。"); await refreshOwner(); } catch (error) { toast(error.message, "error"); } finally { setButtonBusy(button, false); } });
+    $("#appointment-client-search").addEventListener("input", (event) => {
+      const normalized = normalizePhone(event.currentTarget.value);
+      $("#appointment-phone-normalized").textContent = normalized.length >= 10 ? `検索用電話番号：${normalized}` : "";
     });
-    $("#appointment-client-results").addEventListener("click", (event) => { const target = event.target.closest("[data-select-appointment-client]"); if (!target) return; const client = adminState.clients.find((item) => item.id === target.dataset.selectAppointmentClient); $("#appointment-client-id").value = client.id; $("#admin-requester-name").value = client.representative_name || client.legal_name; $("#admin-requester-phone").value = client.phone || ""; $("#appointment-client-results").innerHTML = alertBox(`${client.legal_name}を選択しました。`, "success"); });
+    $("#appointment-client-search").addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); $("#appointment-client-search-button").click(); } });
+    $("#appointment-client-search-button").addEventListener("click", () => {
+      const raw = $("#appointment-client-search").value.trim();
+      if (!raw) { $("#appointment-client-results").innerHTML = alertBox("名前・電話番号・顧問先コードのいずれかを入力してください。"); return; }
+      const normalized = normalizePhone(raw); const q = (normalized.length >= 10 ? normalized : raw.normalize("NFKC")).toLowerCase();
+      const results = adminState.clients.filter((item) => item.status !== "ended" && [item.legal_name, item.trade_name, item.representative_name, item.client_code, item.phone, item.phone_normalized, item.email].some((value) => String(value || "").normalize("NFKC").toLowerCase().includes(q))).slice(0, 8);
+      $("#appointment-client-results").innerHTML = results.length ? results.map((item) => `<button class="client-result" type="button" data-select-appointment-client="${item.id}"><span><strong>${esc(item.legal_name)}</strong><small>${esc(item.client_code)} ／ ${esc(item.representative_name || "代表者未登録")}</small></span><span class="client-result-phone">${esc(item.phone || "電話未登録")}</span></button>`).join("") : `<div class="empty">一致する顧問先がありません。未登録の相談者として予約者情報を入力できます。</div>`;
+    });
+    $("#appointment-client-results").addEventListener("click", async (event) => {
+      const target = event.target.closest("[data-select-appointment-client]"); if (!target) return;
+      await selectAppointmentClient(target.dataset.selectAppointmentClient);
+    });
+    $("#appointment-selected-client").addEventListener("click", (event) => {
+      if (event.target.closest("[data-clear-appointment-client]")) { clearAppointmentClientSelection(); return; }
+      const target = event.target.closest("[data-select-appointment-contact]"); if (!target) return;
+      const contact = adminState.appointmentClientDetail?.contacts?.find((item) => item.id === target.dataset.selectAppointmentContact); if (!contact) return;
+      $("#appointment-contact-id").value = contact.id; $("#admin-requester-name").value = contact.full_name || ""; $("#admin-requester-phone").value = contact.phone || ""; $("#admin-requester-email").value = contact.email || ""; toast(`${contact.full_name}さんを予約者に選択しました。`);
+    });
+  }
+
+  function clearAppointmentClientSelection() {
+    $("#appointment-client-id").value = ""; $("#appointment-contact-id").value = ""; $("#appointment-client-search").value = ""; $("#appointment-phone-normalized").textContent = ""; $("#appointment-client-results").innerHTML = ""; $("#appointment-selected-client").innerHTML = ""; $("#appointment-selected-client").hidden = true; adminState.appointmentClientDetail = null;
+  }
+
+  async function selectAppointmentClient(id) {
+    const selected = $("#appointment-selected-client");
+    try {
+      selected.hidden = false; selected.innerHTML = '<div class="loading"><span class="spinner" role="status" aria-label="顧問先情報を読み込み中"></span></div>';
+      const data = await api(`/api/admin/clients/${id}`, { adminKey: adminState.key }); const client = data.client; adminState.appointmentClientDetail = data;
+      $("#appointment-client-id").value = client.id; $("#appointment-contact-id").value = ""; $("#admin-requester-name").value = client.representative_name || client.legal_name; $("#admin-requester-phone").value = client.phone || ""; $("#admin-requester-email").value = client.email || "";
+      const activeCases = data.cases.filter((item) => !["completed", "cancelled"].includes(item.status));
+      const contacts = data.contacts.length ? `<div class="contact-choice"><strong>予約者を連絡先から選択</strong><div class="button-row">${data.contacts.map((item) => `<button class="btn btn-secondary btn-sm" type="button" data-select-appointment-contact="${item.id}">${esc(item.full_name)}${item.position_title ? `（${esc(item.position_title)}）` : ""}</button>`).join("")}</div></div>` : "";
+      selected.innerHTML = `<div class="selected-client-head"><div><span class="status" data-tone="success">既存顧問先</span><h3>${esc(client.legal_name)}</h3><p class="small muted">${esc(client.client_code)} ／ ${esc(client.representative_name || "代表者未登録")} ／ ${esc(client.phone || "電話未登録")}</p></div><button class="btn btn-secondary btn-sm" type="button" data-clear-appointment-client>選択解除</button></div><div class="selected-client-metrics"><span>進行中案件 <strong>${activeCases.length}</strong></span><span>資料依頼 <strong>${data.document_requests.length}</strong></span><span>予約履歴 <strong>${data.appointments.length}</strong></span><span>相談履歴 <strong>${data.inquiries.length}</strong></span></div>${contacts}`;
+      $("#appointment-client-results").innerHTML = "";
+    } catch (error) { selected.hidden = true; toast(error.message, "error"); }
   }
 
   async function initIpad() {
