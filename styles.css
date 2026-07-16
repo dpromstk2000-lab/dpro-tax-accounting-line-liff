@@ -403,6 +403,24 @@ tbody tr:hover { background: #fbfdfd; }
 .submission-row small { display: block; margin-top: 3px; color: var(--slate-600); }
 .file-selection { margin-top: 10px; padding: 12px 14px; border: 1px solid #99f6e4; border-radius: 12px; background: var(--teal-50); color: var(--teal-800); font-weight: 700; overflow-wrap: anywhere; }
 .file-selection.error { border-color: #fecaca; background: var(--danger-bg); color: var(--danger); }
+.document-review-summary { display: grid; gap: 14px; }
+.review-file-card { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 18px; border: 1px solid var(--slate-200); border-radius: 16px; background: var(--slate-50); }
+.review-file-card h3 { margin-top: 9px; overflow-wrap: anywhere; }
+.review-file-card p { margin: 6px 0 0; color: var(--slate-600); }
+.review-context-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
+.review-context-grid span { padding: 13px; border: 1px solid var(--slate-200); border-radius: 12px; color: var(--slate-600); font-size: 13px; }
+.review-context-grid strong { display: block; margin-top: 4px; color: var(--navy-900); font-size: 15px; }
+.document-open-actions { margin: 16px 0; padding-bottom: 16px; border-bottom: 1px solid var(--slate-200); }
+.document-review-form { display: grid; gap: 15px; }
+.review-action-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; }
+.document-audit { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--slate-200); }
+.timeline-list { display: grid; gap: 0; margin-top: 12px; }
+.timeline-row { position: relative; display: grid; grid-template-columns: 20px 1fr; gap: 9px; min-height: 54px; }
+.timeline-row::before { content: ""; position: absolute; left: 6px; top: 15px; bottom: -2px; width: 2px; background: var(--slate-200); }
+.timeline-row:last-child::before { display: none; }
+.timeline-dot { z-index: 1; width: 14px; height: 14px; margin-top: 3px; border: 3px solid #ccfbf1; border-radius: 50%; background: var(--teal-700); }
+.timeline-row strong, .timeline-row small { display: block; }
+.timeline-row small { margin-top: 3px; color: var(--slate-600); }
 
 .modal-backdrop { position: fixed; inset: 0; z-index: 1000; padding: 24px; display: grid; place-items: center; background: rgba(5,18,30,.62); }
 .modal { width: min(720px, 100%); max-height: calc(100vh - 48px); overflow-y: auto; border-radius: 22px; background: #fff; box-shadow: 0 28px 80px rgba(0,0,0,.3); }
@@ -468,6 +486,8 @@ tbody tr:hover { background: #fbfdfd; }
   .compact-form .field-full { grid-column: auto; }
   .closed-date-row { align-items: flex-start; }
   .submission-row { align-items: flex-start; flex-direction: column; }
+  .review-context-grid, .review-action-grid { grid-template-columns: 1fr; }
+  .review-file-card { flex-direction: column; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -28,7 +28,8 @@
     consumption_tax: "消費税", year_end_adjustment: "年末調整", depreciable_assets: "償却資産",
     statutory_reports: "法定調書", new_engagement: "新規契約", tax_audit_support: "税務調査", tax_return: "申告",
     monthly: "月次", closing: "決算", consultation: "相談", document_check: "資料確認", reply: "返信",
-    review: "レビュー", deadline: "期限", follow_up: "フォロー",
+    review: "確認開始", accept: "確認済み", reject: "差戻し", upload: "提出", view: "閲覧", download: "ダウンロード", quarantine: "隔離", delete: "削除",
+    client_contact: "顧問先担当者", system: "システム", deadline: "期限", follow_up: "フォロー",
   };
 
   function esc(value) {
@@ -416,7 +417,9 @@
   }
 
   function renderDocuments() {
-    $("#documents-table-body").innerHTML = adminState.documents.length ? adminState.documents.map((item) => `<tr><td>${formatDate(item.submitted_at, true)}</td><td>${esc(clientName(item.client_id))}</td><td><strong>${esc(item.original_filename)}</strong><div class="small muted">${esc(item.mime_type)} ／ ${formatBytes(item.file_size_bytes)}</div></td><td>${badge(item.status)}</td><td><div class="table-actions">${!item.is_demo_placeholder ? `<button class="btn btn-secondary btn-sm" data-document-view="${item.id}" type="button">表示</button>` : ""}<button class="btn btn-primary btn-sm" data-document-review="accepted" data-id="${item.id}" type="button">確認済み</button><button class="btn btn-danger btn-sm" data-document-review="rejected" data-id="${item.id}" type="button">差戻し</button></div></td></tr>`).join("") : `<tr><td colspan="5">${empty("提出書類がありません。")}</td></tr>`;
+    const status = $("#document-status-filter")?.value || ""; const query = ($("#document-search")?.value || "").trim().normalize("NFKC").toLowerCase();
+    const list = adminState.documents.filter((item) => (!status || item.status === status) && (!query || [item.original_filename, item.submission_code, item.mime_type, clientName(item.client_id)].some((value) => String(value || "").normalize("NFKC").toLowerCase().includes(query))));
+    $("#documents-table-body").innerHTML = list.length ? list.map((item) => `<tr><td>${formatDate(item.submitted_at, true)}</td><td>${esc(clientName(item.client_id))}</td><td><strong>${esc(item.original_filename)}</strong><div class="small muted">${esc(item.submission_code)} ／ ${formatBytes(item.file_size_bytes)}</div></td><td>${badge(item.status)}${item.reviewed_at ? `<div class="small muted">${formatDate(item.reviewed_at, true)}</div>` : ""}</td><td><button class="btn ${["new", "reviewing"].includes(item.status) ? "btn-primary" : "btn-secondary"} btn-sm" data-document-review-open="${item.id}" type="button">確認画面</button></td></tr>`).join("") : `<tr><td colspan="5">${empty("条件に一致する提出書類がありません。")}</td></tr>`;
     $("#requests-table-body").innerHTML = adminState.requests.length ? adminState.requests.map((item) => `<tr><td><strong>${esc(item.title)}</strong><div class="small muted">${esc(item.request_code)} ／ ${item.items?.length || 0}項目</div></td><td>${esc(clientName(item.client_id))}</td><td>${formatDate(item.due_on)}</td><td>${badge(item.status)}</td><td><button class="btn btn-danger btn-sm" data-soft-delete="request" data-id="${item.id}" type="button">終了</button></td></tr>`).join("") : `<tr><td colspan="5">${empty("資料依頼がありません。")}</td></tr>`;
   }
 
@@ -493,7 +496,7 @@
       if (event.target.closest("[data-refresh-admin]")) { try { await refreshOwner(); toast("最新情報に更新しました。"); } catch (error) { toast(error.message, "error"); } }
       const detail = event.target.closest("[data-client-detail]"); if (detail) await showClientDetail(detail.dataset.clientDetail);
       const progress = event.target.closest("[data-case-progress]"); if (progress) await updateCaseProgress(progress.dataset.caseProgress);
-      const review = event.target.closest("[data-document-review]"); if (review) await reviewDocument(review.dataset.id, review.dataset.documentReview);
+      const review = event.target.closest("[data-document-review-open]"); if (review) await openDocumentReview(review.dataset.documentReviewOpen);
       const view = event.target.closest("[data-document-view]"); if (view) await viewDocument(view.dataset.documentView);
       const appointment = event.target.closest("[data-appointment-status]"); if (appointment) await patchAdmin(`/api/admin/appointments/${appointment.dataset.id}`, { status: appointment.dataset.appointmentStatus }, "予約を更新しました。");
       const inquiry = event.target.closest("[data-inquiry-status]"); if (inquiry) await patchAdmin(`/api/admin/inquiries/${inquiry.dataset.id}`, { status: inquiry.dataset.inquiryStatus }, "相談状態を更新しました。");
@@ -507,6 +510,7 @@
     $("#client-search-button").addEventListener("click", renderClients); $("#client-search").addEventListener("input", renderClients); $("#client-status-filter").addEventListener("change", renderClients);
     $("#case-search-button").addEventListener("click", renderCases); $("#case-search").addEventListener("input", renderCases); $("#case-status-filter").addEventListener("change", renderCases);
     $("#appointment-filter-button").addEventListener("click", renderAppointments); $("#inquiry-filter-button").addEventListener("click", renderInquiries);
+    $("#document-filter-button").addEventListener("click", renderDocuments); $("#document-search").addEventListener("input", renderDocuments); $("#document-status-filter").addEventListener("change", renderDocuments);
     $$('[data-document-tab]').forEach((button) => button.addEventListener("click", () => { $$('[data-document-tab]').forEach((node) => node.classList.toggle("active", node === button)); $("#document-submission-table").hidden = button.dataset.documentTab !== "submissions"; $("#document-request-table").hidden = button.dataset.documentTab !== "requests"; }));
     bindOwnerForms();
   }
@@ -524,9 +528,27 @@
     const status = progress === 100 ? "completed" : item.status === "received" ? "in_progress" : item.status; await patchAdmin(`/api/admin/cases/${id}`, { progress_percent: progress, status }, "案件進捗を更新しました。");
   }
 
-  async function reviewDocument(id, status) {
-    const body = { status }; if (status === "rejected") { const reason = prompt("差戻し理由を入力してください。"); if (!reason) return; body.rejection_reason = reason; }
-    await patchAdmin(`/api/admin/documents/${id}/review`, body, status === "accepted" ? "書類を確認済みにしました。" : "書類を差し戻しました。");
+  let documentReviewDetail = null;
+  async function openDocumentReview(id) {
+    openModal("document-review-modal"); $("#document-review-loading").hidden = false; $("#document-review-content").hidden = true;
+    try {
+      const data = await api(`/api/admin/documents/${id}`, { adminKey: adminState.key }); documentReviewDetail = data; const item = data.document;
+      $("#document-review-id").value = item.id; $("#document-review-title").textContent = item.original_filename;
+      $("#document-review-summary").innerHTML = `<div class="review-file-card"><div><span class="status" data-tone="info">${esc(item.submission_code)}</span><h3>${esc(item.original_filename)}</h3><p>${esc(data.client?.legal_name || "－")} ／ ${formatBytes(item.file_size_bytes)} ／ ${esc(item.mime_type || "形式不明")}</p></div>${badge(item.status)}</div><div class="review-context-grid"><span>提出者<strong>${esc(data.contact?.full_name || label(item.submitted_by_type))}</strong></span><span>提出日時<strong>${formatDate(item.submitted_at, true)}</strong></span><span>資料依頼<strong>${esc(data.request?.title || "指定なし")}</strong></span><span>資料項目<strong>${esc(data.request_item?.item_name || "指定なし")}</strong></span></div>`;
+      $("#document-reviewer").innerHTML = data.reviewers.map((staff) => `<option value="${esc(staff.id)}" ${staff.id === item.reviewed_by ? "selected" : ""}>${esc(staff.display_name)}（${esc(label(staff.role))}）</option>`).join("");
+      $("#document-review-note").value = item.rejection_reason || ""; $("#document-review-open").hidden = Boolean(item.is_demo_placeholder);
+      $("#document-review-history").innerHTML = data.access_logs.length ? data.access_logs.map((log) => `<div class="timeline-row"><span class="timeline-dot"></span><div><strong>${esc(label(log.action))}</strong><small>${formatDate(log.created_at, true)} ／ ${esc(label(log.actor_type))}</small></div></div>`).join("") : `<div class="compact-empty">履歴はありません。</div>`;
+      $("#document-review-content").hidden = false;
+    } catch (error) { toast(error.message, "error"); closeModal("document-review-modal"); }
+    finally { $("#document-review-loading").hidden = true; }
+  }
+
+  async function submitDocumentReview(event) {
+    event.preventDefault(); const button = event.submitter; const status = button?.dataset.reviewStatus; if (!status) return; const note = $("#document-review-note").value.trim();
+    if (status === "rejected" && !note) { toast("差戻し理由を入力してください。", "error"); $("#document-review-note").focus(); return; }
+    const body = { status, reviewed_by: $("#document-reviewer").value, rejection_reason: note || null };
+    try { setButtonBusy(button, true, "更新中..."); await api(`/api/admin/documents/${$("#document-review-id").value}/review`, { method: "PATCH", body, adminKey: adminState.key }); toast(status === "accepted" ? "書類を確認済みにしました。" : status === "rejected" ? "書類を差し戻しました。" : "書類を確認中にしました。"); closeModal("document-review-modal"); await refreshOwner(); showAdminView("documents"); }
+    catch (error) { toast(error.message, "error"); } finally { setButtonBusy(button, false); }
   }
 
   async function viewDocument(id) {
@@ -551,6 +573,8 @@
   }
 
   function bindOwnerForms() {
+    $("#document-review-form").addEventListener("submit", submitDocumentReview);
+    $("#document-review-open").addEventListener("click", () => { if (documentReviewDetail?.document?.id) viewDocument(documentReviewDetail.document.id); });
     const forms = [
       ["#client-create-form", "/api/admin/clients", (v) => v, "顧問先を登録しました。"],
       ["#case-create-form", "/api/admin/cases", (v) => v, "案件を登録しました。"],
