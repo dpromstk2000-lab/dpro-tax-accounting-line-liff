@@ -536,7 +536,12 @@
       $("#document-review-id").value = item.id; $("#document-review-title").textContent = item.original_filename;
       $("#document-review-summary").innerHTML = `<div class="review-file-card"><div><span class="status" data-tone="info">${esc(item.submission_code)}</span><h3>${esc(item.original_filename)}</h3><p>${esc(data.client?.legal_name || "－")} ／ ${formatBytes(item.file_size_bytes)} ／ ${esc(item.mime_type || "形式不明")}</p></div>${badge(item.status)}</div><div class="review-context-grid"><span>提出者<strong>${esc(data.contact?.full_name || label(item.submitted_by_type))}</strong></span><span>提出日時<strong>${formatDate(item.submitted_at, true)}</strong></span><span>資料依頼<strong>${esc(data.request?.title || "指定なし")}</strong></span><span>資料項目<strong>${esc(data.request_item?.item_name || "指定なし")}</strong></span></div>`;
       $("#document-reviewer").innerHTML = data.reviewers.map((staff) => `<option value="${esc(staff.id)}" ${staff.id === item.reviewed_by ? "selected" : ""}>${esc(staff.display_name)}（${esc(label(staff.role))}）</option>`).join("");
-      $("#document-review-note").value = item.rejection_reason || ""; $("#document-review-open").hidden = Boolean(item.is_demo_placeholder);
+      $("#document-review-note").value = item.rejection_reason || "";
+      const fileAvailable = Boolean(data.file?.available);
+      const openButton = $("#document-review-open"); const fileHelp = openButton.nextElementSibling;
+      openButton.hidden = false; openButton.disabled = !fileAvailable;
+      openButton.textContent = fileAvailable ? "実ファイルを安全に開く" : "実ファイルなし（デモ）";
+      if (fileHelp) fileHelp.textContent = fileAvailable ? `閲覧時だけ${data.file.signed_url_expires_in || 120}秒間有効なURLを発行し、操作履歴を記録します。` : "この書類は画面確認用サンプルです。実際に提出された書類では閲覧ボタンが有効になります。";
       $("#document-review-history").innerHTML = data.access_logs.length ? data.access_logs.map((log) => `<div class="timeline-row"><span class="timeline-dot"></span><div><strong>${esc(label(log.action))}</strong><small>${formatDate(log.created_at, true)} ／ ${esc(label(log.actor_type))}</small></div></div>`).join("") : `<div class="compact-empty">履歴はありません。</div>`;
       $("#document-review-content").hidden = false;
     } catch (error) { toast(error.message, "error"); closeModal("document-review-modal"); }
@@ -552,8 +557,16 @@
   }
 
   async function viewDocument(id) {
-    try { const data = await api(`/api/admin/documents/${id}/signed-url`, { adminKey: adminState.key }); window.open(data.signed_url, "_blank", "noopener,noreferrer"); }
-    catch (error) { toast(error.message, "error"); }
+    const previewWindow = window.open("about:blank", "_blank");
+    if (!previewWindow) { toast("ブラウザのポップアップを許可してから、もう一度お試しください。", "error"); return; }
+    try {
+      previewWindow.document.title = "書類を安全に準備しています";
+      previewWindow.document.body.innerHTML = '<p style="font:16px system-ui;padding:32px;color:#17324d">非公開書類を安全に準備しています…</p>';
+      const data = await api(`/api/admin/documents/${id}/signed-url`, { adminKey: adminState.key });
+      previewWindow.location.replace(data.signed_url);
+      toast(`実ファイルを開きました。URLは${data.expires_in || 120}秒後に無効になります。`);
+    }
+    catch (error) { previewWindow.close(); toast(error.message, "error"); }
   }
 
   async function patchAdmin(path, body, message) {
