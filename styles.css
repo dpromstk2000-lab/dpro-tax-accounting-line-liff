@@ -397,6 +397,12 @@ tbody tr:hover { background: #fbfdfd; }
 .check-fieldset { display: flex; gap: 18px; flex-wrap: wrap; padding: 15px; border: 1px solid var(--slate-300); border-radius: 13px; }
 .check-fieldset legend { padding: 0 6px; font-weight: 800; color: var(--navy-900); }
 .check-fieldset label { display: inline-flex; align-items: center; gap: 7px; font-weight: 700; }
+.submission-history { display: grid; gap: 8px; margin-top: 11px; }
+.submission-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 11px 12px; border: 1px solid var(--slate-200); border-radius: 12px; background: #fff; }
+.submission-row strong { display: block; color: var(--navy-900); overflow-wrap: anywhere; }
+.submission-row small { display: block; margin-top: 3px; color: var(--slate-600); }
+.file-selection { margin-top: 10px; padding: 12px 14px; border: 1px solid #99f6e4; border-radius: 12px; background: var(--teal-50); color: var(--teal-800); font-weight: 700; overflow-wrap: anywhere; }
+.file-selection.error { border-color: #fecaca; background: var(--danger-bg); color: var(--danger); }
 
 .modal-backdrop { position: fixed; inset: 0; z-index: 1000; padding: 24px; display: grid; place-items: center; background: rgba(5,18,30,.62); }
 .modal { width: min(720px, 100%); max-height: calc(100vh - 48px); overflow-y: auto; border-radius: 22px; background: #fff; box-shadow: 0 28px 80px rgba(0,0,0,.3); }
@@ -461,6 +467,7 @@ tbody tr:hover { background: #fbfdfd; }
   .compact-form { grid-template-columns: 1fr; }
   .compact-form .field-full { grid-column: auto; }
   .closed-date-row { align-items: flex-start; }
+  .submission-row { align-items: flex-start; flex-direction: column; }
 }
 
 @media (prefers-reduced-motion: reduce) {

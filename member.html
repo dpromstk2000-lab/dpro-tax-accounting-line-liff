@@ -64,7 +64,7 @@
       <div class="modal-head"><h2 id="upload-title">書類を提出</h2><button class="icon-button" type="button" data-close-modal aria-label="閉じる">×</button></div>
       <form id="upload-form" class="modal-body">
         <input id="upload-request-id" name="request_id" type="hidden"><input id="upload-item-id" name="request_item_id" type="hidden">
-        <div class="field"><label for="upload-file">提出ファイル<span class="required">必須</span></label><input id="upload-file" name="file" type="file" accept="application/pdf,image/jpeg,image/png,image/webp,image/heic,image/heif" required><div class="small muted">PDF・JPEG・PNG・WebP・HEIC・HEIF、最大10MB</div></div>
+        <div class="field"><label for="upload-file">提出ファイル<span class="required">必須</span></label><input id="upload-file" name="file" type="file" accept="application/pdf,image/jpeg,image/png,image/webp,image/heic,image/heif" required><div class="small muted">PDF・JPEG・PNG・WebP・HEIC・HEIF、最大10MB</div><div id="upload-file-info" class="file-selection" hidden></div></div>
         <div class="security-notice" style="margin:18px 0"><span>⚠️</span><div><strong>送信禁止情報</strong>マイナンバー、暗証番号、パスワードが写っていないか確認してください。</div></div>
         <label class="check-row"><input id="sensitive-confirm" type="checkbox" required><span>送信禁止情報を含んでいないことを確認しました。</span></label>
         <div class="button-row" style="margin-top:22px"><button class="btn btn-secondary" type="button" data-close-modal>戻る</button><button class="btn btn-primary" type="submit">安全に提出する</button></div>

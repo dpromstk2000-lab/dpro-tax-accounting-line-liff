@@ -286,7 +286,7 @@
       $("#summary-appointments").textContent = future.length;
       $("#summary-inquiries").textContent = openInquiries.length;
       $("#case-list").innerHTML = home.cases.length ? home.cases.map((item) => `<article class="list-item"><div class="list-item-head"><div><h3>${esc(item.title)}</h3><div class="meta-row"><span>${esc(label(item.case_type))}</span><span>案件番号：${esc(item.case_code)}</span></div></div>${badge(item.status)}</div><p>${esc(item.public_summary || item.client_status_label || "事務所で確認を進めています。")}</p><div class="progress"><span style="width:${Number(item.progress_percent || 0)}%"></span></div><div class="meta-row"><span>進捗 ${Number(item.progress_percent || 0)}%</span><span>期限：${formatDate(item.deadline_date)}</span>${item.next_action ? `<span>次：${esc(item.next_action)}</span>` : ""}</div></article>`).join("") : empty("表示できる案件はありません。");
-      $("#document-request-list").innerHTML = documents.requests.length ? documents.requests.map((request) => `<article class="list-item"><div class="list-item-head"><div><h3>${esc(request.title)}</h3><div class="meta-row"><span>${esc(request.target_period_label || label(request.request_category))}</span><span>期限：${formatDate(request.due_on)}</span></div></div>${badge(request.status)}</div><p>${esc(request.public_message || "必要な資料をご確認ください。")}</p><div class="list" style="margin-top:15px">${request.items.map((item) => `<div class="list-item" style="padding:15px"><div class="list-item-head"><div><strong>${esc(item.item_name)}</strong>${item.is_required ? '<span class="required">必須</span>' : ""}<div class="small muted">${esc(item.description || "")}</div></div><div class="button-row">${badge(item.status)}${home.permissions.can_submit_documents && !["accepted", "not_required"].includes(item.status) ? `<button class="btn btn-primary btn-sm" type="button" data-upload-request="${esc(request.id)}" data-upload-item="${esc(item.id)}" data-upload-name="${esc(item.item_name)}">提出</button>` : ""}</div></div></div>`).join("")}</div></article>`).join("") : empty("現在、提出依頼はありません。");
+      $("#document-request-list").innerHTML = documents.requests.length ? documents.requests.map((request) => `<article class="list-item"><div class="list-item-head"><div><h3>${esc(request.title)}</h3><div class="meta-row"><span>${esc(request.target_period_label || label(request.request_category))}</span><span>期限：${formatDate(request.due_on)}</span></div></div>${badge(request.status)}</div><p>${esc(request.public_message || "必要な資料をご確認ください。")}</p><div class="list" style="margin-top:15px">${request.items.map((item) => { const submitted = (request.submissions || []).filter((file) => file.request_item_id === item.id); return `<div class="list-item" style="padding:15px"><div class="list-item-head"><div><strong>${esc(item.item_name)}</strong>${item.is_required ? '<span class="required">必須</span>' : ""}<div class="small muted">${esc(item.description || "")}</div></div><div class="button-row">${badge(item.status)}${home.permissions.can_submit_documents && !["accepted", "not_required"].includes(item.status) ? `<button class="btn btn-primary btn-sm" type="button" data-upload-request="${esc(request.id)}" data-upload-item="${esc(item.id)}" data-upload-name="${esc(item.item_name)}">${submitted.length ? "再提出" : "提出"}</button>` : ""}</div></div>${submitted.length ? `<div class="submission-history">${submitted.map((file) => `<div class="submission-row"><div><strong>${esc(file.original_filename)}</strong><small>${formatDate(file.submitted_at, true)} ／ ${formatBytes(file.file_size_bytes)} ／ ${esc(file.submission_code)}</small>${file.rejection_reason ? `<small class="required">差戻し理由：${esc(file.rejection_reason)}</small>` : ""}</div><div class="button-row">${badge(file.status)}${file.storage_path && !file.is_demo_placeholder ? `<button class="btn btn-secondary btn-sm" type="button" data-member-document-view="${esc(file.id)}">確認</button>` : ""}</div></div>`).join("")}</div>` : ""}</div>`; }).join("")}</div></article>`).join("") : empty("現在、提出依頼はありません。");
       $("#appointment-list").innerHTML = home.appointments.length ? home.appointments.map((item) => `<article class="list-item"><div class="list-item-head"><div><h3>${formatDate(item.confirmed_start_at || item.requested_start_at, true)}</h3><div class="meta-row"><span>${esc(label(item.appointment_channel))}</span><span>${Number(item.duration_minutes)}分</span><span>${esc(item.appointment_code)}</span></div></div>${badge(item.status)}</div><p>${esc(item.public_message || "")}</p>${["requested", "confirmed", "change_requested", "cancel_requested"].includes(item.status) ? `<div class="button-row" style="margin-top:14px"><button class="btn btn-secondary btn-sm" type="button" data-appointment-action="change" data-appointment-id="${esc(item.id)}">変更希望</button><button class="btn btn-danger btn-sm" type="button" data-appointment-action="cancel" data-appointment-id="${esc(item.id)}">取消希望</button></div>` : ""}</article>`).join("") : empty("面談予約はありません。");
       $("#inquiry-list").innerHTML = home.inquiries.length ? home.inquiries.map((item) => `<article class="list-item"><div class="list-item-head"><div><h3>${esc(item.subject)}</h3><div class="meta-row"><span>${esc(label(item.category))}</span><span>${formatDate(item.created_at, true)}</span></div></div>${badge(item.status)}</div><p>${esc(item.body)}</p></article>`).join("") : empty("相談履歴はありません。");
       $("#member-loading").hidden = true;
@@ -303,8 +303,11 @@
         $("#upload-request-id").value = upload.dataset.uploadRequest;
         $("#upload-item-id").value = upload.dataset.uploadItem;
         $("#upload-title").textContent = `${upload.dataset.uploadName}を提出`;
+        $("#upload-file-info").hidden = true; $("#upload-file-info").classList.remove("error"); $("#upload-file").value = "";
         openModal("upload-modal");
       }
+      const documentView = event.target.closest("[data-member-document-view]");
+      if (documentView) viewMemberDocument(documentView.dataset.memberDocumentView);
       const appointmentAction = event.target.closest("[data-appointment-action]");
       if (appointmentAction) {
         $("#appointment-action-id").value = appointmentAction.dataset.appointmentId;
@@ -315,9 +318,25 @@
       }
     });
 
+    $("#upload-file").addEventListener("change", (event) => {
+      const file = event.currentTarget.files[0]; const info = $("#upload-file-info"); info.classList.remove("error");
+      if (!file) { info.hidden = true; return; }
+      const allowed = documents.allowed_mime_types || []; const limit = Number(documents.max_file_bytes || 10485760); const errors = [];
+      if (!allowed.includes(String(file.type || "").toLowerCase())) errors.push("対応していないファイル形式です。");
+      if (file.size <= 0 || file.size > limit) errors.push(`ファイル容量は${Math.floor(limit / 1048576)}MB以下にしてください。`);
+      info.hidden = false; info.classList.toggle("error", errors.length > 0); info.textContent = errors.length ? errors.join(" ") : `${file.name}（${formatBytes(file.size)}）を選択しました。`;
+    });
+
+    async function viewMemberDocument(id) {
+      try { const data = await api(`/api/member/documents/${id}/signed-url`, { lineId: lineUserId }); window.open(data.signed_url, "_blank", "noopener,noreferrer"); }
+      catch (error) { toast(error.message, "error"); }
+    }
+
     $("#upload-form").addEventListener("submit", async (event) => {
       event.preventDefault(); const form = event.currentTarget; const button = $("button[type=submit]", form);
-      const data = new FormData(); data.set("file", $("#upload-file").files[0]); data.set("request_id", $("#upload-request-id").value); data.set("request_item_id", $("#upload-item-id").value); data.set("sensitive_data_confirmed", String($("#sensitive-confirm").checked));
+      const file = $("#upload-file").files[0]; const allowed = documents.allowed_mime_types || []; const limit = Number(documents.max_file_bytes || 10485760);
+      if (!file || !allowed.includes(String(file.type || "").toLowerCase()) || file.size <= 0 || file.size > limit) { toast("提出可能な形式・容量のファイルを選択してください。", "error"); return; }
+      const data = new FormData(); data.set("file", file); data.set("request_id", $("#upload-request-id").value); data.set("request_item_id", $("#upload-item-id").value); data.set("sensitive_data_confirmed", String($("#sensitive-confirm").checked));
       try { setButtonBusy(button, true, "提出中..."); const result = await api("/api/member/documents/upload", { method: "POST", lineId: lineUserId, formData: data }); toast(result.message); closeModal("upload-modal"); form.reset(); await loadMember(); }
       catch (error) { toast(error.message, "error"); } finally { setButtonBusy(button, false); }
     });
