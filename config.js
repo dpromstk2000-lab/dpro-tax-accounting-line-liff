@@ -10,3 +10,30 @@ window.DPRO_TAX_CONFIG = Object.freeze({
   REPOSITORY: "dpro-tax-accounting-line-liff",
   PAGES_BASE: "https://dpromstk2000-lab.github.io/dpro-tax-accounting-line-liff/",
 });
+
+/* DPRO TUTORIAL STANDARD V1.1 / TAX R3 loader.
+   Public index only. Product/business controls are never activated by this loader. */
+(() => {
+  const boot = () => {
+    if (!document.body || document.body.dataset.page !== "public") return;
+    if (document.querySelector('script[data-dpro-tutorial-tax-v11]')) return;
+
+    const css = document.createElement("link");
+    css.rel = "stylesheet";
+    css.href = "dpro-tutorial-v1.1.css";
+    css.dataset.dproTutorialTaxV11 = "style";
+    document.head.appendChild(css);
+
+    const script = document.createElement("script");
+    script.src = "dpro-tutorial-v1.1.js";
+    script.defer = true;
+    script.dataset.dproTutorialTaxV11 = "script";
+    document.head.appendChild(script);
+  };
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", boot, { once: true });
+  } else {
+    boot();
+  }
+})();
