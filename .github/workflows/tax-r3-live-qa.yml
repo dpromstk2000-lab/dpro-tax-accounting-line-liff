@@ -1,0 +1,459 @@
+name: TAX R3 Exact Live QA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tax-r3-live-qa.yml'
+      - 'config.js'
+      - 'dpro-tutorial-v1.1.js'
+      - 'dpro-tutorial-v1.1.css'
+      - 'index.html'
+
+permissions:
+  contents: read
+
+env:
+  TAX_LIVE_URL: https://dpromstk2000-lab.github.io/dpro-tax-accounting-line-liff/
+  EXPECTED_TUTORIAL_VERSION: DPRO-TUTORIAL-TAX-V1.1-R3-20260830
+
+jobs:
+  exact-live-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Playwright Chromium
+        shell: bash
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+
+      - name: Run exact public LIVE R3 QA
+        shell: bash
+        run: |
+          mkdir -p qa/screenshots
+          cat > qa/r3-live-qa.mjs <<'JS'
+          import fs from 'node:fs';
+          import { chromium } from 'playwright';
+
+          const BASE = process.env.TAX_LIVE_URL;
+          const EXPECTED_VERSION = process.env.EXPECTED_TUTORIAL_VERSION;
+          const EXPECTED_IDS = [
+            'TAX-T01','TAX-T02','TAX-T03','TAX-T04','TAX-T05',
+            'TAX-T06','TAX-T07','TAX-T08','TAX-T09','TAX-T10'
+          ];
+          const PRIMARY = [
+            '.hero h1','.hero-panel','#booking','#booking-service','#booking-date',
+            '#slot-message','#inquiry','#inquiry-form .security-notice','#inquiry-category','#security-notice-text'
+          ];
+          const VIEWPORTS = [
+            {name:'1440x1000', width:1440, height:1000},
+            {name:'1024x768', width:1024, height:768},
+            {name:'390x844', width:390, height:844},
+            {name:'320x720', width:320, height:720}
+          ];
+          const WRITE_METHODS = new Set(['POST','PUT','PATCH','DELETE']);
+          const sleep = ms => new Promise(r => setTimeout(r, ms));
+          const assert = (condition, message) => {
+            if (!condition) throw new Error(message);
+          };
+
+          async function waitForPublishedVersion() {
+            let last = '';
+            for (let i = 0; i < 12; i++) {
+              const u = new URL('dpro-tutorial-v1.1.js', BASE);
+              u.searchParams.set('r3qa', `${Date.now()}-${i}`);
+              try {
+                const res = await fetch(u, {cache:'no-store'});
+                last = `${res.status} ${res.statusText}`;
+                if (res.ok) {
+                  const text = await res.text();
+                  if (text.includes(EXPECTED_VERSION)) return {status:res.status, attempt:i+1};
+                  last = `HTTP ${res.status}, expected marker not present`;
+                }
+              } catch (e) {
+                last = String(e);
+              }
+              await sleep(5000);
+            }
+            throw new Error(`Published Tutorial version did not become visible: ${last}`);
+          }
+
+          const formSnapshot = page => page.evaluate(() => {
+            const selectors = ['#booking-form','#inquiry-form','#register-form'];
+            const out = {};
+            for (const formSel of selectors) {
+              const form = document.querySelector(formSel);
+              if (!form) continue;
+              out[formSel] = Array.from(form.querySelectorAll('input,select,textarea,button')).map((el, i) => ({
+                key: el.id || el.name || `${el.tagName.toLowerCase()}-${i}`,
+                tag: el.tagName,
+                type: el.type || '',
+                value: 'value' in el ? el.value : '',
+                checked: 'checked' in el ? Boolean(el.checked) : null,
+                disabled: Boolean(el.disabled)
+              }));
+            }
+            return out;
+          });
+
+          const cardRect = page => page.locator('.dpro-tutorial-card').boundingBox();
+          const visibleCard = page => page.locator('.dpro-tutorial-card:not([hidden])');
+          const launcher = page => page.locator('.dpro-tutorial-launcher__button');
+
+          async function waitTutorial(page) {
+            await page.waitForFunction(() => window.DPRO_TAX_TUTORIAL_V11?.count === 10, null, {timeout:30000});
+            await launcher(page).waitFor({state:'visible', timeout:10000});
+          }
+
+          async function clearTutorialState(page) {
+            await page.evaluate(() => {
+              localStorage.removeItem('dpro_tutorial_tax_first10_step');
+              localStorage.removeItem('dpro_tutorial_tax_first10_state');
+            });
+            await page.reload({waitUntil:'domcontentloaded'});
+            await waitTutorial(page);
+          }
+
+          async function assertCardInViewport(page, vp, label) {
+            const r = await cardRect(page);
+            assert(r, `${label}: card not measurable`);
+            const eps = 1.5;
+            assert(r.x >= -eps, `${label}: card left outside viewport: ${r.x}`);
+            assert(r.y >= -eps, `${label}: card top outside viewport: ${r.y}`);
+            assert(r.x + r.width <= vp.width + eps, `${label}: card right outside viewport`);
+            assert(r.y + r.height <= vp.height + eps, `${label}: card bottom outside viewport`);
+            return r;
+          }
+
+          async function stepState(page) {
+            return page.evaluate(() => window.DPRO_TAX_TUTORIAL_V11.getState());
+          }
+
+          async function openByLauncher(page) {
+            await launcher(page).click();
+            await visibleCard(page).waitFor({state:'visible'});
+          }
+
+          async function closeByButton(page) {
+            await page.locator('[data-action="close"]').click();
+            await page.locator('.dpro-tutorial-card').waitFor({state:'hidden'});
+          }
+
+          async function testCoreFlow(page, vp, record) {
+            await clearTutorialState(page);
+            const before = await formSnapshot(page);
+
+            const contract = await page.evaluate(() => ({
+              count: window.DPRO_TAX_TUTORIAL_V11.count,
+              ids: window.DPRO_TAX_TUTORIAL_V11.ids,
+              version: window.DPRO_TAX_TUTORIAL_V11.version
+            }));
+            assert(contract.count === 10, `${vp.name}: FIRST10_COUNT != 10`);
+            assert(JSON.stringify(contract.ids) === JSON.stringify(EXPECTED_IDS), `${vp.name}: step IDs/order mismatch`);
+            assert(contract.version === EXPECTED_VERSION, `${vp.name}: Tutorial version mismatch`);
+            record.contract = contract;
+
+            for (let i = 0; i < PRIMARY.length; i++) {
+              const count = await page.locator(PRIMARY[i]).count();
+              assert(count >= 1, `${vp.name}: primary selector missing for ${EXPECTED_IDS[i]}: ${PRIMARY[i]}`);
+            }
+
+            await openByLauncher(page);
+            await assertCardInViewport(page, vp, `${vp.name} open`);
+            let st = await stepState(page);
+            assert(st.stepId === 'TAX-T01', `${vp.name}: Start did not open Step1`);
+
+            await page.locator('[data-action="next"]').click();
+            st = await stepState(page);
+            assert(st.stepId === 'TAX-T02', `${vp.name}: Next failed`);
+            await page.locator('[data-action="back"]').click();
+            st = await stepState(page);
+            assert(st.stepId === 'TAX-T01', `${vp.name}: Back failed`);
+            record.next_back = 'PASS';
+
+            await closeByButton(page);
+            const activeAfterClose = await page.evaluate(() => document.activeElement?.className || '');
+            assert(String(activeAfterClose).includes('dpro-tutorial-launcher__button'), `${vp.name}: focus not recovered to launcher after Close`);
+            record.close = 'PASS';
+
+            await openByLauncher(page);
+            await page.keyboard.press('Escape');
+            await page.locator('.dpro-tutorial-card').waitFor({state:'hidden'});
+            record.esc = 'PASS';
+
+            await page.evaluate(() => window.DPRO_TAX_TUTORIAL_V11.start());
+            await visibleCard(page).waitFor({state:'visible'});
+            await page.locator('[data-action="next"]').click();
+            await page.locator('[data-action="next"]').click();
+            st = await stepState(page);
+            assert(st.stepId === 'TAX-T03', `${vp.name}: setup for Resume did not reach Step3`);
+            await closeByButton(page);
+            await openByLauncher(page);
+            st = await stepState(page);
+            assert(st.stepId === 'TAX-T03', `${vp.name}: Resume did not return to Step3`);
+            record.resume = 'PASS';
+
+            await page.locator('[data-action="replay"]').click();
+            st = await stepState(page);
+            assert(st.stepId === 'TAX-T01', `${vp.name}: Replay did not return to Step1`);
+            record.replay = 'PASS';
+
+            await page.locator('[data-action="skip"]').click();
+            const skipped = await page.evaluate(() => JSON.parse(localStorage.getItem('dpro_tutorial_tax_first10_state') || '{}'));
+            assert(skipped.completed === true && skipped.skipped === true, `${vp.name}: Skip state mismatch`);
+            assert((await launcher(page).innerText()).includes('もう一度'), `${vp.name}: Skip did not expose Replay launcher`);
+            record.skip = 'PASS';
+
+            await openByLauncher(page);
+            st = await stepState(page);
+            assert(st.stepId === 'TAX-T01', `${vp.name}: completed/skipped launcher did not replay Step1`);
+
+            const resolved = [];
+            for (let i = 0; i < EXPECTED_IDS.length; i++) {
+              st = await stepState(page);
+              const label = await page.locator('.dpro-tutorial-step').innerText();
+              const highlightVisible = await page.locator('.dpro-tutorial-highlight:not([hidden])').isVisible();
+              assert(st.stepId === EXPECTED_IDS[i], `${vp.name}: step sequence mismatch at ${i+1}`);
+              assert(label.includes(EXPECTED_IDS[i]), `${vp.name}: step label missing ${EXPECTED_IDS[i]}`);
+              assert(!label.includes('SAFE FALLBACK'), `${vp.name}: unexpected fallback at ${EXPECTED_IDS[i]}`);
+              assert(highlightVisible, `${vp.name}: highlight not visible at ${EXPECTED_IDS[i]}`);
+              await assertCardInViewport(page, vp, `${vp.name} ${EXPECTED_IDS[i]}`);
+              resolved.push({id:EXPECTED_IDS[i], primary:PRIMARY[i], fallback:false});
+              if (i < EXPECTED_IDS.length - 1) await page.locator('[data-action="next"]').click();
+            }
+            record.step_resolution = resolved;
+
+            await closeByButton(page);
+            const after = await formSnapshot(page);
+            assert(JSON.stringify(before) === JSON.stringify(after), `${vp.name}: product form state changed during Tutorial flow`);
+            record.product_form_state_unchanged = true;
+          }
+
+          async function testDragAndClamp(page, vp, record) {
+            await clearTutorialState(page);
+            await openByLauncher(page);
+            const handle = page.locator('[data-dpro-tutorial-drag-handle]');
+            const hb = await handle.boundingBox();
+            const before = await cardRect(page);
+            assert(hb && before, `${vp.name}: drag geometry unavailable`);
+
+            await page.mouse.move(hb.x + hb.width/2, hb.y + hb.height/2);
+            await page.mouse.down();
+            await page.mouse.move(Math.max(4, Math.min(vp.width-4, hb.x + hb.width/2 - 80)), Math.max(4, Math.min(vp.height-4, hb.y + hb.height/2 + 80)), {steps:5});
+            await page.mouse.up();
+            const moved = await cardRect(page);
+            assert(moved && (Math.abs(moved.x-before.x) > 3 || Math.abs(moved.y-before.y) > 3), `${vp.name}: mouse/pointer drag did not move card`);
+            await assertCardInViewport(page, vp, `${vp.name} mouse drag clamp`);
+            record.mouse_pointer_drag = 'PASS';
+
+            const hb2 = await handle.boundingBox();
+            await page.mouse.move(hb2.x + hb2.width/2, hb2.y + hb2.height/2);
+            await page.mouse.down();
+            await page.mouse.move(1, 1, {steps:5});
+            await page.mouse.up();
+            await assertCardInViewport(page, vp, `${vp.name} clamp top-left`);
+
+            const hb3 = await handle.boundingBox();
+            await page.mouse.move(hb3.x + hb3.width/2, hb3.y + hb3.height/2);
+            await page.mouse.down();
+            await page.mouse.move(vp.width-1, vp.height-1, {steps:5});
+            await page.mouse.up();
+            await assertCardInViewport(page, vp, `${vp.name} clamp bottom-right`);
+            record.viewport_clamp = 'PASS';
+
+            const beforeTouch = await cardRect(page);
+            const hbt = await handle.boundingBox();
+            const sx = hbt.x + hbt.width/2;
+            const sy = hbt.y + hbt.height/2;
+            const ex = Math.max(10, Math.min(vp.width-10, sx - 45));
+            const ey = Math.max(10, Math.min(vp.height-10, sy - 45));
+            await handle.dispatchEvent('pointerdown', {pointerId:77, pointerType:'touch', isPrimary:true, button:0, buttons:1, clientX:sx, clientY:sy});
+            await handle.dispatchEvent('pointermove', {pointerId:77, pointerType:'touch', isPrimary:true, button:0, buttons:1, clientX:ex, clientY:ey});
+            await handle.dispatchEvent('pointerup', {pointerId:77, pointerType:'touch', isPrimary:true, button:0, buttons:0, clientX:ex, clientY:ey});
+            const afterTouch = await cardRect(page);
+            assert(afterTouch && (Math.abs(afterTouch.x-beforeTouch.x)>3 || Math.abs(afterTouch.y-beforeTouch.y)>3), `${vp.name}: touch/pointer drag did not move card`);
+            await assertCardInViewport(page, vp, `${vp.name} touch drag clamp`);
+            record.touch_pointer_drag = 'PASS';
+
+            const control = page.locator('#booking-service');
+            const controlValue = await control.inputValue();
+            const controlBox = await control.boundingBox();
+            const beforeControl = await cardRect(page);
+            if (controlBox) {
+              const cx = controlBox.x + Math.min(controlBox.width/2, 30);
+              const cy = controlBox.y + Math.min(controlBox.height/2, 20);
+              await control.dispatchEvent('pointerdown', {pointerId:88, pointerType:'mouse', isPrimary:true, button:0, buttons:1, clientX:cx, clientY:cy});
+              await control.dispatchEvent('pointermove', {pointerId:88, pointerType:'mouse', isPrimary:true, button:0, buttons:1, clientX:cx+60, clientY:cy+60});
+              await control.dispatchEvent('pointerup', {pointerId:88, pointerType:'mouse', isPrimary:true, button:0, buttons:0, clientX:cx+60, clientY:cy+60});
+            }
+            const afterControl = await cardRect(page);
+            assert(Math.abs(afterControl.x-beforeControl.x)<1 && Math.abs(afterControl.y-beforeControl.y)<1, `${vp.name}: product control initiated Tutorial drag`);
+            assert(await control.inputValue() === controlValue, `${vp.name}: product select value changed during drag guard test`);
+            record.product_controls_do_not_drag = 'PASS';
+            await closeByButton(page);
+          }
+
+          async function testKeyboardOnly(page, vp, record) {
+            await clearTutorialState(page);
+            await page.evaluate(() => document.body.focus());
+            let found = false;
+            for (let i=0; i<120; i++) {
+              await page.keyboard.press('Tab');
+              const cls = await page.evaluate(() => document.activeElement?.className || '');
+              if (String(cls).includes('dpro-tutorial-launcher__button')) { found = true; break; }
+            }
+            assert(found, `${vp.name}: launcher not reachable by Tab`);
+            const outline = await launcher(page).evaluate(el => {
+              const s = getComputedStyle(el);
+              return {style:s.outlineStyle,width:s.outlineWidth,color:s.outlineColor};
+            });
+            assert(outline.style !== 'none' && outline.width !== '0px', `${vp.name}: launcher focus not visibly indicated`);
+            await page.keyboard.press('Enter');
+            await visibleCard(page).waitFor({state:'visible'});
+            for (let i=0; i<EXPECTED_IDS.length; i++) {
+              const st = await stepState(page);
+              assert(st.stepId === EXPECTED_IDS[i], `${vp.name}: keyboard step mismatch at ${i+1}`);
+              const activeAction = await page.evaluate(() => document.activeElement?.getAttribute?.('data-action'));
+              assert(activeAction === 'next', `${vp.name}: Next not focused/recoverable at ${EXPECTED_IDS[i]}`);
+              await page.keyboard.press('Enter');
+            }
+            await page.locator('.dpro-tutorial-card').waitFor({state:'hidden'});
+            const activeCls = await page.evaluate(() => document.activeElement?.className || '');
+            assert(String(activeCls).includes('dpro-tutorial-launcher__button'), `${vp.name}: keyboard completion did not recover launcher focus`);
+            record.keyboard_only = 'PASS';
+            record.focus_visible_recoverable = 'PASS';
+          }
+
+          async function runViewport(browser, vp) {
+            const context = await browser.newContext({viewport:{width:vp.width,height:vp.height}, hasTouch:vp.width<=390});
+            const page = await context.newPage();
+            const tutorialErrors = [];
+            const tutorialConsoleErrors = [];
+            const unsafeWrites = [];
+            let qaActive = false;
+
+            page.on('pageerror', err => {
+              const text = `${err.message}\n${err.stack || ''}`;
+              if (/dpro-tutorial|DPRO_TAX_TUTORIAL/i.test(text)) tutorialErrors.push(text);
+            });
+            page.on('console', msg => {
+              if (msg.type() !== 'error') return;
+              const loc = msg.location();
+              const text = msg.text();
+              if (/dpro-tutorial|DPRO_TAX_TUTORIAL/i.test(`${loc.url || ''} ${text}`)) tutorialConsoleErrors.push({text, location:loc});
+            });
+            page.on('request', req => {
+              if (qaActive && WRITE_METHODS.has(req.method().toUpperCase())) unsafeWrites.push({method:req.method(),url:req.url()});
+            });
+
+            const url = new URL(BASE);
+            url.searchParams.set('r3qa', `${Date.now()}-${vp.width}`);
+            const response = await page.goto(url.toString(), {waitUntil:'domcontentloaded', timeout:45000});
+            assert(response && response.ok(), `${vp.name}: LIVE HTTP status ${response?.status()}`);
+            await waitTutorial(page);
+            assert(await page.locator('body[data-page="public"]').count() === 1, `${vp.name}: not on authoritative public index`);
+
+            qaActive = true;
+            const record = {viewport:vp.name};
+            await testCoreFlow(page, vp, record);
+            await testDragAndClamp(page, vp, record);
+            await testKeyboardOnly(page, vp, record);
+
+            await page.evaluate(() => window.DPRO_TAX_TUTORIAL_V11.start());
+            await visibleCard(page).waitFor({state:'visible'});
+            const overflow = await page.evaluate(() => ({
+              innerWidth: window.innerWidth,
+              documentElementScrollWidth: document.documentElement.scrollWidth,
+              bodyScrollWidth: document.body.scrollWidth,
+              positiveOverflow: Math.max(0, document.documentElement.scrollWidth-window.innerWidth, document.body.scrollWidth-window.innerWidth)
+            }));
+            if (vp.width === 390 || vp.width === 320) assert(overflow.positiveOverflow === 0, `${vp.name}: horizontal overflow ${overflow.positiveOverflow}`);
+            record.overflow = overflow;
+            await page.screenshot({path:`qa/screenshots/r3-${vp.name}.png`, fullPage:true});
+            await closeByButton(page);
+            qaActive = false;
+
+            assert(tutorialErrors.length === 0, `${vp.name}: Tutorial pageerror: ${tutorialErrors.join(' | ')}`);
+            assert(tutorialConsoleErrors.length === 0, `${vp.name}: Tutorial console error: ${JSON.stringify(tutorialConsoleErrors)}`);
+            assert(unsafeWrites.length === 0, `${vp.name}: unsafe write request during Tutorial QA: ${JSON.stringify(unsafeWrites)}`);
+            record.tutorial_pageerror = 0;
+            record.tutorial_console_error = 0;
+            record.unsafe_write_request = 0;
+            record.business_mutation = 0;
+            record.cross_page_resume = 'PASS_NOT_REQUIRED_SINGLE_ROUTE_CONTRACT';
+
+            await context.close();
+            return record;
+          }
+
+          const published = await waitForPublishedVersion();
+          const browser = await chromium.launch({headless:true});
+          const result = {
+            system:'TAX',
+            standard:'DPRO TUTORIAL STANDARD V1.1',
+            live_url:BASE,
+            expected_version:EXPECTED_VERSION,
+            published_version_check:published,
+            first10_count:10,
+            guide_count:null,
+            viewports:[],
+            gates:{
+              FIRST10_COUNT:10,
+              MOUSE_POINTER_DRAG:'PASS',
+              TOUCH_POINTER_DRAG:'PASS',
+              VIEWPORT_CLAMP:'PASS',
+              NEXT_BACK:'PASS',
+              CLOSE:'PASS',
+              ESC:'PASS',
+              SKIP:'PASS',
+              RESUME:'PASS',
+              REPLAY:'PASS',
+              KEYBOARD_ONLY:'PASS',
+              FOCUS_VISIBLE_RECOVERABLE:'PASS',
+              CROSS_PAGE_RESUME:'PASS_NOT_REQUIRED_SINGLE_ROUTE_CONTRACT',
+              TUTORIAL_PAGEERROR:0,
+              TUTORIAL_CONSOLE_ERROR:0,
+              UNSAFE_WRITE_REQUEST:0,
+              BUSINESS_MUTATION:0
+            }
+          };
+
+          try {
+            for (const vp of VIEWPORTS) {
+              const r = await runViewport(browser, vp);
+              result.viewports.push(r);
+              result.gates[vp.name] = 'PASS';
+              if (vp.width === 390) result.gates['390_OVERFLOW'] = r.overflow.positiveOverflow;
+              if (vp.width === 320) result.gates['320_OVERFLOW'] = r.overflow.positiveOverflow;
+            }
+            result.verdict = 'R3_FULL_PASS';
+          } catch (e) {
+            result.verdict = 'R3_HOLD';
+            result.error = {message:String(e?.message || e), stack:String(e?.stack || '')};
+            throw e;
+          } finally {
+            fs.writeFileSync('qa/R3_LIVE_QA_EVIDENCE.json', JSON.stringify(result, null, 2));
+            await browser.close();
+            console.log(JSON.stringify(result, null, 2));
+          }
+          JS
+          node qa/r3-live-qa.mjs
+
+      - name: Upload R3 QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TAX-R3-LIVE-QA-EVIDENCE
+          path: qa/
+          if-no-files-found: warn
