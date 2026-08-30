@@ -1,0 +1,256 @@
+name: TAX R4 Exact Live QA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tax-r4-live-qa.yml'
+      - 'guide-center.html'
+      - 'dpro-tutorial-v1.1.js'
+      - 'dpro-tutorial-v1.1.css'
+      - 'config.js'
+      - 'index.html'
+
+permissions:
+  contents: read
+
+env:
+  TAX_LIVE_URL: https://dpromstk2000-lab.github.io/dpro-tax-accounting-line-liff/
+  EXPECTED_TUTORIAL_VERSION: DPRO-TUTORIAL-TAX-V1.1-R3-20260830
+  EXPECTED_GUIDE_MARKER: DPRO GUIDE CENTER TAX R4 V1.0
+
+jobs:
+  exact-live-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Playwright Chromium
+        shell: bash
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+
+      - name: Run exact public LIVE R4 QA
+        shell: bash
+        run: |
+          mkdir -p qa/screenshots
+          cat > qa/r4-live-qa.mjs <<'JS'
+          import fs from 'node:fs';
+          import { chromium } from 'playwright';
+
+          const BASE = process.env.TAX_LIVE_URL;
+          const EXPECTED_VERSION = process.env.EXPECTED_TUTORIAL_VERSION;
+          const GUIDE_MARKER = process.env.EXPECTED_GUIDE_MARKER;
+          const EXPECTED = [
+            {id:'TAX-T01',route:'index.html',primary:'.hero h1',fallback:'main#main'},
+            {id:'TAX-T02',route:'index.html',primary:'.hero-panel',fallback:'.hero'},
+            {id:'TAX-T03',route:'index.html',primary:'#booking',fallback:'main#main'},
+            {id:'TAX-T04',route:'index.html',primary:'#booking-service',fallback:'#booking'},
+            {id:'TAX-T05',route:'index.html',primary:'#booking-date',fallback:'#booking'},
+            {id:'TAX-T06',route:'index.html',primary:'#slot-message',fallback:'#booking'},
+            {id:'TAX-T07',route:'index.html',primary:'#inquiry',fallback:'main#main'},
+            {id:'TAX-T08',route:'index.html',primary:'#inquiry-form .security-notice',fallback:'#inquiry'},
+            {id:'TAX-T09',route:'index.html',primary:'#inquiry-category',fallback:'#inquiry'},
+            {id:'TAX-T10',route:'index.html',primary:'#security-notice-text',fallback:'.section-tight .security-notice'}
+          ];
+          const VIEWPORTS = [
+            {name:'1440x1000',width:1440,height:1000},
+            {name:'1024x768',width:1024,height:768},
+            {name:'390x844',width:390,height:844},
+            {name:'320x720',width:320,height:720}
+          ];
+          const WRITE_METHODS = new Set(['POST','PUT','PATCH','DELETE']);
+          const sleep = ms => new Promise(r => setTimeout(r, ms));
+          const assert = (ok,msg) => { if(!ok) throw new Error(msg); };
+          const indexUrl = tag => new URL(`index.html?r4qa=${tag}-${Date.now()}`, BASE).toString();
+          const guideUrl = tag => new URL(`guide-center.html?r4qa=${tag}-${Date.now()}`, BASE).toString();
+
+          async function waitPublished() {
+            let last='';
+            for(let i=0;i<12;i++){
+              try{
+                const g=new URL('guide-center.html',BASE); g.searchParams.set('r4pub',`${Date.now()}-${i}`);
+                const j=new URL('dpro-tutorial-v1.1.js',BASE); j.searchParams.set('r4pub',`${Date.now()}-${i}`);
+                const [gr,jr]=await Promise.all([fetch(g,{cache:'no-store'}),fetch(j,{cache:'no-store'})]);
+                const [gt,jt]=await Promise.all([gr.text(),jr.text()]);
+                if(gr.ok && jr.ok && gt.includes(GUIDE_MARKER) && jt.includes(EXPECTED_VERSION)) return {guide_status:gr.status,tutorial_status:jr.status,attempt:i+1};
+                last=`guide=${gr.status}/${gt.includes(GUIDE_MARKER)} tutorial=${jr.status}/${jt.includes(EXPECTED_VERSION)}`;
+              }catch(e){ last=String(e); }
+              await sleep(5000);
+            }
+            throw new Error(`R4 public files did not become visible: ${last}`);
+          }
+
+          const formSnapshot = page => page.evaluate(() => {
+            const out={};
+            for(const formSel of ['#booking-form','#inquiry-form','#register-form']){
+              const form=document.querySelector(formSel); if(!form) continue;
+              out[formSel]=Array.from(form.querySelectorAll('input,select,textarea,button')).map((el,i)=>({
+                key:el.id||el.name||`${el.tagName.toLowerCase()}-${i}`,tag:el.tagName,type:el.type||'',value:'value' in el?el.value:'',checked:'checked' in el?Boolean(el.checked):null,disabled:Boolean(el.disabled)
+              }));
+            }
+            return out;
+          });
+
+          async function waitTutorial(page){
+            await page.waitForFunction(()=>window.DPRO_TAX_TUTORIAL_V11?.count===10,null,{timeout:30000});
+            await page.locator('.dpro-tutorial-launcher__button').waitFor({state:'visible',timeout:10000});
+          }
+          async function waitCard(page){ await page.locator('.dpro-tutorial-card:not([hidden])').waitFor({state:'visible',timeout:10000}); }
+          async function waitNextFocus(page,label){
+            try{ await page.waitForFunction(()=>document.activeElement?.getAttribute?.('data-action')==='next',null,{timeout:1000}); }
+            catch(_){ const a=await page.evaluate(()=>({tag:document.activeElement?.tagName||'',cls:document.activeElement?.className||'',action:document.activeElement?.getAttribute?.('data-action')||''})); throw new Error(`${label}: Next focus missing: ${JSON.stringify(a)}`); }
+          }
+          async function waitLauncherFocus(page,label){
+            try{ await page.waitForFunction(()=>document.activeElement?.classList?.contains('dpro-tutorial-launcher__button'),null,{timeout:1000}); }
+            catch(_){ throw new Error(`${label}: launcher focus recovery missing`); }
+          }
+          async function tutorialState(page){ return page.evaluate(()=>window.DPRO_TAX_TUTORIAL_V11.getState()); }
+          async function clearState(page){
+            await page.evaluate(()=>{localStorage.removeItem('dpro_tutorial_tax_first10_step');localStorage.removeItem('dpro_tutorial_tax_first10_state');});
+          }
+          async function overflow(page){ return page.evaluate(()=>({innerWidth:innerWidth,documentElementScrollWidth:document.documentElement.scrollWidth,bodyScrollWidth:document.body.scrollWidth,positiveOverflow:Math.max(0,document.documentElement.scrollWidth-innerWidth,document.body.scrollWidth-innerWidth)})); }
+
+          async function inspectGuide(page,vp,record){
+            const r=await page.goto(guideUrl(vp.width),{waitUntil:'domcontentloaded',timeout:45000});
+            assert(r?.ok(),`${vp.name}: Guide HTTP ${r?.status()}`);
+            assert(await page.locator('body[data-guide-center="tax-r4"]').count()===1,`${vp.name}: Guide marker body missing`);
+            const cards=await page.locator('[data-guide-step]').evaluateAll(els=>els.map(el=>({id:el.dataset.guideStep,route:el.dataset.route,primary:el.dataset.primary,fallback:el.dataset.fallback})));
+            assert(cards.length===10,`${vp.name}: GUIDE_COUNT != 10`);
+            assert(JSON.stringify(cards)===JSON.stringify(EXPECTED),`${vp.name}: Guide authoritative contract mismatch`);
+            assert(await page.locator('[data-guide-action="start"]').count()===1,`${vp.name}: Start missing`);
+            assert(await page.locator('[data-guide-action="resume"]').count()===1,`${vp.name}: Resume missing`);
+            assert(await page.locator('[data-guide-action="replay"]').count()===1,`${vp.name}: Replay missing`);
+            assert(await page.evaluate(()=>typeof window.DPRO_TAX_TUTORIAL_V11)==='undefined',`${vp.name}: Guide must not host a second Tutorial state machine`);
+            const ov=await overflow(page);
+            if(vp.width<=390) assert(ov.positiveOverflow===0,`${vp.name}: Guide horizontal overflow ${ov.positiveOverflow}`);
+            record.guide_overflow=ov;
+            record.guide_count=10;
+            record.guide_state_machine='NONE';
+            record.guide_tutorial_alignment='PASS';
+
+            await page.evaluate(()=>document.body.focus());
+            let found=false;
+            for(let i=0;i<30;i++){
+              await page.keyboard.press('Tab');
+              const a=await page.evaluate(()=>document.activeElement?.getAttribute?.('data-guide-action')||'');
+              if(a==='start'){found=true;break;}
+            }
+            assert(found,`${vp.name}: Guide Start not keyboard reachable`);
+            const outline=await page.locator('[data-guide-action="start"]').evaluate(el=>{const s=getComputedStyle(el);return {style:s.outlineStyle,width:s.outlineWidth};});
+            assert(outline.style!=='none' && outline.width!=='0px',`${vp.name}: Guide keyboard focus not visible`);
+            record.guide_keyboard_focus='PASS';
+          }
+
+          async function runViewport(browser,vp){
+            const context=await browser.newContext({viewport:{width:vp.width,height:vp.height},hasTouch:vp.width<=390});
+            const page=await context.newPage();
+            const errors=[]; const consoleErrors=[]; const writes=[]; let qaActive=false;
+            page.on('pageerror',e=>{const t=`${e.message}\n${e.stack||''}`;if(/guide-center|dpro-tutorial|DPRO_TAX_TUTORIAL/i.test(t)) errors.push(t);});
+            page.on('console',m=>{if(m.type()!=='error')return;const l=m.location();const t=`${l.url||''} ${m.text()}`;if(/guide-center|dpro-tutorial|DPRO_TAX_TUTORIAL/i.test(t)) consoleErrors.push(t);});
+            page.on('request',req=>{if(qaActive&&WRITE_METHODS.has(req.method().toUpperCase())) writes.push({method:req.method(),url:req.url()});});
+            qaActive=true;
+            const record={viewport:vp.name};
+
+            // Establish pristine same-origin storage and product baseline.
+            let r=await page.goto(indexUrl(`baseline-${vp.width}`),{waitUntil:'domcontentloaded',timeout:45000});
+            assert(r?.ok(),`${vp.name}: index baseline HTTP ${r?.status()}`);
+            await waitTutorial(page); await clearState(page); await page.reload({waitUntil:'domcontentloaded'}); await waitTutorial(page);
+            const before=await formSnapshot(page);
+            const tut=await page.evaluate(()=>({count:window.DPRO_TAX_TUTORIAL_V11.count,ids:window.DPRO_TAX_TUTORIAL_V11.ids,version:window.DPRO_TAX_TUTORIAL_V11.version}));
+            assert(tut.count===10 && JSON.stringify(tut.ids)===JSON.stringify(EXPECTED.map(x=>x.id)) && tut.version===EXPECTED_VERSION,`${vp.name}: Tutorial contract/version mismatch`);
+            for(const x of EXPECTED) assert(await page.locator(x.primary).count()>=1,`${vp.name}: Tutorial primary missing ${x.id}`);
+            record.tutorial_contract='PASS';
+
+            await inspectGuide(page,vp,record);
+
+            // Start -> Step1, activated by keyboard from the focused Guide Start control.
+            await Promise.all([page.waitForURL(/index\.html/,{timeout:10000}),page.keyboard.press('Enter')]);
+            await waitTutorial(page); await waitCard(page); await waitNextFocus(page,`${vp.name}: Start`);
+            let st=await tutorialState(page); assert(st.stepId==='TAX-T01',`${vp.name}: Start did not reach Step1`);
+            const nextOutline=await page.locator('[data-action="next"]').evaluate(el=>{const s=getComputedStyle(el);return {style:s.outlineStyle,width:s.outlineWidth};});
+            assert(nextOutline.style!=='none' && nextOutline.width!=='0px',`${vp.name}: Tutorial keyboard focus not visible after Guide Start`);
+            record.start_step1='PASS'; record.tutorial_keyboard_focus='PASS';
+            const indexOv=await overflow(page); if(vp.width<=390) assert(indexOv.positiveOverflow===0,`${vp.name}: Tutorial horizontal overflow ${indexOv.positiveOverflow}`); record.tutorial_overflow=indexOv;
+
+            // Interrupt at Step3, then Guide Resume must return to same step using shared storage.
+            await page.keyboard.press('Enter'); await waitNextFocus(page,`${vp.name}: Step2`);
+            await page.keyboard.press('Enter'); await waitNextFocus(page,`${vp.name}: Step3`);
+            st=await tutorialState(page); assert(st.stepId==='TAX-T03',`${vp.name}: setup did not reach Step3`);
+            await page.locator('[data-action="close"]').click(); await page.locator('.dpro-tutorial-card').waitFor({state:'hidden'}); await waitLauncherFocus(page,`${vp.name}: interrupt close`);
+            await page.goto(guideUrl(`resume-${vp.width}`),{waitUntil:'domcontentloaded'});
+            const stateText=await page.locator('#guide-state').innerText(); assert(stateText.includes('Step 3 / 10'),`${vp.name}: Guide did not read shared Step3 storage`);
+            await Promise.all([page.waitForURL(/index\.html/),page.locator('[data-guide-action="resume"]').click()]);
+            await waitTutorial(page); await waitCard(page); st=await tutorialState(page); assert(st.stepId==='TAX-T03',`${vp.name}: Resume did not return same Step3`);
+            record.interrupt_resume_same_step='PASS'; record.same_storage='PASS';
+
+            // Skip -> Guide Replay -> Step1.
+            await page.locator('[data-action="skip"]').click();
+            const skipped=await page.evaluate(()=>JSON.parse(localStorage.getItem('dpro_tutorial_tax_first10_state')||'{}'));
+            assert(skipped.completed===true && skipped.skipped===true,`${vp.name}: skip state mismatch`);
+            await page.goto(guideUrl(`skip-${vp.width}`),{waitUntil:'domcontentloaded'});
+            await Promise.all([page.waitForURL(/index\.html/),page.locator('[data-guide-action="replay"]').click()]);
+            await waitTutorial(page); await waitCard(page); st=await tutorialState(page); assert(st.stepId==='TAX-T01',`${vp.name}: Skip -> Replay did not reach Step1`);
+            record.skip_replay_step1='PASS';
+
+            // Complete all 10, then Guide Replay -> Step1.
+            for(let i=0;i<10;i++){
+              st=await tutorialState(page); assert(st.stepId===EXPECTED[i].id,`${vp.name}: completion sequence mismatch at ${i+1}`);
+              await page.locator('[data-action="next"]').click();
+              if(i<9) await waitCard(page); else await page.locator('.dpro-tutorial-card').waitFor({state:'hidden'});
+            }
+            const completed=await page.evaluate(()=>JSON.parse(localStorage.getItem('dpro_tutorial_tax_first10_state')||'{}'));
+            assert(completed.completed===true && completed.skipped===false,`${vp.name}: completion state mismatch`);
+            await page.goto(guideUrl(`complete-${vp.width}`),{waitUntil:'domcontentloaded'});
+            await Promise.all([page.waitForURL(/index\.html/),page.locator('[data-guide-action="replay"]').click()]);
+            await waitTutorial(page); await waitCard(page); st=await tutorialState(page); assert(st.stepId==='TAX-T01',`${vp.name}: Complete -> Replay did not reach Step1`);
+            record.complete_replay_step1='PASS';
+
+            await page.locator('[data-action="close"]').click(); await page.locator('.dpro-tutorial-card').waitFor({state:'hidden'});
+            const after=await formSnapshot(page); assert(JSON.stringify(before)===JSON.stringify(after),`${vp.name}: product form state changed during R4 Guide/Tutorial flow`);
+            record.product_regression='PASS';
+
+            qaActive=false;
+            assert(errors.length===0,`${vp.name}: Tutorial/Guide pageerror ${errors.join(' | ')}`);
+            assert(consoleErrors.length===0,`${vp.name}: Tutorial/Guide console error ${consoleErrors.join(' | ')}`);
+            assert(writes.length===0,`${vp.name}: unsafe write ${JSON.stringify(writes)}`);
+            record.pageerror=0; record.console_error=0; record.unsafe_write=0; record.business_mutation=0;
+
+            await page.goto(guideUrl(`shot-${vp.width}`),{waitUntil:'domcontentloaded'});
+            await page.screenshot({path:`qa/screenshots/r4-guide-${vp.name}.png`,fullPage:true});
+            await context.close();
+            return record;
+          }
+
+          const published=await waitPublished();
+          const browser=await chromium.launch({headless:true});
+          const result={system:'TAX',standard:'DPRO TUTORIAL STANDARD V1.1',live_url:BASE,published,first10_count:10,guide_count:10,viewports:[],gates:{GUIDE_COUNT:10,FIRST10_COUNT:10,GUIDE_TUTORIAL_ALIGNMENT:'PASS',START_STEP1:'PASS',INTERRUPT_RESUME_SAME_STEP:'PASS',COMPLETE_SKIP_REPLAY_STEP1:'PASS',KEYBOARD_FOCUS:'PASS',TUTORIAL_GUIDE_PAGEERROR:0,TUTORIAL_GUIDE_CONSOLE_ERROR:0,UNSAFE_WRITE:0,BUSINESS_MUTATION:0,PRODUCT_REGRESSION:'PASS',SECOND_STATE_MACHINE:'NONE'}};
+          try{
+            for(const vp of VIEWPORTS){
+              const rec=await runViewport(browser,vp); result.viewports.push(rec); result.gates[vp.name]='PASS';
+              if(vp.width===390){result.gates['390_GUIDE_OVERFLOW']=rec.guide_overflow.positiveOverflow;result.gates['390_TUTORIAL_OVERFLOW']=rec.tutorial_overflow.positiveOverflow;}
+              if(vp.width===320){result.gates['320_GUIDE_OVERFLOW']=rec.guide_overflow.positiveOverflow;result.gates['320_TUTORIAL_OVERFLOW']=rec.tutorial_overflow.positiveOverflow;}
+            }
+            result.verdict='R4_FULL_PASS';
+          }catch(e){ result.verdict='R4_HOLD'; result.error={message:String(e?.message||e),stack:String(e?.stack||'')}; throw e; }
+          finally{ fs.writeFileSync('qa/R4_LIVE_QA_EVIDENCE.json',JSON.stringify(result,null,2)); await browser.close(); console.log(JSON.stringify(result,null,2)); }
+          JS
+          node qa/r4-live-qa.mjs
+
+      - name: Upload R4 QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TAX-R4-LIVE-QA-EVIDENCE
+          path: qa/
+          if-no-files-found: warn
