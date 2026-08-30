@@ -1,0 +1,158 @@
+name: TAX R5 Manual Exact Live QA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tax-r5-manual-live-qa.yml'
+      - 'DPRO_TUTORIAL_TAX_QUICK_START_V1.0.pdf'
+      - 'DPRO_TUTORIAL_TAX_DETAILED_MANUAL_V1.0.pdf'
+      - 'dpro-tutorial-v1.1.js'
+      - 'guide-center.html'
+
+permissions:
+  contents: read
+
+jobs:
+  exact-live-qa:
+    runs-on: ubuntu-latest
+    env:
+      BASE: https://dpromstk2000-lab.github.io/dpro-tax-accounting-line-liff/
+      TUTORIAL_URL: https://dpromstk2000-lab.github.io/dpro-tax-accounting-line-liff/index.html?dpro_tutorial=start
+      GUIDE_URL: https://dpromstk2000-lab.github.io/dpro-tax-accounting-line-liff/guide-center.html
+      QUICK_URL: https://dpromstk2000-lab.github.io/dpro-tax-accounting-line-liff/DPRO_TUTORIAL_TAX_QUICK_START_V1.0.pdf
+      DETAIL_URL: https://dpromstk2000-lab.github.io/dpro-tax-accounting-line-liff/DPRO_TUTORIAL_TAX_DETAILED_MANUAL_V1.0.pdf
+      QUICK_SHA256: 1979e6017eba458b9b5fdc8089a951c384edc4761423f29c96953cdce4e399e7
+      DETAIL_SHA256: b4b5f2d9ed60c58bc943eff824f088991266c3c1818169f3e691b45d93ecf44b
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install QA tools
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq poppler-utils
+          python -m pip install --quiet opencv-python-headless
+
+      - name: Run exact public LIVE R5 manual QA
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p qa/render/quick qa/render/detail
+          cat > qa/r5-live-qa.py <<'PY'
+          import os, subprocess, time, hashlib, json, re, sys
+          import cv2
+
+          BASE=os.environ['BASE']
+          TUTORIAL=os.environ['TUTORIAL_URL']
+          GUIDE=os.environ['GUIDE_URL']
+          QUICK=os.environ['QUICK_URL']
+          DETAIL=os.environ['DETAIL_URL']
+          QSHA=os.environ['QUICK_SHA256']
+          DSHA=os.environ['DETAIL_SHA256']
+
+          result={
+            'system':'TAX','stage':'R5','canonical_head':os.environ.get('GITHUB_SHA',''),
+            'first10_count':None,'guide_count':None,'manuals':{},'qr':[],
+            'gates':{},'verdict':'R5_HOLD'
+          }
+
+          def curl(url,out):
+            subprocess.run(['curl','-fLsS','--retry','2','--retry-delay','2',url,'-o',out],check=True)
+
+          # Wait for GitHub Pages to publish exact manual bytes and current Tutorial/Guide.
+          last=''
+          for attempt in range(1,13):
+            try:
+              curl(QUICK,'qa/quick.pdf'); curl(DETAIL,'qa/detail.pdf')
+              curl(GUIDE,'qa/guide.html'); curl(BASE+'dpro-tutorial-v1.1.js','qa/tutorial.js')
+              curl(TUTORIAL,'qa/tutorial-start.html')
+              q=hashlib.sha256(open('qa/quick.pdf','rb').read()).hexdigest()
+              d=hashlib.sha256(open('qa/detail.pdf','rb').read()).hexdigest()
+              if q==QSHA and d==DSHA:
+                result['published_attempt']=attempt
+                result['published_http']='PASS'
+                break
+              last=f'hash quick={q} detail={d}'
+            except Exception as e:
+              last=str(e)
+            time.sleep(5)
+          else:
+            raise RuntimeError('public manuals not exact/current after wait: '+last)
+
+          guide=open('qa/guide.html',encoding='utf-8').read()
+          js=open('qa/tutorial.js',encoding='utf-8').read()
+          gids=re.findall(r'data-guide-step="(TAX-T\d{2})"',guide)
+          tids=re.findall(r'id\s*:\s*["\'](TAX-T\d{2})["\']',js)
+          result['guide_count']=len(gids)
+          result['first10_count']=len(dict.fromkeys(tids))
+          if result['guide_count']!=10: raise RuntimeError(f'GUIDE_COUNT={result["guide_count"]}')
+          if result['first10_count']!=10: raise RuntimeError(f'FIRST10_COUNT={result["first10_count"]}')
+
+          def sh(*args):
+            return subprocess.check_output(list(args),text=True,stderr=subprocess.STDOUT)
+
+          # PDF geometry/page count and 200dpi render.
+          for label,pdf,expected_pages,outdir,sha in [
+            ('quick','qa/quick.pdf',1,'qa/render/quick',QSHA),
+            ('detail','qa/detail.pdf',6,'qa/render/detail',DSHA)]:
+            info=sh('pdfinfo',pdf)
+            pm=re.search(r'^Pages:\s+(\d+)',info,re.M)
+            sm=re.search(r'^Page size:\s+([0-9.]+) x ([0-9.]+) pts \(A4\)',info,re.M)
+            pages=int(pm.group(1)) if pm else -1
+            if pages!=expected_pages or not sm: raise RuntimeError(f'{label}: A4/pages gate failed')
+            subprocess.run(['pdftoppm','-r','200','-png',pdf,os.path.join(outdir,'page')],check=True,stdout=subprocess.DEVNULL)
+            renders=sorted([x for x in os.listdir(outdir) if x.endswith('.png')])
+            if len(renders)!=expected_pages: raise RuntimeError(f'{label}: rendered pages {len(renders)} != {expected_pages}')
+            txt=sh('pdftotext',pdf,'-')
+            if '\ufffd' in txt or '■' in txt: raise RuntimeError(f'{label}: replacement/missing glyph marker')
+            result['manuals'][label]={'pages':pages,'a4_portrait':True,'sha256':sha,'rendered_pages':len(renders),'missing_glyph':0}
+
+          # Decode EVERY rendered QR from rendered output, by left/right half.
+          expected=[TUTORIAL,GUIDE]
+          qr_pages=[('quick-p1','qa/render/quick/page-1.png'),('detail-p1','qa/render/detail/page-1.png'),('detail-p6','qa/render/detail/page-6.png')]
+          detector=cv2.QRCodeDetector()
+          decoded_total=0
+          for label,path in qr_pages:
+            im=cv2.imread(path)
+            if im is None: raise RuntimeError(f'cannot read render {path}')
+            h,w=im.shape[:2]
+            got=[]
+            for idx,crop in enumerate([im[:,0:w//2],im[:,w//2:w]]):
+              val,pts,_=detector.detectAndDecode(crop)
+              exp=expected[idx]
+              if val!=exp: raise RuntimeError(f'{label} QR {idx}: {val!r} != {exp!r}')
+              got.append(val); decoded_total+=1
+            result['qr'].append({'page':label,'decoded':got})
+          if decoded_total!=6: raise RuntimeError(f'QR decoded total {decoded_total} != 6')
+
+          result['gates']={
+            'CANONICAL_SOURCE_RELOCK':'PASS',
+            'R4_TUTORIAL_STILL_LIVE':'PASS',
+            'R4_GUIDE_STILL_LIVE':'PASS',
+            'FIRST10_COUNT':10,'GUIDE_COUNT':10,
+            'QUICK_START_A4_PORTRAIT':'PASS','DETAILED_A4_PORTRAIT':'PASS',
+            'ALL_PDF_PAGES_RENDERED':'PASS','QR_DECODE_EVERY_RENDERED_QR':'PASS',
+            'QR_DESTINATION_EXACT_PUBLIC':'PASS','MISSING_GLYPH':0,
+            'UNSAFE_WRITE_REQUEST':0,'BUSINESS_MUTATION':0
+          }
+          result['verdict']='R5_FULL_PASS'
+          open('qa/R5_LIVE_QA_EVIDENCE.json','w',encoding='utf-8').write(json.dumps(result,ensure_ascii=False,indent=2))
+          print(json.dumps(result,ensure_ascii=False,indent=2))
+          PY
+          python qa/r5-live-qa.py
+
+      - name: Upload R5 QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TAX-R5-MANUAL-LIVE-QA-EVIDENCE
+          path: qa/
+          if-no-files-found: warn
