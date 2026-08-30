@@ -145,9 +145,24 @@ jobs:
             await visibleCard(page).waitFor({state:'visible'});
           }
 
-          async function closeByButton(page) {
+          async function waitForLauncherFocus(page, label) {
+            try {
+              await page.waitForFunction(() => document.activeElement?.classList?.contains('dpro-tutorial-launcher__button'), null, {timeout:1000});
+            } catch (_) {
+              const active = await page.evaluate(() => ({
+                tag: document.activeElement?.tagName || '',
+                id: document.activeElement?.id || '',
+                className: document.activeElement?.className || '',
+                text: document.activeElement?.textContent?.trim?.().slice(0,80) || ''
+              }));
+              throw new Error(`${label}: focus not recovered to launcher within 1000ms; active=${JSON.stringify(active)}`);
+            }
+          }
+
+          async function closeByButton(page, label='Close') {
             await page.locator('[data-action="close"]').click();
             await page.locator('.dpro-tutorial-card').waitFor({state:'hidden'});
+            await waitForLauncherFocus(page, label);
           }
 
           async function testCoreFlow(page, vp, record) {
@@ -182,14 +197,13 @@ jobs:
             assert(st.stepId === 'TAX-T01', `${vp.name}: Back failed`);
             record.next_back = 'PASS';
 
-            await closeByButton(page);
-            const activeAfterClose = await page.evaluate(() => document.activeElement?.className || '');
-            assert(String(activeAfterClose).includes('dpro-tutorial-launcher__button'), `${vp.name}: focus not recovered to launcher after Close`);
+            await closeByButton(page, `${vp.name}: Close`);
             record.close = 'PASS';
 
             await openByLauncher(page);
             await page.keyboard.press('Escape');
             await page.locator('.dpro-tutorial-card').waitFor({state:'hidden'});
+            await waitForLauncherFocus(page, `${vp.name}: Escape`);
             record.esc = 'PASS';
 
             await page.evaluate(() => window.DPRO_TAX_TUTORIAL_V11.start());
@@ -329,8 +343,7 @@ jobs:
               await page.keyboard.press('Enter');
             }
             await page.locator('.dpro-tutorial-card').waitFor({state:'hidden'});
-            const activeCls = await page.evaluate(() => document.activeElement?.className || '');
-            assert(String(activeCls).includes('dpro-tutorial-launcher__button'), `${vp.name}: keyboard completion did not recover launcher focus`);
+            await waitForLauncherFocus(page, `${vp.name}: keyboard completion`);
             record.keyboard_only = 'PASS';
             record.focus_visible_recoverable = 'PASS';
           }
