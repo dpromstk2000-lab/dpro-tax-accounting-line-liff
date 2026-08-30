@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="dpro-guide-version" content="DPRO GUIDE CENTER TAX R4 V1.0">
+  <title>操作ガイドセンター | 税理士・会計</title>
+  <style>
+    :root{color-scheme:light;--ink:#17324d;--brand:#315f86;--accent:#b38d50;--line:#d7e1e8;--soft:#eef4f8;--muted:#5d7180;--bg:#f7fafc}
+    *{box-sizing:border-box}html,body{margin:0;padding:0;max-width:100%;overflow-x:hidden}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans JP","Yu Gothic UI",Meiryo,sans-serif;background:var(--bg);color:var(--ink);line-height:1.65}
+    a{color:inherit}a:focus-visible,button:focus-visible{outline:3px solid #f4b942;outline-offset:3px}
+    .wrap{width:min(1120px,calc(100% - 32px));margin:0 auto}.top{padding:22px 0 10px}.back{display:inline-flex;align-items:center;min-height:42px;padding:8px 12px;border:1px solid var(--line);border-radius:11px;background:#fff;text-decoration:none;font-weight:800;font-size:13px}
+    .hero{padding:28px 0 20px}.eyebrow{margin:0 0 6px;color:var(--brand);font-size:12px;font-weight:900;letter-spacing:.08em}.hero h1{margin:0;font-size:clamp(28px,5vw,44px);line-height:1.25}.lead{max-width:760px;margin:12px 0 0;color:var(--muted)}
+    .actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:20px}.action{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:10px 17px;border-radius:12px;text-decoration:none;font-weight:900}.primary{background:var(--ink);color:#fff}.secondary{background:#fff;border:1px solid #bdccd6;color:var(--ink)}.quiet{background:var(--soft);border:1px solid #dbe6ed;color:var(--brand)}
+    .state{margin-top:15px;padding:11px 13px;border:1px solid var(--line);border-radius:12px;background:#fff;color:var(--muted);font-size:13px}.state strong{color:var(--ink)}
+    .section-head{display:flex;align-items:end;justify-content:space-between;gap:16px;margin:22px 0 12px}.section-head h2{margin:0;font-size:22px}.section-head p{margin:0;color:var(--muted);font-size:12px}
+    .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding-bottom:38px}.card{min-width:0;padding:17px;border:1px solid var(--line);border-radius:16px;background:#fff;box-shadow:0 7px 20px rgba(23,50,77,.06)}.id{margin:0;color:var(--brand);font-size:11px;font-weight:1000;letter-spacing:.08em}.card h3{margin:4px 0 8px;font-size:17px;line-height:1.45}.copy{margin:0;color:var(--muted);font-size:13px}.meta{display:grid;grid-template-columns:78px minmax(0,1fr);gap:4px 8px;margin-top:12px;padding-top:10px;border-top:1px solid #edf2f5;font-size:11px}.meta dt{font-weight:900;color:#72828d}.meta dd{min-width:0;margin:0;color:#415866;overflow-wrap:anywhere}.meta code{font:inherit;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    .safe{margin:0 0 28px;padding:13px 15px;border-radius:13px;background:#fff8e9;border:1px solid #ecd9ad;color:#6b5a35;font-size:12px}
+    @media(max-width:700px){.wrap{width:min(100% - 20px,1120px)}.hero{padding-top:18px}.grid{grid-template-columns:1fr}.actions{display:grid;grid-template-columns:1fr}.action{width:100%}.section-head{align-items:start;flex-direction:column;gap:4px}.meta{grid-template-columns:70px minmax(0,1fr)}}
+  </style>
+</head>
+<body data-guide-center="tax-r4">
+  <header class="top"><div class="wrap"><a class="back" href="index.html">← 公開窓口へ戻る</a></div></header>
+  <main class="wrap">
+    <section class="hero" aria-labelledby="guide-title">
+      <p class="eyebrow">DPRO GUIDE CENTER / TAX / STANDARD V1.1</p>
+      <h1 id="guide-title">税理士・会計 操作ガイドセンター</h1>
+      <p class="lead">公開窓口のFirst10を、安全な読み取り中心の10ステップで確認できます。予約・相談・登録の送信や業務データ更新は行いません。</p>
+      <nav class="actions" aria-label="操作ガイドを開始">
+        <a class="action primary" data-guide-action="start" href="index.html?dpro_tutorial=start">Start / Step 1から開始</a>
+        <a class="action secondary" data-guide-action="resume" href="index.html?dpro_tutorial=resume">Resume / 続きから再開</a>
+        <a class="action quiet" data-guide-action="replay" href="index.html?dpro_tutorial=replay">Replay / Step 1から再確認</a>
+      </nav>
+      <div class="state" id="guide-state" role="status" aria-live="polite"><strong>保存状態：</strong><span>確認中</span></div>
+    </section>
+
+    <div class="section-head"><h2>First10</h2><p>10 / 10 — authoritative public index contract</p></div>
+    <section class="grid" id="guide-grid" aria-label="First10 ガイド一覧">
+      <article class="card" data-guide-step="TAX-T01" data-route="index.html" data-primary=".hero h1" data-fallback="main#main"><p class="id">TAX-T01</p><h3>LINE窓口の全体像</h3><p class="copy">まず、税務・会計の連絡をまとめる顧問先サポート窓口の役割を確認します。</p><dl class="meta"><dt>Route</dt><dd><code>index.html</code></dd><dt>Target</dt><dd><code>.hero h1</code></dd><dt>Fallback</dt><dd><code>main#main</code></dd></dl></article>
+      <article class="card" data-guide-step="TAX-T02" data-route="index.html" data-primary=".hero-panel" data-fallback=".hero"><p class="id">TAX-T02</p><h3>この窓口でできること</h3><p class="copy">資料確認、進捗共有、面談希望、相談履歴など、主な利用範囲を確認します。</p><dl class="meta"><dt>Route</dt><dd><code>index.html</code></dd><dt>Target</dt><dd><code>.hero-panel</code></dd><dt>Fallback</dt><dd><code>.hero</code></dd></dl></article>
+      <article class="card" data-guide-step="TAX-T03" data-route="index.html" data-primary="#booking" data-fallback="main#main"><p class="id">TAX-T03</p><h3>面談予約の入口</h3><p class="copy">面談予約では、相談内容・希望日・希望時間などを確認して希望を送る流れです。</p><dl class="meta"><dt>Route</dt><dd><code>index.html</code></dd><dt>Target</dt><dd><code>#booking</code></dd><dt>Fallback</dt><dd><code>main#main</code></dd></dl></article>
+      <article class="card" data-guide-step="TAX-T04" data-route="index.html" data-primary="#booking-service" data-fallback="#booking"><p class="id">TAX-T04</p><h3>相談内容を選ぶ場所</h3><p class="copy">ここで面談したい相談内容を選びます。チュートリアルは選択内容を変更しません。</p><dl class="meta"><dt>Route</dt><dd><code>index.html</code></dd><dt>Target</dt><dd><code>#booking-service</code></dd><dt>Fallback</dt><dd><code>#booking</code></dd></dl></article>
+      <article class="card" data-guide-step="TAX-T05" data-route="index.html" data-primary="#booking-date" data-fallback="#booking"><p class="id">TAX-T05</p><h3>希望日を確認する場所</h3><p class="copy">面談の希望日を指定する欄です。チュートリアルは日付を自動入力しません。</p><dl class="meta"><dt>Route</dt><dd><code>index.html</code></dd><dt>Target</dt><dd><code>#booking-date</code></dd><dt>Fallback</dt><dd><code>#booking</code></dd></dl></article>
+      <article class="card" data-guide-step="TAX-T06" data-route="index.html" data-primary="#slot-message" data-fallback="#booking"><p class="id">TAX-T06</p><h3>希望時間の表示位置</h3><p class="copy">相談内容と希望日を選ぶと、この付近に希望時間の候補が表示されます。</p><dl class="meta"><dt>Route</dt><dd><code>index.html</code></dd><dt>Target</dt><dd><code>#slot-message</code></dd><dt>Fallback</dt><dd><code>#booking</code></dd></dl></article>
+      <article class="card" data-guide-step="TAX-T07" data-route="index.html" data-primary="#inquiry" data-fallback="main#main"><p class="id">TAX-T07</p><h3>税務・会計相談の入口</h3><p class="copy">税務・会計の相談を記録して送るための相談フォームの位置を確認します。</p><dl class="meta"><dt>Route</dt><dd><code>index.html</code></dd><dt>Target</dt><dd><code>#inquiry</code></dd><dt>Fallback</dt><dd><code>main#main</code></dd></dl></article>
+      <article class="card" data-guide-step="TAX-T08" data-route="index.html" data-primary="#inquiry-form .security-notice" data-fallback="#inquiry"><p class="id">TAX-T08</p><h3>機密情報を送らない</h3><p class="copy">マイナンバー、暗証番号、パスワード、秘密鍵などの機密情報は入力しないことを確認します。</p><dl class="meta"><dt>Route</dt><dd><code>index.html</code></dd><dt>Target</dt><dd><code>#inquiry-form .security-notice</code></dd><dt>Fallback</dt><dd><code>#inquiry</code></dd></dl></article>
+      <article class="card" data-guide-step="TAX-T09" data-route="index.html" data-primary="#inquiry-category" data-fallback="#inquiry"><p class="id">TAX-T09</p><h3>相談区分を確認する場所</h3><p class="copy">税務相談、資料、面談、契約、料金などの相談区分を選ぶ欄です。チュートリアルは選択を変更しません。</p><dl class="meta"><dt>Route</dt><dd><code>index.html</code></dd><dt>Target</dt><dd><code>#inquiry-category</code></dd><dt>Fallback</dt><dd><code>#inquiry</code></dd></dl></article>
+      <article class="card" data-guide-step="TAX-T10" data-route="index.html" data-primary="#security-notice-text" data-fallback=".section-tight .security-notice"><p class="id">TAX-T10</p><h3>資料提出時の安全確認</h3><p class="copy">資料提出時も、マイナンバーや暗証番号、パスワードが写った資料を送らないことを最後に確認します。</p><dl class="meta"><dt>Route</dt><dd><code>index.html</code></dd><dt>Target</dt><dd><code>#security-notice-text</code></dd><dt>Fallback</dt><dd><code>.section-tight .security-notice</code></dd></dl></article>
+    </section>
+    <p class="safe"><strong>安全境界：</strong>Guide Centerは説明とTutorial起動のみです。予約・相談・登録送信、資料アップロード、system-check、demo_prepare、管理画面の書込み操作は実行しません。</p>
+  </main>
+  <script>
+    (()=>{
+      'use strict';
+      const STATE='dpro_tutorial_tax_first10_state';
+      const STEP='dpro_tutorial_tax_first10_step';
+      const el=document.querySelector('#guide-state span');
+      try{
+        const s=JSON.parse(localStorage.getItem(STATE)||'{}');
+        const raw=Number(localStorage.getItem(STEP));
+        if(s.completed) el.textContent=s.skipped?'スキップ済み — ReplayでStep 1から再確認できます。':'完了済み — ReplayでStep 1から再確認できます。';
+        else if(Number.isInteger(s.index)) el.textContent=`Step ${s.index+1} / 10 からResumeできます。`;
+        else if(Number.isFinite(raw)&&raw>=1) el.textContent=`Step ${Math.min(10,raw)} / 10 からResumeできます。`;
+        else el.textContent='未開始 — StartでStep 1から開始します。';
+      }catch(_){el.textContent='未開始 — StartでStep 1から開始します。';}
+    })();
+  </script>
+</body>
+</html>

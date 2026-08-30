@@ -367,6 +367,24 @@
       close:()=>closeTutorial(),
       getState:()=>({active:state.active,index:state.index,stepId:STEPS[state.index]?.id||null,stored:parseStoredState()})
     });
+
+    // R4 Guide Center handoff: Guide Center only selects Start / Resume / Replay.
+    // The authoritative Tutorial remains this single state machine and the same
+    // localStorage keys. Remove the one-shot query parameter before opening so
+    // refresh/close does not unexpectedly relaunch the guide.
+    const guideMode = new URLSearchParams(window.location.search).get("dpro_tutorial");
+    if (["start","resume","replay"].includes(guideMode)) {
+      try {
+        const cleanUrl = new URL(window.location.href);
+        cleanUrl.searchParams.delete("dpro_tutorial");
+        history.replaceState(history.state, document.title, `${cleanUrl.pathname}${cleanUrl.search}${cleanUrl.hash}`);
+      } catch (_) {}
+      requestAnimationFrame(() => {
+        if (guideMode === "start") openTutorial("start");
+        else if (guideMode === "replay") openTutorial("replay");
+        else openTutorial("resume");
+      });
+    }
   };
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", build, {once:true});
