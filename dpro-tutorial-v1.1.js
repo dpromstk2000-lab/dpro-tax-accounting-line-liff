@@ -208,8 +208,13 @@
     highlight.hidden = true;
     card.hidden = true;
     state.resolvedTarget = null;
-    const focusTarget = state.lastFocus && document.contains(state.lastFocus) ? state.lastFocus : launcherButton;
-    requestAnimationFrame(() => focusTarget?.focus?.({preventScroll:true}));
+    // R3 LIVE QA focus recovery: once the Tutorial UI is hidden, always
+    // return keyboard focus to the read-only Tutorial launcher immediately.
+    // A next-frame retry covers browser paint/focus timing without touching
+    // any underlying business control.
+    state.lastFocus = null;
+    launcherButton?.focus?.({preventScroll:true});
+    requestAnimationFrame(() => launcherButton?.focus?.({preventScroll:true}));
   };
 
   const next = () => {
