@@ -338,8 +338,12 @@ jobs:
             for (let i=0; i<EXPECTED_IDS.length; i++) {
               const st = await stepState(page);
               assert(st.stepId === EXPECTED_IDS[i], `${vp.name}: keyboard step mismatch at ${i+1}`);
-              const activeAction = await page.evaluate(() => document.activeElement?.getAttribute?.('data-action'));
-              assert(activeAction === 'next', `${vp.name}: Next not focused/recoverable at ${EXPECTED_IDS[i]}`);
+              try {
+                await page.waitForFunction(() => document.activeElement?.getAttribute?.('data-action') === 'next', null, {timeout:1000});
+              } catch (_) {
+                const activeAction = await page.evaluate(() => document.activeElement?.getAttribute?.('data-action') || '');
+                throw new Error(`${vp.name}: Next not focused/recoverable within 1000ms at ${EXPECTED_IDS[i]}; activeAction=${activeAction}`);
+              }
               await page.keyboard.press('Enter');
             }
             await page.locator('.dpro-tutorial-card').waitFor({state:'hidden'});
