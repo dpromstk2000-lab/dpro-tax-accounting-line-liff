@@ -1,0 +1,101 @@
+name: "DPRO SHOP Fix 15 TAX"
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/dpro-shop-fix-15-tax.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: "dpro-shop-fix-15-tax"
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify audited source SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          check() {
+            path="$1"; expected="$2"
+            test -f "$path" || { echo "Missing target: $path"; exit 31; }
+            got="$(git hash-object "$path")"
+            echo "$path  $got"
+            test "$got" = "$expected" || { echo "SOURCE SHA MISMATCH: $path expected=$expected got=$got"; exit 32; }
+          }
+          check 'app.js' 'b3e707312a103345f13e98e34bc52aab9d9bb850'
+
+      - name: Apply narrow confirmed fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, sys
+          
+          def read(path):
+              return Path(path).read_text(encoding="utf-8")
+          
+          def write(path, text):
+              Path(path).write_text(text, encoding="utf-8")
+          
+          def replace_once(text, old, new, label):
+              n=text.count(old)
+              if n != 1:
+                  raise SystemExit(f"{label}: expected 1 exact match, found {n}")
+              return text.replace(old,new,1)
+          
+          def sub_once(text, pattern, repl, label, flags=0):
+              new,n=re.subn(pattern,repl,text,count=1,flags=flags)
+              if n != 1:
+                  raise SystemExit(f"{label}: expected 1 regex match, found {n}")
+              return new
+          
+          p='app.js'; t=read(p)
+          t=replace_once(t,
+          '''      const appointment = event.target.closest("[data-appointment-status]"); if (appointment) await patchAdmin(`/api/admin/appointments/${appointment.dataset.id}`, { status: appointment.dataset.appointmentStatus }, "予約を更新しました。");''',
+          '''      const appointment = event.target.closest("[data-appointment-status]"); if (appointment) { const target=appointment.dataset.appointmentStatus; if (!(page === "owner" && target === "completed" && !confirm("この予約を完了にしますか？"))) await patchAdmin(`/api/admin/appointments/${appointment.dataset.id}`, { status: target }, "予約を更新しました。"); }''','TAX appointment guard')
+          t=replace_once(t,
+          '''      const inquiry = event.target.closest("[data-inquiry-status]"); if (inquiry) await patchAdmin(`/api/admin/inquiries/${inquiry.dataset.id}`, { status: inquiry.dataset.inquiryStatus }, "相談状態を更新しました。");''',
+          '''      const inquiry = event.target.closest("[data-inquiry-status]"); if (inquiry) { const target=inquiry.dataset.inquiryStatus; if (!(page === "owner" && target === "resolved" && !confirm("この相談を解決済みにしますか？"))) await patchAdmin(`/api/admin/inquiries/${inquiry.dataset.id}`, { status: target }, "相談状態を更新しました。"); }''','TAX inquiry guard')
+          t=replace_once(t,
+          '''      const task = event.target.closest("[data-task-complete]"); if (task) await patchAdmin(`/api/admin/tasks/${task.dataset.taskComplete}`, { status: "completed" }, "タスクを完了しました。");''',
+          '''      const task = event.target.closest("[data-task-complete]"); if (task && !(page === "owner" && !confirm("このタスクを完了しますか？"))) await patchAdmin(`/api/admin/tasks/${task.dataset.taskComplete}`, { status: "completed" }, "タスクを完了しました。");''','TAX task guard')
+          t=replace_once(t,
+          '''    const status = progress === 100 ? "completed" : item.status === "received" ? "in_progress" : item.status; await patchAdmin(`/api/admin/cases/${id}`, { progress_percent: progress, status }, "案件進捗を更新しました。");''',
+          '''    const status = progress === 100 ? "completed" : item.status === "received" ? "in_progress" : item.status; if(page === "owner" && progress === 100 && item?.status !== "completed" && !confirm("進捗率100%として案件を完了状態へ変更しますか？")) return; await patchAdmin(`/api/admin/cases/${id}`, { progress_percent: progress, status }, "案件進捗を更新しました。");''','TAX progress complete guard')
+          write(p,t)
+          PY
+
+      - name: Validate source diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git diff --stat
+          git diff -- "app.js"
+          if git diff --quiet -- "app.js"; then
+            echo "No source change was produced."
+            exit 41
+          fi
+
+      - name: Commit fix to main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "app.js"
+          git diff --cached --check
+          git commit -m "Fix tax owner terminal guards"
+          git push origin HEAD:main
