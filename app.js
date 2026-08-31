@@ -501,10 +501,10 @@
       const progress = event.target.closest("[data-case-progress]"); if (progress) await updateCaseProgress(progress.dataset.caseProgress);
       const review = event.target.closest("[data-document-review-open]"); if (review) await openDocumentReview(review.dataset.documentReviewOpen);
       const view = event.target.closest("[data-document-view]"); if (view) await viewDocument(view.dataset.documentView);
-      const appointment = event.target.closest("[data-appointment-status]"); if (appointment) await patchAdmin(`/api/admin/appointments/${appointment.dataset.id}`, { status: appointment.dataset.appointmentStatus }, "予約を更新しました。");
+      const appointment = event.target.closest("[data-appointment-status]"); if (appointment) { const target=appointment.dataset.appointmentStatus; if (!(page === "owner" && target === "completed" && !confirm("この予約を完了にしますか？"))) await patchAdmin(`/api/admin/appointments/${appointment.dataset.id}`, { status: target }, "予約を更新しました。"); }
       const appointmentEdit = event.target.closest("[data-appointment-edit]"); if (appointmentEdit) await editAppointmentDate(appointmentEdit.dataset.appointmentEdit);
-      const inquiry = event.target.closest("[data-inquiry-status]"); if (inquiry) await patchAdmin(`/api/admin/inquiries/${inquiry.dataset.id}`, { status: inquiry.dataset.inquiryStatus }, "相談状態を更新しました。");
-      const task = event.target.closest("[data-task-complete]"); if (task) await patchAdmin(`/api/admin/tasks/${task.dataset.taskComplete}`, { status: "completed" }, "タスクを完了しました。");
+      const inquiry = event.target.closest("[data-inquiry-status]"); if (inquiry) { const target=inquiry.dataset.inquiryStatus; if (!(page === "owner" && target === "resolved" && !confirm("この相談を解決済みにしますか？"))) await patchAdmin(`/api/admin/inquiries/${inquiry.dataset.id}`, { status: target }, "相談状態を更新しました。"); }
+      const task = event.target.closest("[data-task-complete]"); if (task && !(page === "owner" && !confirm("このタスクを完了しますか？"))) await patchAdmin(`/api/admin/tasks/${task.dataset.taskComplete}`, { status: "completed" }, "タスクを完了しました。");
       const del = event.target.closest("[data-soft-delete]"); if (del) await softDeleteAdmin(del.dataset.softDelete, del.dataset.id);
       const editService = event.target.closest("[data-edit-service]"); if (editService) openServiceEditor(editService.dataset.editService);
       const newService = event.target.closest("[data-new-service]"); if (newService) resetServiceEditor();
@@ -529,7 +529,7 @@
 
   async function updateCaseProgress(id) {
     const item = adminState.cases.find((row) => row.id === id); const input = prompt("進捗率を0～100で入力してください。", String(item?.progress_percent || 0)); if (input === null) return; const progress = Number(input); if (!Number.isInteger(progress) || progress < 0 || progress > 100) { toast("0～100の整数で入力してください。", "error"); return; }
-    const status = progress === 100 ? "completed" : item.status === "received" ? "in_progress" : item.status; await patchAdmin(`/api/admin/cases/${id}`, { progress_percent: progress, status }, "案件進捗を更新しました。");
+    const status = progress === 100 ? "completed" : item.status === "received" ? "in_progress" : item.status; if(page === "owner" && progress === 100 && item?.status !== "completed" && !confirm("進捗率100%として案件を完了状態へ変更しますか？")) return; await patchAdmin(`/api/admin/cases/${id}`, { progress_percent: progress, status }, "案件進捗を更新しました。");
   }
 
   async function editAppointmentDate(id) {
