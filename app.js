@@ -563,6 +563,74 @@
         previewStatus.textContent = "独立プレビューを別タブで開きました。対象月を選び、専用管理コードで確認してください。";
       });
     }
+    // R8.6: review readiness only. NEVER treat these client-side boxes as a server approval.
+    // No admin key, LINE ID token or personal data is sent or persisted by this worksheet.
+    const reviewPeriod = $("#r86-period");
+    const reviewDeadline = $("#r86-deadline");
+    const reviewChecks = ["preview", "duplicates", "deadline", "roles"].map((name) => $(`#r86-check-${name}`));
+    const reviewCopy = $("#r86-copy-review");
+    const reviewReset = $("#r86-reset-review");
+    const reviewMessage = $("#r86-review-state");
+    if (reviewPeriod && reviewDeadline && reviewCopy && reviewChecks.every(Boolean)) {
+      const jstToday = todayJst();
+      reviewPeriod.value = jstToday.slice(0, 7);
+      reviewDeadline.min = jstToday;
+      // YYYY-MM is validated separately because invalid dates and past dates must never produce a ready state.
+      function reviewReady() {
+        const period = reviewPeriod.value;
+        const due = reviewDeadline.value;
+        const validPeriod = /^20\d{2}-(0[1-9]|1[0-2])$/.test(period);
+        const validDue = /^20\d{2}-(0[1-9]|1[0-2])-([0-2]\d|3[01])$/.test(due)
+          && (() => { const d = new Date(`${due}T00:00:00+09:00`); return !Number.isNaN(d.getTime()) && new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" }).format(d) === due; })()
+          && due >= todayJst()
+          && due >= `${period}-01`;
+        // Local checks only — the authoritative server must repeat all checks during approval.
+        return { validPeriod, validDue, checked: reviewChecks.filter((node) => node.checked).length };
+      }
+      function updateReviewState() {
+        const { validPeriod, validDue, checked } = reviewReady();
+        const ready = validPeriod && validDue && checked === reviewChecks.length;
+        reviewCopy.disabled = !ready;
+        reviewMessage.textContent = !validPeriod ? "対象月を確認してください。"
+          : !validDue ? "提出期限を未来の日付で入力してください。"
+          : ready ? "4項目を確認しました。メモをコピーできます（未承認・未保存・未送信）。"
+          : `${checked}/4項目をチェックしました。これは事務所内の作業確認で、正式承認ではありません。`;
+        return ready;
+      }
+      // A change of period invalidates preview, duplicate review, and due-date confirmation.
+      // Editing the deadline also invalidates the previous due-date confirmation.
+      function invalidateReview(changed) {
+        if (changed === reviewPeriod) reviewChecks.slice(0, 3).forEach((node) => { node.checked = false; });
+        if (changed === reviewDeadline) reviewChecks[2].checked = false;
+        updateReviewState();
+      }
+      for (const node of [reviewPeriod, reviewDeadline]) {
+        node.addEventListener("change", () => invalidateReview(node));
+        node.addEventListener("input", () => invalidateReview(node));
+      }
+      for (const node of reviewChecks) node.addEventListener("change", updateReviewState);
+      reviewReset?.addEventListener("click", () => {
+        reviewDeadline.value = "";
+        reviewPeriod.value = todayJst().slice(0, 7);
+        reviewChecks.forEach((node) => { node.checked = false; });
+        updateReviewState();
+      });
+      reviewCopy.addEventListener("click", async () => {
+        if (!updateReviewState()) return;
+        const note = [
+          "DPRO TAX R8.6｜送信前確認メモ（検証専用）",
+          `対象月：${reviewPeriod.value}`,
+          `提出期限：${reviewDeadline.value}`,
+          "独立プレビュー／重複候補／依頼内容と期限／承認担当の必要性：作業者が画面上でチェック済み",
+          "重要：正式な承認履歴ではありません。資料依頼の登録・送信は行っていません。",
+        ].join("\n");
+        try {
+          await navigator.clipboard.writeText(note);
+          toast("確認メモをコピーしました。正式な承認・送信は行っていません。");
+        } catch { toast("クリップボードへコピーできません。ブラウザの権限をご確認ください。", "error"); }
+      });
+      updateReviewState();
+    }
     const appointmentDateInput = $('#admin-appointment-form input[name="requested_start_at"]'); if (appointmentDateInput) appointmentDateInput.min = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
     
     $("#owner-code-clear").addEventListener("click", () => { code.value = ""; code.focus(); });
