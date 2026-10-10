@@ -15,11 +15,11 @@
       <div class="brand"><span class="brand-mark">D</span><span class="brand-copy"><span>DPRO 税理士・会計事務所</span><small>オーナーPC管理</small></span></div>
       <p class="eyebrow">Secure Administration</p>
       <h1 style="font-size:31px">管理画面を開く</h1>
-      <p class="muted">管理コードを入力してください。デモ環境では「1234」です。</p>
+      <p class="muted">管理者が設定した専用の管理コードを入力してください。</p>
       <div id="owner-login-alert"></div>
       <div class="field">
         <label for="owner-admin-code">管理コード</label>
-        <div class="admin-code-row"><input id="owner-admin-code" type="password" inputmode="numeric" autocomplete="current-password" required><button id="owner-code-clear" class="btn btn-secondary" type="button">削除</button></div>
+        <div class="admin-code-row"><input id="owner-admin-code" type="password" autocomplete="current-password" required><button id="owner-code-clear" class="btn btn-secondary" type="button">削除</button></div>
       </div>
       <button class="btn btn-primary btn-block" style="margin-top:18px" type="submit">管理画面を開く</button>
     </form>
@@ -42,7 +42,7 @@
       <nav class="side-nav" aria-label="設定メニュー">
         <button class="nav-button" type="button" data-admin-view="staff"><span class="nav-icon">♙</span>職員</button>
         <button class="nav-button" type="button" data-admin-view="settings"><span class="nav-icon">⚙</span>基本設定</button>
-        <a class="nav-button" href="system-check.html?demo=1"><span class="nav-icon">●</span>システム確認</a>
+        <a class="nav-button" href="system-check.html"><span class="nav-icon">●</span>システム確認</a>
       </nav>
     </aside>
 
@@ -64,6 +64,11 @@
             <div class="metric"><div class="metric-top"><span>新着書類</span><span>▱</span></div><div id="metric-documents" class="metric-value">－</div><div class="metric-note">確認待ち</div></div>
             <div class="metric"><div class="metric-top"><span>未対応相談</span><span>◌</span></div><div id="metric-inquiries" class="metric-value">－</div><div class="metric-note">解決・終了を除く</div></div>
           </div>
+          <section class="panel-card tax-priority-card" aria-labelledby="tax-priority-title">
+            <div class="panel-card-head"><h2 id="tax-priority-title">期限超過・要フォロー</h2><span id="tax-priority-count" class="tax-priority-count">確認中</span></div>
+            <p class="muted">未完了の案件・タスク・資料依頼から期限を過ぎた項目を自動抽出します。表示は参考情報です。期限・内容は担当者が確認してください。</p>
+            <div id="tax-priority-list" class="tax-priority-list" aria-live="polite"></div>
+          </section>
           <div class="dashboard-grid">
             <div class="panel-card"><div class="panel-card-head"><h2>優先して確認する案件</h2><button class="btn btn-ghost btn-sm" data-go-view="cases" type="button">すべて見る</button></div><div id="dashboard-cases" class="list"></div></div>
             <div class="panel-card"><div class="panel-card-head"><h2>今日やること</h2><button class="btn btn-ghost btn-sm" data-go-view="tasks" type="button">タスク一覧</button></div><div id="dashboard-tasks" class="list"></div></div>

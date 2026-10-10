@@ -1,15 +1,17 @@
 (() => {
   "use strict";
 
-  // STEP TAX-12-R1: demo=1 のスタッフiPadを管理コード1234で自動ログイン（通常URLは従来どおり）
-
+  // Current main reconciliation: verification / status-confirmation safeguards retained.
   const CONFIG = window.DPRO_TAX_CONFIG;
   const page = document.body.dataset.page;
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
   const params = new URLSearchParams(location.search);
-  const isDemo = params.get("demo") === "1";
-  const lineUserId = params.get("line_user_id") || (isDemo ? CONFIG.DEMO_LINE_USER_ID : "");
+  // R7: URL parameters never grant production identity. Demo UI requires explicit staging opt-in.
+  const isDemo = params.get("demo") === "1" && CONFIG.ENABLE_DEMO_UI === true;
+  const lineUserId = isDemo ? (params.get("line_user_id") || CONFIG.DEMO_LINE_USER_ID) : "";
+  let lineIdToken = "";
+  let lineInitPromise = null;
   const apiBase = location.hostname === "terminal.local" ? "/tax-api" : CONFIG.API_BASE;
 
   const labels = {
@@ -107,10 +109,31 @@
     }
   }
 
+  // The server must verify ID tokens with LINE. Never infer identity from URL query parameters.
+  async function initializeLineIdentity({ required = false } = {}) {
+    if (isDemo) return true;
+    if (!CONFIG.LIFF_ID) {
+      if (required) throw new Error("LINE連携は準備中です。事務所へお問い合わせください。");
+      return false;
+    }
+    if (!window.liff) throw new Error("LINE認証の読み込みに失敗しました。通信環境をご確認ください。");
+    if (!lineInitPromise) lineInitPromise = window.liff.init({ liffId: CONFIG.LIFF_ID });
+    await lineInitPromise;
+    if (!window.liff.isLoggedIn()) {
+      if (required) window.liff.login({ redirectUri: location.href });
+      return false;
+    }
+    const token = window.liff.getIDToken();
+    if (!token) throw new Error("LINE本人認証が取得できません。LINEログインをやり直してください。");
+    lineIdToken = token;
+    return true;
+  }
+
   async function api(path, { method = "GET", body, adminKey, lineId, formData } = {}) {
     const headers = { Accept: "application/json" };
     if (adminKey) headers["X-Admin-Key"] = adminKey;
-    if (lineId) headers["X-Line-User-Id"] = lineId;
+    if (lineIdToken) headers["X-Line-Id-Token"] = lineIdToken;
+    else if (isDemo && lineId) headers["X-Line-User-Id"] = lineId;
     if (!formData && body !== undefined) headers["Content-Type"] = "application/json";
     const response = await fetch(`${apiBase}${path}`, {
       method,
@@ -169,6 +192,8 @@
   }
 
   async function initPublic() {
+    // Anonymous consultations remain available; linked actions require verified LINE identity.
+    if (CONFIG.LIFF_ID && window.liff) await initializeLineIdentity({ required: false });
     const officeData = await api("/api/public/office");
     const office = officeData.office;
     const serviceSelect = $("#booking-service");
@@ -245,11 +270,15 @@
       const form = event.currentTarget; const submit = $("button[type=submit]", form); const values = formObject(form);
       values.privacy_consent = $("input[name=privacy_consent]", form).checked;
       values.terms_consent = $("input[name=terms_consent]", form).checked;
-      values.line_user_id = lineUserId || (isDemo ? `demo_tax_new_${Date.now()}` : "");
-      if (!values.line_user_id) { toast("初回登録はLINEメニューから開いてください。", "error"); return; }
       try {
+        if (isDemo) values.line_user_id = lineUserId || `demo_tax_new_${Date.now()}`;
+        else {
+          const ready = await initializeLineIdentity({ required: true });
+          if (!ready) return; // LINE login redirect
+          delete values.line_user_id;
+        }
         setButtonBusy(submit, true, "登録中...");
-        const data = await api("/api/public/register", { method: "POST", body: values, lineId: values.line_user_id });
+        const data = await api("/api/public/register", { method: "POST", body: values, lineId: isDemo ? values.line_user_id : undefined });
         toast(data.message); closeModal("register-modal"); form.reset();
       } catch (error) { toast(error.message, "error"); }
       finally { setButtonBusy(submit, false); }
@@ -258,7 +287,16 @@
 
   async function initMember() {
     $("#member-version").textContent = CONFIG.VERSION;
-    if (!lineUserId) {
+    try {
+      const ready = await initializeLineIdentity({ required: true });
+      if (!ready) return; // waiting for LINE login redirect
+    } catch (error) {
+      $("#member-loading").hidden = true;
+      $("#member-alert").innerHTML = alertBox(error.message);
+      return;
+    }
+    if (!isDemo && !lineIdToken) return;
+    if (isDemo && !lineUserId) {
       $("#member-loading").hidden = true;
       $("#member-alert").innerHTML = alertBox("LINE連携情報がありません。LINEメニューからマイページを開いてください。");
       return;
@@ -392,6 +430,22 @@
     $("#metric-cases").textContent = counts.open_cases ?? adminState.cases.filter((item) => !["completed", "cancelled"].includes(item.status)).length;
     $("#metric-documents").textContent = counts.new_documents ?? adminState.documents.filter((item) => item.status === "new").length;
     $("#metric-inquiries").textContent = counts.open_inquiries ?? adminState.inquiries.filter((item) => !["resolved", "closed"].includes(item.status)).length;
+    // R7: read-only priority view across existing task, case and document-request records.
+    const today = todayJst();
+    const outstanding = [
+      ...adminState.cases.filter(item => item.deadline_date && item.deadline_date < today && !["completed", "cancelled"].includes(item.status))
+        .map(item => ({ view: "cases", type: "案件", title: item.title, client_id: item.client_id, due: item.deadline_date })),
+      ...adminState.tasks.filter(item => item.due_at && String(item.due_at).slice(0, 10) < today && !["completed", "cancelled"].includes(item.status))
+        .map(item => ({ view: "tasks", type: "タスク", title: item.title, client_id: item.client_id, due: String(item.due_at).slice(0, 10) })),
+      ...adminState.requests.filter(item => item.due_on && item.due_on < today && !["completed", "cancelled", "closed"].includes(item.status))
+        .map(item => ({ view: "documents", type: "資料依頼", title: item.title, client_id: item.client_id, due: item.due_on })),
+    ].sort((a, b) => a.due.localeCompare(b.due));
+    const countLabel = $("#tax-priority-count");
+    if (countLabel) countLabel.textContent = outstanding.length ? `${outstanding.length}件の確認待ち` : "期限超過なし";
+    const priorityList = $("#tax-priority-list");
+    if (priorityList) priorityList.innerHTML = outstanding.length
+      ? outstanding.slice(0, 8).map(item => `<div class="tax-priority-item"><div><span class="tax-priority-type">${esc(item.type)}</span> <strong>${esc(item.title)}</strong><div class="small muted">${esc(clientName(item.client_id))} ／ 期限：${esc(item.due)}</div></div><button class="btn btn-secondary btn-sm" type="button" data-go-view="${esc(item.view)}">一覧へ</button></div>`).join("") + (outstanding.length > 8 ? `<p class="small muted">ほか${outstanding.length - 8}件。各一覧で確認してください。</p>` : "")
+      : empty("期限超過の未完了項目はありません。");
     $("#dashboard-date").textContent = `${formatDate(new Date().toISOString())} の業務状況`;
     $("#owner-office-name").textContent = adminState.dashboard.office?.office_name || "DPRO税理士・会計事務所";
     const dc = adminState.dashboard.urgent_cases || [];
@@ -483,15 +537,15 @@
   async function initOwner() {
     const auth = $("#owner-auth"); const app = $("#owner-app"); const code = $("#owner-admin-code");
     const appointmentDateInput = $('#admin-appointment-form input[name="requested_start_at"]'); if (appointmentDateInput) appointmentDateInput.min = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-    if (isDemo) code.value = CONFIG.DEFAULT_ADMIN_CODE;
+    
     $("#owner-code-clear").addEventListener("click", () => { code.value = ""; code.focus(); });
     async function login(key) {
-      adminState.key = key; await api("/api/admin/dashboard", { adminKey: key }); await refreshOwner(); sessionStorage.setItem("dpro_tax_admin", key); auth.hidden = true; app.hidden = false;
+      adminState.key = key; await api("/api/admin/dashboard", { adminKey: key }); await refreshOwner();  code.value = ""; auth.hidden = true; app.hidden = false;
     }
     $("#owner-login-form").addEventListener("submit", async (event) => { event.preventDefault(); const button = $("button[type=submit]", event.currentTarget); try { setButtonBusy(button, true, "確認中..."); await login(code.value); } catch (error) { $("#owner-login-alert").innerHTML = alertBox(error.message); } finally { setButtonBusy(button, false); } });
-    const stored = isDemo ? CONFIG.DEFAULT_ADMIN_CODE : sessionStorage.getItem("dpro_tax_admin");
-    if (stored) { try { code.value = stored; await login(stored); } catch (error) { sessionStorage.removeItem("dpro_tax_admin"); adminState.key = ""; app.hidden = true; auth.hidden = false; $("#owner-login-alert").innerHTML = alertBox(`${error.message} 再度ログインしてください。`); } }
-    $("#owner-logout").addEventListener("click", () => { sessionStorage.removeItem("dpro_tax_admin"); location.reload(); });
+    const stored = ""; // R7: administrator secrets are not saved or autofilled
+    if (stored) { try { code.value = stored; await login(stored); } catch (error) {  adminState.key = ""; app.hidden = true; auth.hidden = false; $("#owner-login-alert").innerHTML = alertBox(`${error.message} 再度ログインしてください。`); } }
+    $("#owner-logout").addEventListener("click", () => {  location.reload(); });
     $("#sidebar-toggle").addEventListener("click", () => $("#admin-sidebar").classList.toggle("open"));
     document.addEventListener("click", async (event) => {
       const nav = event.target.closest("[data-admin-view]"); if (nav) showAdminView(nav.dataset.adminView);
@@ -709,28 +763,22 @@
   }
 
   async function initIpad() {
-    const auth = $("#ipad-auth"); const app = $("#ipad-app"); const code = $("#ipad-admin-code"); if (isDemo) code.value = CONFIG.DEFAULT_ADMIN_CODE;
+    const auth = $("#ipad-auth"); const app = $("#ipad-app"); const code = $("#ipad-admin-code"); 
     $("#ipad-code-clear").addEventListener("click", () => { code.value = ""; code.focus(); });
     async function load() {
       const data = await api("/api/admin/dashboard", { adminKey: adminState.key }); adminState.dashboard = data; renderIpad();
     }
-    async function login(key) { adminState.key = key; await load(); sessionStorage.setItem("dpro_tax_ipad_admin", key); auth.hidden = true; app.hidden = false; }
+    async function login(key) { adminState.key = key; await load();  code.value = ""; auth.hidden = true; app.hidden = false; }
     $("#ipad-login-form").addEventListener("submit", async (event) => { event.preventDefault(); const button = $("button[type=submit]", event.currentTarget); try { setButtonBusy(button, true, "確認中..."); await login(code.value); } catch (error) { $("#ipad-login-alert").innerHTML = alertBox(error.message); } finally { setButtonBusy(button, false); } });
-    const stored = isDemo ? CONFIG.DEFAULT_ADMIN_CODE : sessionStorage.getItem("dpro_tax_ipad_admin");
+    const stored = ""; // R7: iPad staff login requires a fresh administrative credential
     if (stored) {
-      try {
-        code.value = stored;
-        await login(stored);
-      } catch (error) {
-        sessionStorage.removeItem("dpro_tax_ipad_admin");
-        adminState.key = "";
-        app.hidden = true;
-        auth.hidden = false;
+      try { code.value = stored; await login(stored); } catch (error) {
+         adminState.key = ""; app.hidden = true; auth.hidden = false;
         $("#ipad-login-alert").innerHTML = alertBox(`${error.message} 再度ログインしてください。`);
       }
     }
     $("#ipad-refresh").addEventListener("click", async () => { try { await load(); toast("最新情報に更新しました。"); } catch (error) { toast(error.message, "error"); } });
-    $("#ipad-logout").addEventListener("click", () => { sessionStorage.removeItem("dpro_tax_ipad_admin"); location.reload(); });
+    $("#ipad-logout").addEventListener("click", () => {  location.reload(); });
     $("#ipad-app").addEventListener("click", async (event) => {
       const button = event.target.closest("button[data-ipad-action]"); if (!button) return;
       const action = button.dataset.ipadAction; const id = button.dataset.id;
@@ -758,8 +806,8 @@
   }
 
   async function initSystemCheck() {
-    const code = $("#check-admin-code"); if (isDemo) code.value = CONFIG.DEFAULT_ADMIN_CODE; $("#check-code-clear").addEventListener("click", () => { code.value = ""; code.focus(); }); $("#system-version").textContent = CONFIG.VERSION;
-    const base = CONFIG.PAGES_BASE; $("#url-index").textContent = `${base}index.html`; $("#url-member").textContent = `${base}member.html?demo=1&line_user_id=${CONFIG.DEMO_LINE_USER_ID}`; $("#url-owner").textContent = `${base}owner.html?demo=1`; $("#url-ipad").textContent = `${base}owner-ipad.html?demo=1`;
+    const code = $("#check-admin-code");  $("#check-code-clear").addEventListener("click", () => { code.value = ""; code.focus(); }); $("#system-version").textContent = CONFIG.VERSION;
+    const base = CONFIG.PAGES_BASE; $("#url-index").textContent = `${base}index.html`; $("#url-member").textContent = isDemo ? `${base}member.html?demo=1&line_user_id=${CONFIG.DEMO_LINE_USER_ID}` : `${base}member.html`; $("#url-owner").textContent = isDemo ? `${base}owner.html?demo=1` : `${base}owner.html`; $("#url-ipad").textContent = isDemo ? `${base}owner-ipad.html?demo=1` : `${base}owner-ipad.html`;
     function setCheck(name, ok, message) { const icon = $(`#check-${name}-icon`); icon.className = `check-indicator ${ok ? "ok" : "ng"}`; icon.textContent = ok ? "✓" : "×"; $(`#check-${name}-text`).textContent = message; }
     $("#run-system-check").addEventListener("click", async (event) => {
       const button = event.currentTarget; const key = code.value; if (!key) { $("#check-alert").innerHTML = alertBox("管理コードを入力してください。"); return; }

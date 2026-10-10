@@ -499,3 +499,23 @@ tbody tr:hover { background: #fbfdfd; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation-duration: .001ms !important; }
 }
+
+/* TAX R7: improved readability, focus visibility and touch target sizing. */
+:focus-visible { outline: 3px solid #0d9488; outline-offset: 3px; }
+button, .btn, .nav-button, .slot-button, select, input { min-height: 44px; }
+.slot-button { font-size: 1rem; font-weight: 800; }
+button:disabled { cursor: not-allowed; opacity: .55; }
+@media (max-width: 760px) {
+  .summary-card .value, .metric-card .value { font-variant-numeric: tabular-nums; }
+  .admin-layout, .portal-shell { min-width: 0; }
+  .table-wrap, .table-responsive { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .slot-button { min-height: 48px; font-size: 1.05rem; }
+}
+
+/* R7 cross-workflow overdue dashboard: owner-only, read-only summary. */
+.tax-priority-card { margin: 1rem 0 1.35rem; border-color: #e5c79b; }
+.tax-priority-count { padding: .3rem .75rem; background: #fff4dd; color: #855000; border-radius: 999px; font-size: .9rem; font-weight: 800; }
+.tax-priority-list { display: grid; gap: .55rem; }
+.tax-priority-item { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .7rem; background: #fffaf0; border: 1px solid #f0e4cf; border-radius: .7rem; }
+.tax-priority-type { display: inline-block; font-weight: 800; color: #805300; margin-right: .25rem; }
+@media (max-width: 640px) { .tax-priority-item { align-items: flex-start; flex-direction: column; } .tax-priority-item .btn { width: 100%; } }
