@@ -1,6 +1,6 @@
 window.DPRO_TAX_CONFIG = Object.freeze({
   APP_NAME: "DPRO 税理士・会計事務所 LINE",
-  VERSION: "TAX-R8.6-REVIEW-READINESS-STAGING-20261010",
+  VERSION: "TAX-R9.0-APPROVAL-FOUNDATION-STAGING-20261010",
   API_BASE: "https://dpro-tax-accounting-line-r7-staging.dpromstk2000.workers.dev",
   OFFICE_CODE: "dpro_taxacc_demo",
   // R7: LIFF ID is public configuration, not the LINE channel secret.
@@ -8,6 +8,9 @@ window.DPRO_TAX_CONFIG = Object.freeze({
   ENABLE_DEMO_UI: false, // Production must remain false
   // R8.6 STAGING ONLY: separate read-only demo preview, never a production CRM API.
   TAX_R85_PREVIEW_ENABLED: true,
+  // R9: not connected to staff authentication or an approval-writing API.
+  TAX_R9_FORMAL_APPROVAL_ENABLED: false,
+  TAX_R9_BATCH_SEND_ENABLED: false,
   TAX_R85_PREVIEW_URL: "https://dpro-tax-accounting-r84-preview.dpromstk2000.workers.dev/preview",
   DEMO_LINE_USER_ID: "demo_tax_line_001",
   DEMO_CLIENT_CODE: "TXC-000001",

@@ -95,7 +95,7 @@
           <div class="admin-page-head"><div><p class="eyebrow">Documents</p><h1>資料依頼・提出確認</h1></div><button class="btn btn-primary" type="button" data-open-modal="request-create-modal">資料依頼を作成</button></div>
           <section class="card" style="padding:20px;margin-top:14px;margin-bottom:18px" aria-label="月次資料依頼プレビュー（独立検証用）" id="tax-r85-preview-panel">
             <div class="admin-page-head">
-              <div><p class="eyebrow" style="margin:0 0 6px">R8.6 · Staging Only</p><h2 style="margin:0;font-size:1.18rem">月次資料依頼｜確認・承認フロー</h2>
+              <div><p class="eyebrow" style="margin:0 0 6px">R9.0 · Staging Only</p><h2 style="margin:0;font-size:1.18rem">月次資料依頼｜送信前確認（正式承認は準備中）</h2>
                 <p class="small muted">実際のSupabaseに接続できた<span style="font-weight:700">匿名デモ専用の読み取り確認画面</span>を別タブで開きます。管理画面のログインコードは別画面へ送信されません。</p>
               </div><span class="badge">検証専用・送信なし</span>
             </div>
@@ -115,6 +115,20 @@
               <li><strong>責任者が最終承認</strong> — 承認履歴・権限判定は今後実装</li>
               <li><strong>依頼確定・LINE通知</strong> — 未実装（この画面からは実行できません）</li>
             </ol>
+            <section id="r9-approval-readiness" class="panel-card" style="margin-top:16px;padding:16px;border:1px solid #d4e2ed;background:#ffffff" aria-labelledby="r9-gate-title">
+              <div class="section-title" style="margin-bottom:10px"><div>
+                <p class="eyebrow" style="margin:0 0 4px">R9.0 · Server Approval Foundation</p>
+                <h3 id="r9-gate-title" style="margin:0">正式承認ゲートの準備状況</h3>
+              </div><span class="status" data-tone="warning">承認・送信は無効</span></div>
+              <p class="small muted" style="margin:4px 0 12px">R9の専用承認台帳と、同じ顧問先・月・テンプレートを二重に登録しない制約はDBに追加済みです。現行の個別資料依頼作成APIにはまだ適用していません。</p>
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,185px),1fr));gap:9px;line-height:1.55">
+                <div style="border:1px solid #d6e5dc;border-radius:9px;padding:11px"><strong>承認台帳のDB基盤</strong><div class="small" style="color:#16654c">準備済み（データ0件・非公開）</div></div>
+                <div style="border:1px solid #eadfc6;border-radius:9px;padding:11px"><strong>担当者の本人確認</strong><div class="small" style="color:#886018">未接続（スタッフAuth設定待ち）</div></div>
+                <div style="border:1px solid #eadfc6;border-radius:9px;padding:11px"><strong>責任者の正式承認</strong><div class="small" style="color:#886018">サーバーAPI未実装</div></div>
+                <div style="border:1px solid #eadfc6;border-radius:9px;padding:11px"><strong>資料依頼確定・LINE送信</strong><div class="small" style="color:#886018">未実装・実行不可</div></div>
+              </div>
+              <p class="small muted" style="margin:12px 0 0">※ここに表示しているのはR9基盤の検査時点の状態です。現在の送信前チェックは正式承認を記録しません。既存の個別依頼機能とは別に評価してください。</p>
+            </section>
             <section id="r86-review-sheet" class="panel-card" style="margin-top:16px;padding:16px;border:1px solid #d4e2ed;background:#fbfdff" aria-labelledby="r86-review-title">
               <div class="section-title" style="margin-bottom:12px"><div>
                 <p class="eyebrow" style="margin-bottom:4px">R8.6 · Review Worksheet</p>
