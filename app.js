@@ -536,6 +536,28 @@
 
   async function initOwner() {
     const auth = $("#owner-auth"); const app = $("#owner-app"); const code = $("#owner-admin-code");
+    // R8: One-click READ-ONLY preview. Never creates document requests or sends LINE messages.
+    const monthlyPeriod = $("#monthly-preview-period");
+    if (monthlyPeriod) monthlyPeriod.value = todayJst().slice(0, 7);
+    $("#monthly-preview-button")?.addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      const summary = $("#monthly-preview-summary");
+      const results = $("#monthly-preview-results");
+      const period = monthlyPeriod.value;
+      if (!/^20\d{2}-(0[1-9]|1[0-2])$/.test(period)) {
+        summary.textContent = "対象月を選択してください。"; return;
+      }
+      try {
+        setButtonBusy(button, true, "照合中...");
+        const plan = await api(`/api/admin/monthly-preview?period=${encodeURIComponent(period)}`, { adminKey: adminState.key });
+        summary.textContent = `${period}：未依頼候補 ${plan.proposed_count}件／既存依頼 ${plan.existing_count}件。送信・保存はしていません。`;
+        const items = plan.plans || [];
+        results.innerHTML = items.length ? `<div class="table-wrap"><table><thead><tr><th>顧問先</th><th>依頼テンプレート</th><th>状態</th></tr></thead><tbody>${items.slice(0, 30).map(item => `<tr><td>${esc(item.client_name)}</td><td>${esc(item.title)}<div class="small muted">${esc(item.template_code)} ／ ${item.document_item_count}項目</div></td><td>${item.already_requested ? '既存依頼あり' : '未依頼候補'}</td></tr>`).join("")}</tbody></table></div>${items.length > 30 ? `<p class="small muted">ほか${items.length - 30}件。表示は先頭30件までです。</p>` : ""}` : empty("有効な月次資料テンプレート、または対象顧問先がありません。追加前に設定を確認してください。");
+      } catch (error) {
+        summary.textContent = error.message || "プレビューに失敗しました。";
+        results.replaceChildren();
+      } finally { setButtonBusy(button, false); }
+    });
     const appointmentDateInput = $('#admin-appointment-form input[name="requested_start_at"]'); if (appointmentDateInput) appointmentDateInput.min = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
     
     $("#owner-code-clear").addEventListener("click", () => { code.value = ""; code.focus(); });

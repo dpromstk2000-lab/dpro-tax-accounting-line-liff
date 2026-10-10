@@ -93,6 +93,12 @@
 
         <section data-admin-panel="documents" hidden>
           <div class="admin-page-head"><div><p class="eyebrow">Documents</p><h1>資料依頼・提出確認</h1></div><button class="btn btn-primary" type="button" data-open-modal="request-create-modal">資料依頼を作成</button></div>
+          <section class="card" style="padding:18px;margin-top:14px;margin-bottom:18px" aria-label="月次資料依頼プレビュー">
+            <div class="admin-page-head"><div><h2 style="margin:0;font-size:1.12rem">月次資料依頼を事前確認</h2><p class="small muted">顧問先と有効な月次テンプレートを照合して、未依頼・重複候補を確認できます。プレビューのみで、送信・保存は行いません。</p></div><span class="badge">確認専用</span></div>
+            <div class="toolbar" style="margin-top:12px"><label for="monthly-preview-period">対象月 <input type="month" id="monthly-preview-period" style="min-width:160px" aria-label="対象月"></label><button type="button" id="monthly-preview-button" class="btn btn-secondary">月次依頼をプレビュー</button></div>
+            <div id="monthly-preview-summary" class="small muted" aria-live="polite" style="margin-top:10px">対象月を選び、プレビューを押してください。</div>
+            <div id="monthly-preview-results" style="margin-top:10px"></div>
+          </section>
           <div class="tabs"><button class="tab-button active" type="button" data-document-tab="submissions">提出書類</button><button class="tab-button" type="button" data-document-tab="requests">資料依頼</button></div>
           <div class="toolbar" style="margin-top:16px"><select id="document-status-filter"><option value="">すべての状態</option><option value="new">新着</option><option value="reviewing">確認中</option><option value="accepted">確認済み</option><option value="rejected">差戻し</option><option value="quarantined">隔離</option></select><input id="document-search" class="search" type="search" placeholder="顧問先・ファイル名・受付番号"><button id="document-filter-button" class="btn btn-secondary" type="button">絞り込む</button></div>
           <div id="document-submission-table" class="table-wrap" style="margin-top:16px"><table><thead><tr><th>提出日時</th><th>顧問先</th><th>ファイル</th><th>状態</th><th>操作</th></tr></thead><tbody id="documents-table-body"></tbody></table></div>
