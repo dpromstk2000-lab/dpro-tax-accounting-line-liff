@@ -1,7 +1,7 @@
 window.DPRO_TAX_CONFIG = Object.freeze({
   APP_NAME: "DPRO 税理士・会計事務所 LINE",
   VERSION: "TAX-R7-LIFF-AUTH-STAGING-20261010",
-  API_BASE: "https://dpro-tax-accounting-line-api.dpromstk2000.workers.dev",
+  API_BASE: "https://dpro-tax-accounting-line-r7-staging.dpromstk2000.workers.dev",
   OFFICE_CODE: "dpro_taxacc_demo",
   // R7: LIFF ID is public configuration, not the LINE channel secret.
   LIFF_ID: "", // Requires the actual LIFF app ID before production release
