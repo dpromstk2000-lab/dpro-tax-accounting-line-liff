@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src https://cbknucemarcpbscirzyv.supabase.co; base-uri 'none'; form-action 'none'; object-src 'none'; frame-src 'none'">
+  <title>DPRO TAX｜スタッフ本人確認・R9.2検証専用</title>
+  <link rel="stylesheet" href="staff-auth-staging.css">
+  <script src="staff-auth-staging.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="shell">
+      <span class="pill">R9.2 / 検証専用</span>
+      <h1>DPRO TAX スタッフ本人確認</h1>
+      <p>Supabase Authのログインだけを確認します。承認・資料依頼・LINE送信はできません。</p>
+    </div>
+  </header>
+  <main class="shell">
+    <section class="panel" aria-labelledby="auth-heading">
+      <h2 id="auth-heading">スタッフ本人確認（テスト）</h2>
+      <p class="muted">事前にテスト用Supabase Authアカウントの発行が必要です。実際の顧問先のメールアドレスやパスワードは入力しないでください。</p>
+      <form id="login-form" autocomplete="off" novalidate>
+        <label for="test-email">テスト用メールアドレス</label>
+        <input id="test-email" name="email" type="email" autocomplete="off" inputmode="email" required placeholder="test@example.com" maxlength="254">
+        <label for="test-password">テスト用パスワード</label>
+        <input id="test-password" name="password" type="password" autocomplete="off" required minlength="8" maxlength="256" placeholder="8文字以上">
+        <div class="actions">
+          <button id="login-button" type="submit">本人確認を試す</button>
+          <button id="logout-button" type="button" class="secondary" disabled>ログアウト</button>
+        </div>
+      </form>
+      <div id="status" role="status" aria-live="polite" class="status neutral">未ログイン。正式なスタッフ権限は付与されていません。</div>
+    </section>
+    <section class="panel" aria-labelledby="scope-heading">
+      <h2 id="scope-heading">今回確認できる範囲</h2>
+      <ul>
+        <li>Supabase Authによるパスワード認証の成否</li>
+        <li>トークンを使った本人確認APIの応答</li>
+        <li>ログアウトとセッション破棄</li>
+      </ul>
+      <p class="notice">本人確認に成功しても、DPRO TAXスタッフとしての登録・役割確認は未実施です。承認・差戻し・資料依頼確定・LINE送信はすべて無効です。</p>
+      <p class="muted">この検証画面は認証トークンをメモリ内でのみ取り扱い、localStorage・sessionStorage・Cookieへの明示的保存を行いません。ブラウザのパスワード保存機能についてはブラウザの設定が優先されます。</p>
+    </section>
+  </main>
+</body>
+</html>
