@@ -536,28 +536,33 @@
 
   async function initOwner() {
     const auth = $("#owner-auth"); const app = $("#owner-app"); const code = $("#owner-admin-code");
-    // R8: One-click READ-ONLY preview. Never creates document requests or sends LINE messages.
-    const monthlyPeriod = $("#monthly-preview-period");
-    if (monthlyPeriod) monthlyPeriod.value = todayJst().slice(0, 7);
-    $("#monthly-preview-button")?.addEventListener("click", async (event) => {
-      const button = event.currentTarget;
-      const summary = $("#monthly-preview-summary");
-      const results = $("#monthly-preview-results");
-      const period = monthlyPeriod.value;
-      if (!/^20\d{2}-(0[1-9]|1[0-2])$/.test(period)) {
-        summary.textContent = "対象月を選択してください。"; return;
-      }
-      try {
-        setButtonBusy(button, true, "照合中...");
-        const plan = await api(`/api/admin/monthly-preview?period=${encodeURIComponent(period)}`, { adminKey: adminState.key });
-        summary.textContent = `${period}：未依頼候補 ${plan.proposed_count}件／既存依頼 ${plan.existing_count}件。送信・保存はしていません。`;
-        const items = plan.plans || [];
-        results.innerHTML = items.length ? `<div class="table-wrap"><table><thead><tr><th>顧問先</th><th>依頼テンプレート</th><th>状態</th></tr></thead><tbody>${items.slice(0, 30).map(item => `<tr><td>${esc(item.client_name)}</td><td>${esc(item.title)}<div class="small muted">${esc(item.template_code)} ／ ${item.document_item_count}項目</div></td><td>${item.already_requested ? '既存依頼あり' : '未依頼候補'}</td></tr>`).join("")}</tbody></table></div>${items.length > 30 ? `<p class="small muted">ほか${items.length - 30}件。表示は先頭30件までです。</p>` : ""}` : empty("有効な月次資料テンプレート、または対象顧問先がありません。追加前に設定を確認してください。");
-      } catch (error) {
-        summary.textContent = error.message || "プレビューに失敗しました。";
-        results.replaceChildren();
-      } finally { setButtonBusy(button, false); }
-    });
+    // R8.5: separate demo preview gateway; NEVER pass adminState.key/LINE tokens to the second Worker.
+    // The staging opt-in must be explicitly configured and the URL must match the exact, reviewed origin/path.
+    const previewButton = $("#monthly-preview-button");
+    const previewStatus = $("#monthly-preview-summary");
+    const previewUrl = "https://dpro-tax-accounting-r84-preview.dpromstk2000.workers.dev/preview";
+    const previewAllowed = CONFIG.TAX_R85_PREVIEW_ENABLED === true
+      && CONFIG.TAX_R85_PREVIEW_URL === previewUrl
+      && CONFIG.OFFICE_CODE === "dpro_taxacc_demo";
+    if (previewButton) {
+      previewButton.disabled = !previewAllowed;
+      previewStatus.textContent = previewAllowed
+        ? "独立した匿名デモ確認画面を開けます。別の検証用管理コードが必要です。"
+        : "検証用リンクは無効です。管理者に環境設定を確認してください。";
+      previewButton.addEventListener("click", () => {
+        if (!previewAllowed) return;
+        // Click-created anchor keeps secrets out of query params, referrer, storage and network requests.
+        const link = document.createElement("a");
+        link.href = previewUrl;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.referrerPolicy = "no-referrer";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        previewStatus.textContent = "独立プレビューを別タブで開きました。対象月を選び、専用管理コードで確認してください。";
+      });
+    }
     const appointmentDateInput = $('#admin-appointment-form input[name="requested_start_at"]'); if (appointmentDateInput) appointmentDateInput.min = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
     
     $("#owner-code-clear").addEventListener("click", () => { code.value = ""; code.focus(); });

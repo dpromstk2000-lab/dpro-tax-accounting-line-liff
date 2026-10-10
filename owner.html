@@ -93,11 +93,29 @@
 
         <section data-admin-panel="documents" hidden>
           <div class="admin-page-head"><div><p class="eyebrow">Documents</p><h1>資料依頼・提出確認</h1></div><button class="btn btn-primary" type="button" data-open-modal="request-create-modal">資料依頼を作成</button></div>
-          <section class="card" style="padding:18px;margin-top:14px;margin-bottom:18px" aria-label="月次資料依頼プレビュー">
-            <div class="admin-page-head"><div><h2 style="margin:0;font-size:1.12rem">月次資料依頼を事前確認</h2><p class="small muted">顧問先と有効な月次テンプレートを照合して、未依頼・重複候補を確認できます。プレビューのみで、送信・保存は行いません。</p></div><span class="badge">確認専用</span></div>
-            <div class="toolbar" style="margin-top:12px"><label for="monthly-preview-period">対象月 <input type="month" id="monthly-preview-period" style="min-width:160px" aria-label="対象月"></label><button type="button" id="monthly-preview-button" class="btn btn-secondary">月次依頼をプレビュー</button></div>
-            <div id="monthly-preview-summary" class="small muted" aria-live="polite" style="margin-top:10px">対象月を選び、プレビューを押してください。</div>
-            <div id="monthly-preview-results" style="margin-top:10px"></div>
+          <section class="card" style="padding:20px;margin-top:14px;margin-bottom:18px" aria-label="月次資料依頼プレビュー（独立検証用）" id="tax-r85-preview-panel">
+            <div class="admin-page-head">
+              <div><p class="eyebrow" style="margin:0 0 6px">R8.5 · Staging Only</p><h2 style="margin:0;font-size:1.18rem">月次資料依頼｜確認・承認フロー</h2>
+                <p class="small muted">実際のSupabaseに接続できた<span style="font-weight:700">匿名デモ専用の読み取り確認画面</span>を別タブで開きます。管理画面のログインコードは別画面へ送信されません。</p>
+              </div><span class="badge">検証専用・送信なし</span>
+            </div>
+            <div style="background:#f0f6fb;border:1px solid #cddfeb;border-radius:10px;padding:14px 16px;margin:12px 0;line-height:1.8">
+              <strong>R8.4.3 実接続確認済み</strong>
+              <div class="small">2026年10月のデモ：対象顧問先4件／テンプレート1種類／未依頼4件／既存依頼0件。下記から最新のデータを再照合できます。</div>
+              <div class="small" style="color:#6a5430">この数値は検査時点の記録であり、リアルタイムの件数ではありません。</div>
+            </div>
+            <div class="toolbar" style="margin-top:12px;align-items:center;gap:12px;flex-wrap:wrap">
+              <button type="button" id="monthly-preview-button" class="btn btn-secondary" disabled>独立した月次プレビューを開く ↗</button>
+              <span class="small muted">開いた先で対象月を指定し、専用の検証コードを入力します。</span>
+            </div>
+            <p id="monthly-preview-summary" class="small muted" role="status" aria-live="polite" style="margin-top:10px">検証用リンクを確認しています。</p>
+            <ol class="small" style="line-height:1.95;padding-left:22px;margin:12px 0 2px">
+              <li><strong>対象月と未依頼候補を照合</strong> — 独立プレビューで実証済み</li>
+              <li><strong>顧問先・依頼内容・期限を担当者が確認</strong> — 正式ワークフロー未実装</li>
+              <li><strong>責任者が最終承認</strong> — 承認履歴・権限判定は今後実装</li>
+              <li><strong>依頼確定・LINE通知</strong> — 未実装（この画面からは実行できません）</li>
+            </ol>
+            <div class="small muted" style="border-top:1px solid #e3e9ef;padding-top:10px;margin-top:12px">セキュリティ：本人認証の統合前につき別画面への自動ログイン・埋め込み・顧問先情報の転送は行いません。実顧問先の個人情報は表示しません。</div>
           </section>
           <div class="tabs"><button class="tab-button active" type="button" data-document-tab="submissions">提出書類</button><button class="tab-button" type="button" data-document-tab="requests">資料依頼</button></div>
           <div class="toolbar" style="margin-top:16px"><select id="document-status-filter"><option value="">すべての状態</option><option value="new">新着</option><option value="reviewing">確認中</option><option value="accepted">確認済み</option><option value="rejected">差戻し</option><option value="quarantined">隔離</option></select><input id="document-search" class="search" type="search" placeholder="顧問先・ファイル名・受付番号"><button id="document-filter-button" class="btn btn-secondary" type="button">絞り込む</button></div>
