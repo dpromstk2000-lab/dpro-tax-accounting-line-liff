@@ -1,0 +1,78 @@
+name: DPRO TAX R10.1 Disposable PostgreSQL QA
+on:
+  push:
+    branches: [tax-r7-staging-20261010]
+    paths:
+      - '.github/workflows/dpro-tax-r101-disposable-postgres-qa.yml'
+      - '01_R101_STAGE_MONTHLY_FINALIZE_DO_NOT_DEPLOY.sql'
+      - '02_R101_ROLLBACK_QA_DO_NOT_RUN.sql'
+      - '05_R101_DISPOSABLE_POSTGRES_FIXTURE.sql'
+      - '06_R101_AUTHENTICATED_ROLE_QA_DO_NOT_RUN.sql'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: dpro-tax-r101-disposable-qa
+  cancel-in-progress: false
+jobs:
+  isolated-sql-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      pg:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: r101-test-only-no-real-secrets
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run isolated PostgreSQL fixture and R10.1 SQL (no Supabase connection)
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_psql() { docker exec -i "${{ job.services.pg.id }}" psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres; }
+          run_psql < 05_R101_DISPOSABLE_POSTGRES_FIXTURE.sql
+          run_psql < 01_R101_STAGE_MONTHLY_FINALIZE_DO_NOT_DEPLOY.sql
+          run_psql < 02_R101_ROLLBACK_QA_DO_NOT_RUN.sql 2>&1 | tee /tmp/r101-qa.log
+          grep -q 'R101_QA_18_PASS_ROLLBACK' /tmp/r101-qa.log
+          run_psql < 06_R101_AUTHENTICATED_ROLE_QA_DO_NOT_RUN.sql 2>&1 | tee /tmp/r101-role-qa.log
+          grep -q 'R101_ANON_ROLE_DENIED_PASS' /tmp/r101-role-qa.log
+          grep -q 'R101_AUTHENTICATED_ROLE_QA_PASS_ROLLBACK' /tmp/r101-role-qa.log
+      - name: Verify both QA transactions were rolled back
+        shell: bash
+        run: |
+          set -euo pipefail
+          result=$(docker exec -i "${{ job.services.pg.id }}" psql -XAt -v ON_ERROR_STOP=1 -U postgres -d postgres -c \
+            "select (select count(*) from public.taxacc_r10_finalization_jobs), (select count(*) from public.taxacc_r10_finalization_links), (select count(*) from public.taxacc_document_requests where r10_approval_batch_id is not null);")
+          echo "post-QA counts: $result"
+          test "$result" = '0|0|0'
+      - name: Two real PostgreSQL sessions must finalize exactly once
+        shell: bash
+        run: |
+          set -euo pipefail
+          container="${{ job.services.pg.id }}"
+          # These are synthetic UUIDs from the disposable fixture, never real JWTs.
+          docker exec -i "$container" psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres <<'SQL'
+          GRANT EXECUTE ON FUNCTION dpro_tax_r10_internal.finalize_approved_demo(uuid,date) TO authenticated;
+          GRANT EXECUTE ON FUNCTION public.taxacc_r10_finalize_approved_demo(uuid,date) TO authenticated;
+          SQL
+          stmt="SELECT set_config('request.jwt.claim.sub','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',false); SELECT public.taxacc_r10_finalize_approved_demo('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'::uuid,(now() AT TIME ZONE 'Asia/Tokyo')::date+14);"
+          docker exec "$container" psql -XAt -v ON_ERROR_STOP=1 -U postgres -d postgres -c "$stmt" > /tmp/r101-concurrent-1.log & p1=$!
+          docker exec "$container" psql -XAt -v ON_ERROR_STOP=1 -U postgres -d postgres -c "$stmt" > /tmp/r101-concurrent-2.log & p2=$!
+          wait "$p1"
+          wait "$p2"
+          cat /tmp/r101-concurrent-1.log
+          cat /tmp/r101-concurrent-2.log
+          grep -q '"already_finalized": false' /tmp/r101-concurrent-1.log /tmp/r101-concurrent-2.log
+          grep -q '"already_finalized": true' /tmp/r101-concurrent-1.log /tmp/r101-concurrent-2.log
+          result=$(docker exec "$container" psql -XAt -v ON_ERROR_STOP=1 -U postgres -d postgres -c \
+            "select (select count(*) from public.taxacc_r10_finalization_jobs), (select count(*) from public.taxacc_r10_finalization_links), (select count(*) from public.taxacc_document_requests where r10_approval_batch_id is not null);")
+          echo "after concurrent finalization: $result"
+          test "$result" = '1|4|4'
