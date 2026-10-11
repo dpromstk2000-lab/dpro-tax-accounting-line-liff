@@ -78,7 +78,9 @@
             fail(403,'CASE_CLIENT_SCOPE_DENIED','別の顧問先または存在しない案件へ紐付けできません');
         }
         data[{clients:'client_code',cases:'case_code',tasks:'task_code',appointments:'appointment_code',inquiries:'inquiry_code'}[type]]=`${cfg.prefix}-DEMO-${String(serial+2).padStart(3,'0')}`;
-        data.status=data.status||'received';
+        // R125: use a valid, type-specific initial state for each synthetic record.
+        // No acceptance of user-provided status on POST; valid state transitions remain PATCH-only.
+        data.status={clients:'onboarding',cases:'received',tasks:'todo',appointments:'requested',inquiries:'new'}[type];
         store[type].push(data);audit.push({type,method,id:data.id});
         return {ok:true,[type==='clients'?'client':type==='cases'?'case':type==='tasks'?'task':type==='appointments'?'appointment':'inquiry']:clone(data)};
       }
