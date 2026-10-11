@@ -69,6 +69,23 @@
         for(const key of cfg.createFields)if(key in input)data[key]=String(input[key]).slice(0,220);
         if(!data[cfg.createFields[0]]||!data[cfg.createFields[0]].trim())fail(400,'REQUIRED_FIELD','必須項目を入力してください');
         if('priority' in data&&!PRIORITIES.includes(data.priority))fail(400,'INVALID_DEMO_PRIORITY','選択できない優先度です');
+        // R129: optional fictional task deadlines must be real ISO dates, not arbitrary text.
+        // Validate before autoId() so rejected deadlines do not consume a demo ID.
+        if(type==='tasks'&&'due_at' in data){
+          const due=data.due_at, datePart=due.slice(0,10);
+          const dateOnly=/^\d{4}-\d{2}-\d{2}$/.test(due);
+          const stamped=/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(due);
+          const midnight=Date.parse(datePart+'T00:00:00Z');
+          const validDay=Number.isFinite(midnight)&&new Date(midnight).toISOString().slice(0,10)===datePart;
+          let validTime=false;
+          if(stamped){
+            const hh=Number(due.slice(11,13)),mm=Number(due.slice(14,16)),ss=Number(due.slice(17,19));
+            const offset=due.match(/([+-])(\d{2}):(\d{2})$/);
+            const validOffset=!offset||(Number(offset[2])<=14&&Number(offset[3])<=59&&(Number(offset[2])!==14||offset[3]==='00'));
+            validTime=hh<=23&&mm<=59&&ss<=59&&validOffset&&Number.isFinite(Date.parse(due));
+          }
+          if(!validDay||!(dateOnly||validTime))fail(400,'INVALID_DEMO_DUE_DATE','期限日は実在する日付を指定してください');
+        }
         if(data.client_id&&!store.clients.some(c=>c.id===data.client_id))fail(403,'CLIENT_ACCESS_DENIED','架空顧問先以外へ紐付けできません');
         // R121: synthetic-only referential integrity; reject orphan cases and cross-client task links.
         if(type==='cases'&&!data.client_id)fail(400,'CASE_CLIENT_REQUIRED','案件の顧問先を選択してください');
