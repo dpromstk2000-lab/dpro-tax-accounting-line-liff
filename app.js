@@ -563,6 +563,41 @@
         previewStatus.textContent = "独立プレビューを別タブで開きました。対象月を選び、専用管理コードで確認してください。";
       });
     }
+    // R9.8: staging-only gateway. No admin code / LINE token / caller's credentials are forwarded.
+    const r98ReviewUrl = "https://dpro-tax-accounting-r84-preview.dpromstk2000.workers.dev/review-staging";
+    const r98ReviewAllowed = CONFIG.OFFICE_CODE === "dpro_taxacc_demo"
+      && CONFIG.TAX_R98_REVIEW_NAV_ENABLED === true
+      && CONFIG.TAX_R98_REVIEW_URL === r98ReviewUrl
+      && location.protocol === "https:";
+    const r98Nav = $('[data-admin-view="monthly-review"]');
+    const r98Panel = $('[data-admin-panel="monthly-review"]');
+    if (!r98ReviewAllowed) {
+      r98Nav?.remove();
+      r98Panel?.remove();
+      $$('[data-go-view="monthly-review"]').forEach(button => button.remove());
+    } else if (r98Nav) {
+      r98Nav.hidden = false;
+    }
+    const r98Open = $("#r98-review-open");
+    const r98Status = $("#r98-review-launch-status");
+    if (r98Open) {
+      r98Open.disabled = !r98ReviewAllowed;
+      if (r98Status) r98Status.textContent = r98ReviewAllowed
+        ? "安全な別タブで開きます。スタッフ本人確認が別途必要です。"
+        : "この環境ではデモ承認画面への導線を無効にしています。";
+      r98Open.addEventListener("click", () => {
+        if (!r98ReviewAllowed) return;
+        const link = document.createElement("a");
+        link.href = r98ReviewUrl;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.referrerPolicy = "no-referrer";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        if (r98Status) r98Status.textContent = "別タブを開きました。別のスタッフ本人確認が必要です。";
+      });
+    }
     // R8.6: review readiness only. NEVER treat these client-side boxes as a server approval.
     // No admin key, LINE ID token or personal data is sent or persisted by this worksheet.
     const reviewPeriod = $("#r86-period");

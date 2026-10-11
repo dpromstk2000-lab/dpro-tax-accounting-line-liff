@@ -1,6 +1,6 @@
 window.DPRO_TAX_CONFIG = Object.freeze({
   APP_NAME: "DPRO 税理士・会計事務所 LINE",
-  VERSION: "TAX-R9.0-APPROVAL-FOUNDATION-STAGING-20261010",
+  VERSION: "TAX-R9.8-OWNER-MONTHLY-APPROVAL-GATEWAY-STAGING-20261011",
   API_BASE: "https://dpro-tax-accounting-line-r7-staging.dpromstk2000.workers.dev",
   OFFICE_CODE: "dpro_taxacc_demo",
   // R7: LIFF ID is public configuration, not the LINE channel secret.
@@ -10,6 +10,9 @@ window.DPRO_TAX_CONFIG = Object.freeze({
   TAX_R85_PREVIEW_ENABLED: true,
   // R9: not connected to staff authentication or an approval-writing API.
   TAX_R9_FORMAL_APPROVAL_ENABLED: false,
+  // Staging owner UI gateway only: does NOT merge the admin-code and staff-auth sessions.
+  TAX_R98_REVIEW_NAV_ENABLED: true,
+  TAX_R98_REVIEW_URL: "https://dpro-tax-accounting-r84-preview.dpromstk2000.workers.dev/review-staging",
   TAX_R9_BATCH_SEND_ENABLED: false,
   TAX_R85_PREVIEW_URL: "https://dpro-tax-accounting-r84-preview.dpromstk2000.workers.dev/preview",
   DEMO_LINE_USER_ID: "demo_tax_line_001",

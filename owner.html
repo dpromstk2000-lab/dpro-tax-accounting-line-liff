@@ -34,6 +34,7 @@
         <button class="nav-button" type="button" data-admin-view="clients"><span class="nav-icon">▣</span>顧問先・電話検索</button>
         <button class="nav-button" type="button" data-admin-view="cases"><span class="nav-icon">▤</span>案件・申告進捗</button>
         <button class="nav-button" type="button" data-admin-view="documents"><span class="nav-icon">▱</span>資料依頼・提出確認</button>
+        <button class="nav-button" type="button" data-admin-view="monthly-review" hidden><span class="nav-icon">▦</span>月次承認（デモ）</button>
         <button class="nav-button" type="button" data-admin-view="appointments"><span class="nav-icon">◫</span>面談予約・電話受付</button>
         <button class="nav-button" type="button" data-admin-view="inquiries"><span class="nav-icon">◌</span>相談・問い合わせ</button>
         <button class="nav-button" type="button" data-admin-view="tasks"><span class="nav-icon">✓</span>タスク・期限</button>
@@ -93,41 +94,34 @@
 
         <section data-admin-panel="documents" hidden>
           <div class="admin-page-head"><div><p class="eyebrow">Documents</p><h1>資料依頼・提出確認</h1></div><button class="btn btn-primary" type="button" data-open-modal="request-create-modal">資料依頼を作成</button></div>
-          <section class="card" style="padding:20px;margin-top:14px;margin-bottom:18px" aria-label="月次資料依頼プレビュー（独立検証用）" id="tax-r85-preview-panel">
-            <div class="admin-page-head">
-              <div><p class="eyebrow" style="margin:0 0 6px">R9.0 · Staging Only</p><h2 style="margin:0;font-size:1.18rem">月次資料依頼｜送信前確認（正式承認は準備中）</h2>
-                <p class="small muted">実際のSupabaseに接続できた<span style="font-weight:700">匿名デモ専用の読み取り確認画面</span>を別タブで開きます。管理画面のログインコードは別画面へ送信されません。</p>
-              </div><span class="badge">検証専用・送信なし</span>
-            </div>
+          <section class="card" style="padding:20px;margin-top:14px;margin-bottom:18px" aria-label="月次資料依頼の安全な検証と確認" id="tax-r85-preview-panel">
+            <div class="admin-page-head"><div>
+              <p class="eyebrow" style="margin:0 0 6px">R9.8 · 検証環境のみ</p>
+              <h2 style="margin:0;font-size:1.18rem">月次資料依頼の候補・承認フロー</h2>
+              <p class="small muted">送信前の候補確認と、2名の認証済みスタッフによる承認検証は、それぞれ独立した検証画面で確認します。</p>
+            </div><span class="badge">本番依頼・LINE送信なし</span></div>
             <div style="background:#f0f6fb;border:1px solid #cddfeb;border-radius:10px;padding:14px 16px;margin:12px 0;line-height:1.8">
-              <strong>R8.4.3 実接続確認済み</strong>
-              <div class="small">2026年10月のデモ：対象顧問先4件／テンプレート1種類／未依頼4件／既存依頼0件。下記から最新のデータを再照合できます。</div>
-              <div class="small" style="color:#6a5430">この数値は検査時点の記録であり、リアルタイムの件数ではありません。</div>
+              <strong>2026年10月11日の実操作QA</strong>
+              <div class="small">2026年10月分：申請から別担当者による承認まで確認済み。11月分：申請・差戻し・修正メモ・再提出・承認まで確認済み。いずれもデモ専用承認台帳での記録です。</div>
+              <div class="small" style="color:#775321">上記は確認時点の結果です。顧問先への資料依頼の確定・LINE送信とは連動していません。</div>
             </div>
             <div class="toolbar" style="margin-top:12px;align-items:center;gap:12px;flex-wrap:wrap">
-              <button type="button" id="monthly-preview-button" class="btn btn-secondary" disabled>独立した月次プレビューを開く ↗</button>
-              <span class="small muted">開いた先で対象月を指定し、専用の検証コードを入力します。</span>
+              <button type="button" id="monthly-preview-button" class="btn btn-secondary" disabled>読み取りプレビューを開く ↗</button>
+              <button type="button" data-go-view="monthly-review" class="btn btn-primary">月次承認の検証へ進む →</button>
             </div>
-            <p id="monthly-preview-summary" class="small muted" role="status" aria-live="polite" style="margin-top:10px">検証用リンクを確認しています。</p>
-            <ol class="small" style="line-height:1.95;padding-left:22px;margin:12px 0 2px">
-              <li><strong>対象月と未依頼候補を照合</strong> — 独立プレビューで実証済み</li>
-              <li><strong>顧問先・依頼内容・期限を担当者が確認</strong> — 正式ワークフロー未実装</li>
-              <li><strong>責任者が最終承認</strong> — 承認履歴・権限判定は今後実装</li>
-              <li><strong>依頼確定・LINE通知</strong> — 未実装（この画面からは実行できません）</li>
-            </ol>
+            <p id="monthly-preview-summary" class="small muted" role="status" aria-live="polite" style="margin-top:10px">プレビューの安全な接続を確認しています。</p>
             <section id="r9-approval-readiness" class="panel-card" style="margin-top:16px;padding:16px;border:1px solid #d4e2ed;background:#ffffff" aria-labelledby="r9-gate-title">
               <div class="section-title" style="margin-bottom:10px"><div>
-                <p class="eyebrow" style="margin:0 0 4px">R9.0 · Server Approval Foundation</p>
-                <h3 id="r9-gate-title" style="margin:0">正式承認ゲートの準備状況</h3>
-              </div><span class="status" data-tone="warning">承認・送信は無効</span></div>
-              <p class="small muted" style="margin:4px 0 12px">R9の専用承認台帳と、同じ顧問先・月・テンプレートを二重に登録しない制約はDBに追加済みです。現行の個別資料依頼作成APIにはまだ適用していません。</p>
+                <p class="eyebrow" style="margin:0 0 4px">R9.7 · Real Demo QA Passed</p>
+                <h3 id="r9-gate-title" style="margin:0">月次承認の現在の到達点</h3>
+              </div><span class="status" data-tone="warning">本番業務とは未接続</span></div>
               <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,185px),1fr));gap:9px;line-height:1.55">
-                <div style="border:1px solid #d6e5dc;border-radius:9px;padding:11px"><strong>承認台帳のDB基盤</strong><div class="small" style="color:#16654c">準備済み（データ0件・非公開）</div></div>
-                <div style="border:1px solid #eadfc6;border-radius:9px;padding:11px"><strong>担当者の本人確認</strong><div class="small" style="color:#886018">未接続（スタッフAuth設定待ち）</div></div>
-                <div style="border:1px solid #eadfc6;border-radius:9px;padding:11px"><strong>責任者の正式承認</strong><div class="small" style="color:#886018">サーバーAPI未実装</div></div>
-                <div style="border:1px solid #eadfc6;border-radius:9px;padding:11px"><strong>資料依頼確定・LINE送信</strong><div class="small" style="color:#886018">未実装・実行不可</div></div>
+                <div style="border:1px solid #d6e5dc;border-radius:9px;padding:11px"><strong>デモ承認台帳</strong><div class="small" style="color:#16654c">10月・11月とも最終承認を実操作確認済み</div></div>
+                <div style="border:1px solid #d6e5dc;border-radius:9px;padding:11px"><strong>スタッフ本人確認</strong><div class="small" style="color:#16654c">Supabase Authで2名の権限分離を検証済み</div></div>
+                <div style="border:1px solid #d6e5dc;border-radius:9px;padding:11px"><strong>差戻し・履歴</strong><div class="small" style="color:#16654c">修正メモ・再提出を含めて検証済み</div></div>
+                <div style="border:1px solid #eadfc6;border-radius:9px;padding:11px"><strong>本番の依頼確定と送信</strong><div class="small" style="color:#886018">未接続・デモ承認では実行されません</div></div>
               </div>
-              <p class="small muted" style="margin:12px 0 0">※ここに表示しているのはR9基盤の検査時点の状態です。現在の送信前チェックは正式承認を記録しません。既存の個別依頼機能とは別に評価してください。</p>
+              <p class="small muted" style="margin:12px 0 0">重要：この管理画面の「資料依頼を作成」は従来の個別依頼機能であり、月次のデモ承認フローとは別です。本番商品化前に承認ゲートを統合します。</p>
             </section>
             <section id="r86-review-sheet" class="panel-card" style="margin-top:16px;padding:16px;border:1px solid #d4e2ed;background:#fbfdff" aria-labelledby="r86-review-title">
               <div class="section-title" style="margin-bottom:12px"><div>
@@ -158,6 +152,32 @@
           <div class="toolbar" style="margin-top:16px"><select id="document-status-filter"><option value="">すべての状態</option><option value="new">新着</option><option value="reviewing">確認中</option><option value="accepted">確認済み</option><option value="rejected">差戻し</option><option value="quarantined">隔離</option></select><input id="document-search" class="search" type="search" placeholder="顧問先・ファイル名・受付番号"><button id="document-filter-button" class="btn btn-secondary" type="button">絞り込む</button></div>
           <div id="document-submission-table" class="table-wrap" style="margin-top:16px"><table><thead><tr><th>提出日時</th><th>顧問先</th><th>ファイル</th><th>状態</th><th>操作</th></tr></thead><tbody id="documents-table-body"></tbody></table></div>
           <div id="document-request-table" class="table-wrap" style="margin-top:16px" hidden><table><thead><tr><th>依頼</th><th>顧問先</th><th>期限</th><th>状態</th><th>操作</th></tr></thead><tbody id="requests-table-body"></tbody></table></div>
+        </section>
+
+        <section data-admin-panel="monthly-review" hidden>
+          <div class="admin-page-head"><div><p class="eyebrow">Monthly Document Review · R9.8 Staging</p>
+            <h1>月次資料依頼・承認管理</h1>
+            <p class="muted">申請担当者と承認担当者を分け、差戻し・再提出・操作履歴を検証します。</p>
+          </div><span class="badge">検証用・本番送信なし</span></div>
+          <section class="panel-card" aria-labelledby="r98-flow-title" style="border:1px solid #d4e2ed;padding:20px">
+            <div class="panel-card-head"><h2 id="r98-flow-title">月次承認フロー</h2><span class="status" data-tone="success">R9.7 実操作QA合格</span></div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:12px;margin:15px 0 18px">
+              <div style="background:#f1f7fb;border-radius:11px;padding:15px"><strong>1. 申請担当者</strong><p class="small muted" style="margin:6px 0 0">本人確認 → 対象月の候補作成 → 申請</p></div>
+              <div style="background:#f1f7fb;border-radius:11px;padding:15px"><strong>2. 承認担当者</strong><p class="small muted" style="margin:6px 0 0">別人として本人確認 → 承認または理由付き差戻し</p></div>
+              <div style="background:#f1f7fb;border-radius:11px;padding:15px"><strong>3. 再提出・履歴</strong><p class="small muted" style="margin:6px 0 0">元の申請者が修正内容を記録 → 再提出 → 最終承認</p></div>
+            </div>
+            <p style="margin:0 0 12px">安全性のため、月次承認は別の検証画面で開き、スタッフ本人として再ログインします。<strong>現在の管理コードや顧問先情報を承認画面へ引き継ぐことはありません。</strong></p>
+            <div class="toolbar" style="align-items:center;flex-wrap:wrap;gap:12px">
+              <button id="r98-review-open" type="button" class="btn btn-primary" disabled>月次承認画面を開く ↗</button>
+              <button data-go-view="documents" type="button" class="btn btn-secondary">資料依頼・提出確認へ戻る</button>
+            </div>
+            <p id="r98-review-launch-status" class="small muted" role="status" aria-live="polite" style="margin:12px 0 0">検証用の承認画面を確認しています。</p>
+          </section>
+          <section class="panel-card" aria-labelledby="r98-safe-title" style="padding:20px;margin-top:16px;border:1px solid #d4e2ed">
+            <div class="panel-card-head"><h2 id="r98-safe-title">現在の検証範囲</h2></div>
+            <p class="small muted">2026年10月分・11月分のデモ承認履歴は実DBで確認済みです。ここには顧問先の氏名や依頼文を自動表示しません。承認一覧・最新状態はログイン後の専用画面で確認してください。</p>
+            <p class="small muted" style="margin-top:9px"><strong>本番化まで未接続：</strong>個別資料依頼との統合／実際の資料リスト・期限修正／顧問先への依頼確定／LINE送信／本番スタッフ権限。</p>
+          </section>
         </section>
 
         <section data-admin-panel="appointments" hidden>
