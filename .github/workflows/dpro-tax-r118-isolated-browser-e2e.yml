@@ -1,0 +1,135 @@
+# DPRO TAX R118 STAGING ISOLATED BROWSER E2E. No DB, secrets, Worker, Cloudflare, LINE, or deploy.
+name: DPRO TAX R118 Isolated Browser E2E
+on:
+  push:
+    branches: [tax-r7-staging-20261010]
+    paths:
+      - '.github/workflows/dpro-tax-r118-isolated-browser-e2e.yml'
+      - 'R117_DEMO_*'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: dpro-tax-r118-isolated-browser-e2e
+  cancel-in-progress: false
+jobs:
+  chromium-loopback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install isolated browser QA dependencies
+        run: |
+          python -m pip install --disable-pip-version-check playwright==1.55.0
+          python -m playwright install --with-deps chromium
+      - name: Verify the 8 R117 demo files through HTTP and Chromium
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PYTEST'
+          from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
+          from threading import Thread
+          from pathlib import Path
+          from urllib.parse import urlsplit
+          from playwright.sync_api import sync_playwright
+          import json
+
+          root = Path.cwd()
+          required = ["R117_DEMO_index.html", "R117_DEMO_owner.html", "R117_DEMO_member.html", "R117_DEMO_owner-ipad.html", "R117_DEMO_system-check.html", "R117_DEMO_engine.js", "R117_DEMO_ui.js", "R117_DEMO_styles.css"]
+          assert all((root / name).is_file() for name in required), "R117_FILES_MISSING"
+          class Handler(SimpleHTTPRequestHandler):
+              def log_message(self,*args): pass
+          server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+          thread = Thread(target=server.serve_forever,daemon=True)
+          thread.start()
+          base = f"http://127.0.0.1:{server.server_port}/"
+          checks = []
+          def check(name,cond):
+              assert cond, name
+              checks.append(name)
+          try:
+              with sync_playwright() as p:
+                  browser = p.chromium.launch(headless=True)
+                  ctx = browser.new_context(viewport={"width":1366,"height":900}, service_workers="block")
+                  external=[]
+                  def gate(route):
+                      if urlsplit(route.request.url).hostname not in ("127.0.0.1", "localhost"):
+                          external.append(route.request.url)
+                          route.abort()
+                      else:
+                          route.continue_()
+                  ctx.route("**/*",gate)
+                  errors=[]
+                  page=ctx.new_page()
+                  page.on("pageerror",lambda e:errors.append(str(e)))
+                  page.goto(base+"R117_DEMO_index.html?demo=1",wait_until="networkidle")
+                  check("entry_booking",page.locator("h1").inner_text()=="WEB面談予約")
+                  check("navigation_has_seven_views",page.locator("#navigation a[data-view]").count()==7)
+                  check("css_loaded",page.locator('link[href="R117_DEMO_styles.css"]').count()==1)
+                  check("js_engine_present",page.evaluate('!!window.DPRO_TAX_DEMO_ENGINE'))
+                  slots=page.locator('#booking-time option').count()
+                  check("booking_has_available_slots",slots>0)
+                  page.locator('#booking-form button[type="submit"]').click()
+                  check("booking_created_locally",page.locator('#main').inner_text().count('架空の予約を登録しました')==1)
+                  page.locator('[data-view="inquiry"]').click()
+                  check("inquiry_spa_navigation",page.locator('h1').inner_text()=="お問い合わせ")
+                  page.locator('#inquiry-subject').fill('テスト架空問合せ')
+                  page.locator('#inquiry-form button[type="submit"]').click()
+                  check("inquiry_record_visible",page.locator('#main').inner_text().count('テスト架空問合せ')>=1)
+                  page.locator('[data-view="dashboard"]').click()
+                  check("admin_requires_pin",page.locator('#pin').count()==1)
+                  page.locator('#pin').fill('1234')
+                  page.locator('#auth-form button[type="submit"]').click()
+                  check("demo_pin_accept",page.locator('#count-clients').inner_text()=='2')
+                  page.locator('[data-view="clients"]').click()
+                  page.locator('#client-name').fill('R118 QA 架空会社')
+                  page.locator('#client-form button[type="submit"]').click()
+                  check("client_record_added",'R118 QA 架空会社' in page.locator('#main').inner_text())
+                  page.locator('[data-view="dashboard"]').click()
+                  check("client_count_three",page.locator('#count-clients').inner_text()=='3')
+                  page.locator('[data-view="ipad"]').click()
+                  check("ipad_tasks_available",page.locator('[data-task-id]').count()>0)
+                  page.locator('[data-task-id]').first.click()
+                  check("ipad_task_completes",'タスク完了を架空データへ反映しました' in page.locator('#main').inner_text())
+                  page.locator('[data-view="member"]').click()
+                  check("member_preview",page.locator('h1').inner_text()=='顧問先マイページ')
+                  page.locator('[data-view="systemcheck"]').click()
+                  check("systemcheck_no_db",'未接続' in page.locator('#main').inner_text())
+                  check("no_business_network",not external)
+                  check("no_js_errors",not errors)
+                  second=ctx.new_page()
+                  second.goto(base+'R117_DEMO_owner.html?demo=1',wait_until="networkidle")
+                  second.locator('#pin').fill('1234')
+                  second.locator('#auth-form button[type="submit"]').click()
+                  check("separate_tab_starts_two_clients",second.locator('#count-clients').inner_text()=='2')
+                  second.close()
+                  page.reload(wait_until="networkidle")
+                  check("reload_requires_pin_again",page.locator('#pin').count()==1)
+                  page.goto(base+'R117_DEMO_owner.html',wait_until="networkidle")
+                  check("no_demo_flag_blocks_ui",'処理を開始しません' in page.locator('#main').inner_text())
+                  mobile=ctx.new_page()
+                  mobile.set_viewport_size({"width":390,"height":844})
+                  mobile.goto(base+'R117_DEMO_index.html?demo=1',wait_until="networkidle")
+                  check("mobile_no_horizontal_overflow",mobile.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'))
+                  mobile.close()
+                  for filename in required[:5]:
+                      p2=ctx.new_page()
+                      p2.goto(base+filename+'?demo=1',wait_until="networkidle")
+                      check('page_renders_'+filename,p2.locator('#main').count()==1)
+                      p2.close()
+                  page.goto(base+'R117_DEMO_index.html?demo=1',wait_until="networkidle")
+                  violations=[]
+                  page.on('console',lambda c:None)
+                  page.evaluate("window.__r118csp=[];document.addEventListener('securitypolicyviolation',e=>window.__r118csp.push(e.effectiveDirective))")
+                  page.evaluate("async()=>{try{await fetch('https://invalid.r118.example/api')}catch(e){}}")
+                  check("csp_connect_src_enforced",'connect-src' in page.evaluate('window.__r118csp'))
+                  check("external_network_is_zero",not external)
+                  ctx.close()
+                  browser.close()
+              print(json.dumps({"suite":"R118 GitHub Actions real loopback HTTP Chromium E2E","passed":len(checks),"checks":checks,"external_network_attempts":external,"errors":errors},ensure_ascii=False))
+          finally:
+              server.shutdown()
+          PYTEST
