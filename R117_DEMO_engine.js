@@ -84,12 +84,19 @@
       }
       const before=one(type,id);
       if(method==='PATCH'){
+        // R124: only the approved status field may be changed for synthetic
+        // bookings/inquiries. Reject unknown or mixed fields rather than
+        // silently ignoring time/contact/body edits and applying status.
+        if((type==='appointments'||type==='inquiries')&&
+           Object.keys(input).some(k=>!cfg.editFields.includes(k)))return locked();
         const patch={};for(const k of cfg.editFields)if(k in input)patch[k]=String(input[k]).slice(0,220);
         if(!Object.keys(patch).length)fail(400,'NO_CHANGES','変更できる項目がありません');
         validateEdit(type,patch);
         Object.assign(before,patch);audit.push({type,method,id});return {ok:true,record:clone(before)};
       }
       if(method==='DELETE'){
+        // Deletion of synthetic appointments/inquiries is not a demo action.
+        if(type==='appointments'||type==='inquiries')return locked();
         if(type==='clients')fail(403,'DEMO_CLIENT_DELETE_DENIED','公開デモの顧問先削除は禁止');
         // Soft disable only in this tab's copy; no DB operations.
         before.status='cancelled';audit.push({type,method,id});return {ok:true,record:clone(before)};
