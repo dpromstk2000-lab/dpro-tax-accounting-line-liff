@@ -48,6 +48,13 @@
         for(const key of cfg.createFields)if(key in input)data[key]=String(input[key]).slice(0,220);
         if(!data[cfg.createFields[0]])fail(400,'REQUIRED_FIELD','必須項目を入力してください');
         if(data.client_id&&!store.clients.some(c=>c.id===data.client_id))fail(403,'CLIENT_ACCESS_DENIED','架空顧問先以外へ紐付けできません');
+        // R121: synthetic-only referential integrity; reject orphan cases and cross-client task links.
+        if(type==='cases'&&!data.client_id)fail(400,'CASE_CLIENT_REQUIRED','案件の顧問先を選択してください');
+        if(type==='tasks'&&data.case_id){
+          const parentCase=store.cases.find(c=>c.id===data.case_id);
+          if(!parentCase||!data.client_id||parentCase.client_id!==data.client_id)
+            fail(403,'CASE_CLIENT_SCOPE_DENIED','別の顧問先または存在しない案件へ紐付けできません');
+        }
         data[{clients:'client_code',cases:'case_code',tasks:'task_code',appointments:'appointment_code',inquiries:'inquiry_code'}[type]]=`${cfg.prefix}-DEMO-${String(serial+2).padStart(3,'0')}`;
         data.status=data.status||'received';
         store[type].push(data);audit.push({type,method,id:data.id});
