@@ -1,0 +1,193 @@
+# R120 isolated GitHub Actions browser evidence for synthetic demo only. Do not deploy.
+name: DPRO TAX R120 Isolated Browser Evidence QA
+on:
+  push:
+    branches: [tax-r7-staging-20261010]
+    paths:
+      - '.github/workflows/dpro-tax-r120-isolated-browser-evidence.yml'
+      - 'R117_DEMO_*'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: dpro-tax-r120-isolated-browser-evidence
+  cancel-in-progress: false
+jobs:
+  local-synthetic-chromium:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install isolated Chromium QA
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check playwright==1.55.0
+          python -m playwright install --with-deps chromium
+      - name: Run synthetic-only HTTP/Chromium acceptance and screenshots
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PYR120'
+          #!/usr/bin/env python3
+          """DPRO TAX R120 synthetic-only real HTTP browser acceptance. No production endpoints."""
+          import os, json, threading, functools, traceback
+          from pathlib import Path
+          from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
+          from urllib.parse import urlsplit
+          from playwright.sync_api import sync_playwright
+          
+          root=Path.cwd()
+          evidence=Path(os.getenv('R120_EVIDENCE_DIR','R120_QA_EVIDENCE'))
+          evidence.mkdir(parents=True,exist_ok=True)
+          required=['R117_DEMO_index.html','R117_DEMO_owner.html','R117_DEMO_member.html','R117_DEMO_owner-ipad.html','R117_DEMO_system-check.html','R117_DEMO_engine.js','R117_DEMO_ui.js','R117_DEMO_styles.css']
+          for n in required:
+           assert (root/n).is_file(), f'MISSING_ASSET: {n}'
+          class Handler(SimpleHTTPRequestHandler):
+           def log_message(self,*a): pass
+          server=ThreadingHTTPServer(('127.0.0.1',0),functools.partial(Handler,directory=str(root)))
+          threading.Thread(target=server.serve_forever,daemon=True).start()
+          base=f'http://127.0.0.1:{server.server_port}/'
+          checks=[]
+          errors=[]
+          blocked_external=[]
+          requested_external=[]
+          
+          def test(name, condition):
+           if not condition: raise AssertionError(name)
+           checks.append(name)
+          
+          def safe_screenshot(page,name,full_page=True):
+           page.screenshot(path=str(evidence/name),full_page=full_page,animations='disabled')
+          
+          def block_network(route):
+           host=urlsplit(route.request.url).hostname
+           if host not in ('127.0.0.1','localhost'):
+            requested_external.append(route.request.url)
+            blocked_external.append(route.request.url)
+            route.abort()
+           else: route.continue_()
+          
+          result={'suite':'R120 localhost browser acceptance for ONLY R117 synthetic demo','status':'FAILED','local_http':True,'real_pages_published':False,'shared_supabase_qa':False,'checks':[], 'external_requests':[], 'pageerrors':[], 'screenshots':[]}
+          try:
+           with sync_playwright() as p:
+            kwargs={'headless':True}
+            if os.getenv('R120_CHROMIUM_PATH'): kwargs['executable_path']=os.getenv('R120_CHROMIUM_PATH')
+            browser=p.chromium.launch(**kwargs)
+            context=browser.new_context(viewport={'width':1366,'height':900},locale='ja-JP',service_workers='block',accept_downloads=False)
+            context.route('**/*', block_network)
+            page=context.new_page()
+            page.on('pageerror',lambda ex: errors.append(str(ex)))
+            page.goto(base+'R117_DEMO_index.html?demo=1',wait_until='networkidle')
+            test('five_pages_html_exist', all((root/n).is_file() for n in required[:5]))
+            test('entry_has_booking_header',page.locator('h1').inner_text()=='WEB面談予約')
+            test('seven_navigation_links',page.locator('nav#navigation a[data-view]').count()==7)
+            test('booking_has_30_minute_time_options',page.locator('#booking-time option').count()>0)
+            test('offline_engine_loaded',page.evaluate('typeof window.DPRO_TAX_DEMO_ENGINE?.createDemoSession === "function"'))
+            safe_screenshot(page,'01_desktop_booking.png')
+            page.locator('#booking-form button[type=submit]').click()
+            test('booking_local_only_created', '架空の予約を登録しました' in page.locator('#main').inner_text())
+            page.locator('[data-view="inquiry"]').click()
+            test('inquiry_nav_and_url',page.locator('h1').inner_text()=='お問い合わせ' and 'view=inquiry' in page.url)
+            page.locator('#inquiry-subject').fill('R120架空テスト相談')
+            page.locator('#inquiry-form button[type=submit]').click()
+            test('inquiry_local_only_created','R120架空テスト相談' in page.locator('#main').inner_text())
+            page.locator('[data-view="dashboard"]').click()
+            test('dashboard_locked_until_pin',page.locator('#pin').count()==1)
+            page.locator('#pin').fill('9999')
+            page.locator('#auth-form button[type=submit]').click()
+            test('wrong_pin_denied',page.locator('#pin').count()==1 and 'コードが違います' in page.locator('#main').inner_text())
+            page.locator('#pin').fill('1234')
+            page.locator('#auth-form button[type=submit]').click()
+            test('public_demo_pin_1234_works',page.locator('#count-clients').inner_text()=='2')
+            safe_screenshot(page,'02_desktop_owner.png')
+            page.locator('[data-view="clients"]').click()
+            test('clients_screen_shows_two',page.locator('#main').inner_text().count('サンプル法人Ａ')>=1)
+            page.locator('#client-name').fill('R120テスト架空事務所')
+            page.locator('#client-form button[type=submit]').click()
+            test('client_create_in_local_memory','R120テスト架空事務所' in page.locator('#main').inner_text())
+            page.locator('[data-view="dashboard"]').click()
+            test('created_client_count_is_three',page.locator('#count-clients').inner_text()=='3')
+            page.locator('[data-view="ipad"]').click()
+            test('ipad_tasks_visible',page.locator('[data-task-id]').count()>=1)
+            page.locator('[data-task-id]').first.click()
+            test('ipad_complete_in_memory_only','タスク完了を架空データへ反映しました' in page.locator('#main').inner_text())
+            safe_screenshot(page,'03_desktop_ipad.png')
+            page.locator('[data-view="member"]').click()
+            test('member_preview_access','顧問先マイページ' in page.locator('#main').inner_text())
+            safe_screenshot(page,'04_desktop_member.png')
+            page.locator('[data-view="systemcheck"]').click()
+            test('systemcheck_says_db_unconnected','未接続' in page.locator('#main').inner_text())
+            safe_screenshot(page,'05_desktop_system_check.png')
+            page.go_back(wait_until='domcontentloaded')
+            test('browser_back_navigation_works','顧問先マイページ' in page.locator('#main').inner_text())
+            page.go_forward(wait_until='domcontentloaded')
+            test('browser_forward_navigation_works','システム確認' in page.locator('#main').inner_text())
+            tab2=context.new_page()
+            tab2.goto(base+'R117_DEMO_owner.html?demo=1',wait_until='networkidle')
+            tab2.locator('#pin').fill('1234')
+            tab2.locator('#auth-form button[type=submit]').click()
+            test('separate_tab_starts_clean',tab2.locator('#count-clients').inner_text()=='2')
+            tab2.close()
+            page.reload(wait_until='networkidle')
+            test('reload_clears_admin_auth',page.locator('#pin').count()==1)
+            page.goto(base+'R117_DEMO_owner.html',wait_until='networkidle')
+            test('missing_demo_param_disables_ui','処理を開始しません' in page.locator('#main').inner_text())
+            test('missing_demo_param_hides_nav',page.locator('#navigation').is_hidden())
+            page.goto(base+'R117_DEMO_index.html?demo=1',wait_until='networkidle')
+            # XSS-style content is synthetic-only; browser must treat it as inert text.
+            page.locator('[data-view="inquiry"]').click()
+            attack='<img src=x onerror=alert(1)> & <script>console.log(1)</script>'
+            page.locator('#inquiry-subject').fill(attack)
+            page.locator('#inquiry-form button[type=submit]').click()
+            test('untrusted_html_visible_as_text',attack in page.locator('#main').inner_text())
+            test('untrusted_html_not_instantiated',page.locator('#main img[src="x"]').count()==0)
+            # Chromium's report-only style directive? Actual CSP meta enforced.
+            page.evaluate('window.__r120violations=[];document.addEventListener("securitypolicyviolation",e=>window.__r120violations.push(e.effectiveDirective))')
+            page.evaluate("async()=>{try{await fetch('https://invalid.r120.example/api')}catch(e){}}")
+            test('csp_connect_src_blocks_external','connect-src' in page.evaluate('window.__r120violations'))
+            test('external_network_never_reached_proxy',not requested_external)
+            test('no_javascript_errors',not errors)
+            for n in required[:5]:
+             alt=context.new_page()
+             alt.goto(base+n+'?demo=1',wait_until='networkidle')
+             test('direct_entry_'+n,alt.locator('#main').count()==1 and alt.locator('#navigation a').count()==7)
+             alt.close()
+            mobile=context.new_page()
+            mobile.set_viewport_size({'width':390,'height':844})
+            mobile.on('pageerror',lambda ex: errors.append(str(ex)))
+            mobile.goto(base+'R117_DEMO_index.html?demo=1',wait_until='networkidle')
+            test('mobile_width_fits',mobile.evaluate('document.documentElement.scrollWidth <= window.innerWidth + 1'))
+            test('mobile_booking_shown',mobile.locator('h1').inner_text()=='WEB面談予約')
+            safe_screenshot(mobile,'06_mobile_booking.png')
+            mobile.locator('[data-view="inquiry"]').click()
+            test('mobile_inquiry_shown',mobile.locator('h1').inner_text()=='お問い合わせ')
+            safe_screenshot(mobile,'07_mobile_inquiry.png')
+            mobile.locator('[data-view="dashboard"]').click()
+            mobile.locator('#pin').fill('1234')
+            mobile.locator('#auth-form button[type=submit]').click()
+            test('mobile_owner_pin',mobile.locator('#count-clients').inner_text()=='2')
+            test('mobile_owner_no_horizontal_scroll',mobile.evaluate('document.documentElement.scrollWidth <= window.innerWidth + 1'))
+            safe_screenshot(mobile,'08_mobile_owner.png')
+            mobile.close()
+            context.close();browser.close()
+           result.update(status='PASS',checks=checks,passed=len(checks),external_requests=requested_external,pageerrors=errors,screenshots=sorted(p.name for p in evidence.glob('*.png')))
+          except Exception as e:
+           result.update(status='FAILED',checks=checks,passed=len(checks),failure=repr(e),traceback=traceback.format_exc(),external_requests=requested_external,pageerrors=errors,screenshots=sorted(p.name for p in evidence.glob('*.png')))
+          finally:
+           server.shutdown()
+           (evidence/'R120_BROWSER_QA_RESULTS.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf8')
+           print(json.dumps({k:v for k,v in result.items() if k!='checks'},ensure_ascii=False,indent=2))
+          if result['status']!='PASS': raise SystemExit(1)
+          PYR120
+      - name: Save synthetic-only screenshots and report as GitHub Actions artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: R120-synthetic-browser-qa-evidence
+          path: R120_QA_EVIDENCE/
+          if-no-files-found: warn
+          retention-days: 7
