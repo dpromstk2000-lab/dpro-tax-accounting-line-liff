@@ -121,7 +121,7 @@
         const jstToday=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Tokyo',year:'numeric',month:'2-digit',day:'2-digit'}).format(now());
         const businessDays=()=>{
           const today=jstToday(), out=[];
-          for(let i=0;i<21;i++){
+          for(let i=0;i<store.office.booking_open_days;i++){
             const base=Date.parse(`${today}T00:00:00+09:00`)+i*86400000;
             const day=new Date(base+9*3600000), week=day.getUTCDay();
             if(week===0||week===6)continue;
