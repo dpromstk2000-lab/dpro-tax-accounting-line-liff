@@ -76,3 +76,4 @@ jobs:
             "select (select count(*) from public.taxacc_r10_finalization_jobs), (select count(*) from public.taxacc_r10_finalization_links), (select count(*) from public.taxacc_document_requests where r10_approval_batch_id is not null);")
           echo "after concurrent finalization: $result"
           test "$result" = '1|4|4'
+# R113-only isolated PostgreSQL re-run trigger 2026-10-11. NO production secrets, Supabase connection or deployment.
