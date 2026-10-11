@@ -65,7 +65,7 @@
       const cfg=KINDS[type];if(!cfg)return locked();
       const input=clean(body||{});
       if(method==='POST'){
-        const data={id:autoId(),office_id:OFFICE_ID,is_demo:true,created_at:new Date().toISOString()};
+        const data={office_id:OFFICE_ID,is_demo:true,created_at:new Date().toISOString()};
         for(const key of cfg.createFields)if(key in input)data[key]=String(input[key]).slice(0,220);
         if(!data[cfg.createFields[0]]||!data[cfg.createFields[0]].trim())fail(400,'REQUIRED_FIELD','必須項目を入力してください');
         if('priority' in data&&!PRIORITIES.includes(data.priority))fail(400,'INVALID_DEMO_PRIORITY','選択できない優先度です');
@@ -77,6 +77,8 @@
           if(!parentCase||!data.client_id||parentCase.client_id!==data.client_id)
             fail(403,'CASE_CLIENT_SCOPE_DENIED','別の顧問先または存在しない案件へ紐付けできません');
         }
+        // R128: allocate only after all create validations have passed; failed writes must not consume IDs.
+        data.id=autoId();
         data[{clients:'client_code',cases:'case_code',tasks:'task_code',appointments:'appointment_code',inquiries:'inquiry_code'}[type]]=`${cfg.prefix}-DEMO-${String(serial+2).padStart(3,'0')}`;
         // R125: use a valid, type-specific initial state for each synthetic record.
         // No acceptance of user-provided status on POST; valid state transitions remain PATCH-only.
