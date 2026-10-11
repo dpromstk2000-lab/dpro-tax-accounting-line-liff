@@ -15,7 +15,7 @@
     clients:[{id:'20000000-2000-4000-8000-000000000001',office_id:OFFICE_ID,client_code:'TXC-DEMO-001',legal_name:'サンプル法人Ａ（架空）',business_type:'corporation',status:'active',is_demo:true},{id:'20000000-2000-4000-8000-000000000002',office_id:OFFICE_ID,client_code:'TXC-DEMO-002',legal_name:'サンプル商店Ｂ（架空）',business_type:'sole_proprietor',status:'active',is_demo:true}],
     cases:[{id:'30000000-3000-4000-8000-000000000001',office_id:OFFICE_ID,client_id:'20000000-2000-4000-8000-000000000001',case_code:'CASE-DEMO-001',title:'月次資料確認（架空）',case_type:'monthly_documents',status:'in_progress',priority:'normal',progress_percent:60,is_demo:true}],
     tasks:[{id:'40000000-4000-4000-8000-000000000001',office_id:OFFICE_ID,client_id:'20000000-2000-4000-8000-000000000001',task_code:'TASK-DEMO-001',title:'必要書類を確認（架空）',priority:'normal',status:'todo',is_demo:true}],
-    appointments:[{id:'50000000-5000-4000-8000-000000000001',office_id:OFFICE_ID,appointment_code:'RES-DEMO-001',requester_name:'架空の予約者',status:'requested',duration_minutes:30,requested_start_at:'2027-01-01T00:00:00+09:00',appointment_channel:'online',is_demo:true}],
+    appointments:[{id:'50000000-5000-4000-8000-000000000001',office_id:OFFICE_ID,appointment_code:'RES-DEMO-001',client_id:'20000000-2000-4000-8000-000000000001',requester_name:'架空の予約者',status:'requested',duration_minutes:30,requested_start_at:'2027-01-01T00:00:00+09:00',appointment_channel:'online',is_demo:true}],
     inquiries:[{id:'60000000-6000-4000-8000-000000000001',office_id:OFFICE_ID,inquiry_code:'INQ-DEMO-001',category:'tax_consultation',subject:'サンプルの相談（架空）',body:'架空のデモ用文章です。',status:'new',priority:'normal',is_demo:true}],
     staff:[{id:'70000000-7000-4000-8000-000000000001',office_id:OFFICE_ID,staff_code:'TAX-ST-DEMO',display_name:'サンプル担当',role:'staff',is_active:true}],
     document_requests:[{id:'80000000-8000-4000-8000-000000000001',office_id:OFFICE_ID,request_code:'REQ-DEMO-001',client_id:'20000000-2000-4000-8000-000000000001',title:'架空の月次資料（見本）',request_category:'monthly',status:'not_notified',is_demo:true,is_visible_to_client:false,items:[]}],
@@ -111,7 +111,11 @@
         };
         if(method==='GET'&&pathname==='/api/demo/dates')return {ok:true,dates:businessDays()};
         if(method==='GET'&&pathname==='/api/demo/slots')return {ok:true,slots:slotList(url.searchParams.get('date')||'')};
-        if(method==='GET'&&pathname==='/api/demo/member-preview')return {ok:true,mode:'fictional_preview',client:clone(store.clients[0]),cases:clone(store.cases),appointments:clone(store.appointments),document_requests:clone(store.document_requests),documents:[],uploads_disabled:true,line_verified:false};
+        if(method==='GET'&&pathname==='/api/demo/member-preview'){
+          // R122: the displayed demo member can only see fictional records linked to that same fictional client.
+          const member=store.clients[0], belongs=x=>x.client_id===member.id;
+          return {ok:true,mode:'fictional_preview',client:clone(member),cases:clone(store.cases.filter(belongs)),appointments:clone(store.appointments.filter(belongs)),document_requests:clone(store.document_requests.filter(belongs)),documents:[],uploads_disabled:true,line_verified:false};
+        }
         if(method==='POST'&&pathname==='/api/demo/booking'){
           const input=clean(options.body||{});
           const date=String(input.date||''),time=String(input.time||'');
@@ -150,7 +154,7 @@
         return locked();
       }
       if(pathname.startsWith('/api/member/')||pathname==='/api/member')return locked();
-      if(method==='GET'&&pathname==='/api/demo/member-preview')return {ok:true,mode:'synthetic_member_preview',client:clone(store.clients[0]),cases:clone(store.cases),documents:[],storage_enabled:false,line_verified:false};
+      // R122: member-preview is handled only by the scoped /api/demo/ router above; never return unfiltered records.
       if(!pathname.startsWith('/api/admin/'))return locked();
       if(options.adminKey!=='1234')fail(401,'DEMO_ADMIN_KEY_REQUIRED','体験コードを入力してください');
       if(method==='GET'&&pathname==='/api/admin/dashboard'){
@@ -174,6 +178,10 @@
         const prefix='/api/admin/'+type;
         if(pathname===prefix){
           if(method==='GET')return readCollection(type,url.searchParams);
+          // R122: public demos must use /api/demo/booking and /api/demo/inquiry
+          // for validated 30-minute, non-past, non-PII-only local interactions.
+          // Do not expose unvalidated generic admin writes for these types.
+          if(method==='POST'&&(type==='appointments'||type==='inquiries'))return locked();
           if(method==='POST')return mutate(type,method,null,options.body);
         }
         if(pathname.startsWith(prefix+'/')){
