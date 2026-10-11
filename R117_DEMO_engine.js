@@ -202,7 +202,9 @@
       const clientDetail=pathname.match(/^\/api\/admin\/clients\/([0-9a-f-]{36})$/i);
       if(method==='GET'&&clientDetail){
         const c=one('clients',clientDetail[1]);
-        return {ok:true,client:clone(c),contacts:[],links:[],cases:clone(store.cases.filter(x=>x.client_id===c.id)),tasks:clone(store.tasks.filter(x=>x.client_id===c.id)),document_requests:clone(store.document_requests.filter(x=>x.client_id===c.id)),documents:[],appointments:[],inquiries:[]};
+        // R126: client detail and dashboard/member preview must agree on synthetic bookings.
+        // Only appointments explicitly linked to this synthetic client are visible here.
+        return {ok:true,client:clone(c),contacts:[],links:[],cases:clone(store.cases.filter(x=>x.client_id===c.id)),tasks:clone(store.tasks.filter(x=>x.client_id===c.id)),document_requests:clone(store.document_requests.filter(x=>x.client_id===c.id)),documents:[],appointments:clone(store.appointments.filter(x=>x.client_id===c.id)),inquiries:[]};
       }
 
       if(method==='GET'&&pathname==='/api/admin/document-requests')return {ok:true,document_requests:clone(store.document_requests)};
