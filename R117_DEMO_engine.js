@@ -3,6 +3,43 @@
   'use strict';
   const OFFICE_ID='10000000-1000-4000-8000-000000000001';
   const OFFICE_CODE='dpro_taxacc_demo';
+
+  // Demo-only Japanese public-holiday calendar. Separate from real office scheduling.
+  // Standard rules for current legislation; equinoxes are approximate outside officially announced years.
+  const DEMO_HOLIDAY_CACHE=new Map();
+  function demoJapaneseHolidays(year){
+    if(DEMO_HOLIDAY_CACHE.has(year))return DEMO_HOLIDAY_CACHE.get(year);
+    const days=new Set();
+    const pad=n=>String(n).padStart(2,'0');
+    const key=(month,day)=>`${year}-${pad(month)}-${pad(day)}`;
+    const fixed=[[1,1],[2,11],[2,23],[4,29],[5,3],[5,4],[5,5],[8,11],[11,3],[11,23]];
+    for(const [m,d] of fixed)days.add(key(m,d));
+    const nthMon=(month,n)=>1+(8-new Date(Date.UTC(year,month-1,1)).getUTCDay())%7+7*(n-1);
+    for(const [m,n] of [[1,2],[7,3],[9,3],[10,2]])days.add(key(m,nthMon(m,n)));
+    const spring=Math.floor(20.8431+0.242194*(year-1980)-Math.floor((year-1980)/4));
+    const autumn=Math.floor(23.2488+0.242194*(year-1980)-Math.floor((year-1980)/4));
+    days.add(key(3,spring));days.add(key(9,autumn));
+    // Citizen's holiday between two statutory national holidays (e.g. 2026-09-22).
+    const start=Date.UTC(year,0,1);
+    for(let i=1;i<365;i++){
+      const d=new Date(start+i*86400000).toISOString().slice(0,10);
+      const before=new Date(start+(i-1)*86400000).toISOString().slice(0,10);
+      const after=new Date(start+(i+1)*86400000).toISOString().slice(0,10);
+      if(!days.has(d)&&days.has(before)&&days.has(after))days.add(d);
+    }
+    // Substitute weekday after a national holiday falling on Sunday.
+    for(const d of [...days]){
+      if(new Date(d+'T00:00:00Z').getUTCDay()!==0)continue;
+      let next=Date.parse(d+'T00:00:00Z')+86400000;
+      while(days.has(new Date(next).toISOString().slice(0,10)))next+=86400000;
+      days.add(new Date(next).toISOString().slice(0,10));
+    }
+    DEMO_HOLIDAY_CACHE.set(year,days);return days;
+  }
+  function demoClosedDate(date){
+    const mmdd=date.slice(5);
+    return mmdd>='12-29'||mmdd<='01-03'||demoJapaneseHolidays(Number(date.slice(0,4))).has(date);
+  }
   const KINDS={
     clients:{prefix:'TXC',noun:'顧問先',createFields:['legal_name','business_type','representative_name'],editFields:['legal_name','status']},
     cases:{prefix:'CASE',noun:'案件',createFields:['title','client_id','case_type','priority'],editFields:['title','status','priority','progress_percent']},
@@ -15,7 +52,7 @@
     clients:[{id:'20000000-2000-4000-8000-000000000001',office_id:OFFICE_ID,client_code:'TXC-DEMO-001',legal_name:'サンプル法人Ａ（架空）',business_type:'corporation',status:'active',is_demo:true},{id:'20000000-2000-4000-8000-000000000002',office_id:OFFICE_ID,client_code:'TXC-DEMO-002',legal_name:'サンプル商店Ｂ（架空）',business_type:'sole_proprietor',status:'active',is_demo:true}],
     cases:[{id:'30000000-3000-4000-8000-000000000001',office_id:OFFICE_ID,client_id:'20000000-2000-4000-8000-000000000001',case_code:'CASE-DEMO-001',title:'月次資料確認（架空）',case_type:'monthly_documents',status:'in_progress',priority:'normal',progress_percent:60,is_demo:true}],
     tasks:[{id:'40000000-4000-4000-8000-000000000001',office_id:OFFICE_ID,client_id:'20000000-2000-4000-8000-000000000001',task_code:'TASK-DEMO-001',title:'必要書類を確認（架空）',priority:'normal',status:'todo',is_demo:true}],
-    appointments:[{id:'50000000-5000-4000-8000-000000000001',office_id:OFFICE_ID,appointment_code:'RES-DEMO-001',client_id:'20000000-2000-4000-8000-000000000001',requester_name:'架空の予約者',status:'requested',duration_minutes:30,requested_start_at:'2027-01-01T00:00:00+09:00',appointment_channel:'online',is_demo:true}],
+    appointments:[{id:'50000000-5000-4000-8000-000000000001',office_id:OFFICE_ID,appointment_code:'RES-DEMO-001',client_id:'20000000-2000-4000-8000-000000000001',requester_name:'架空の予約者',status:'requested',duration_minutes:30,requested_start_at:null,appointment_channel:'online',is_demo:true}],
     inquiries:[{id:'60000000-6000-4000-8000-000000000001',office_id:OFFICE_ID,inquiry_code:'INQ-DEMO-001',category:'tax_consultation',subject:'サンプルの相談（架空）',body:'架空のデモ用文章です。',status:'new',priority:'normal',is_demo:true}],
     staff:[{id:'70000000-7000-4000-8000-000000000001',office_id:OFFICE_ID,staff_code:'TAX-ST-DEMO',display_name:'サンプル担当',role:'staff',is_active:true}],
     document_requests:[{id:'80000000-8000-4000-8000-000000000001',office_id:OFFICE_ID,request_code:'REQ-DEMO-001',client_id:'20000000-2000-4000-8000-000000000001',title:'架空の月次資料（見本）',request_category:'monthly',status:'not_notified',is_demo:true,is_visible_to_client:false,items:[]}],
@@ -25,6 +62,19 @@
   function fail(status,code,message){const e=new Error(message);e.status=status;e.code=code;throw e;}
   function createDemoSession(opts={}){
     const store=clone(FAKE);let serial=0;
+    // R133: keep the sample booking in an actual upcoming weekday 30-minute slot.
+    // No fixed midnight/new-year fixture; this is still synthetic in-memory data only.
+    const displayDate = date => new Intl.DateTimeFormat('en-CA',
+      {timeZone:'Asia/Tokyo',year:'numeric',month:'2-digit',day:'2-digit'}).format(date);
+    const day0 = Date.parse(`${displayDate(opts.now ? new Date(opts.now) : new Date())}T00:00:00+09:00`);
+    for (let offset=1; offset<=7; offset++) {
+      const midnight = day0 + offset * 86400000;
+      const weekday = new Date(midnight + 9 * 3600000).getUTCDay();
+      const sampleDate = displayDate(new Date(midnight));
+      if (weekday===0 || weekday===6 || demoClosedDate(sampleDate)) continue;
+      store.appointments[0].requested_start_at = `${sampleDate}T10:00:00+09:00`;
+      break;
+    }
     const audit=[];
     const autoId=()=>{serial++;return `b0000000-0000-4000-8000-${String(serial).padStart(12,'0')}`;};
     const clean=(body)=>{
@@ -144,7 +194,9 @@
             const base=Date.parse(`${today}T00:00:00+09:00`)+i*86400000;
             const day=new Date(base+9*3600000), week=day.getUTCDay();
             if(week===0||week===6)continue;
-            out.push(new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Tokyo',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(base)));
+            const date=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Tokyo',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(base));
+            if(demoClosedDate(date))continue;
+            out.push(date);
           }
           return out;
         };
