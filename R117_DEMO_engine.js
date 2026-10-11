@@ -35,6 +35,27 @@
     };
     const one=(type,id)=>{const v=store[type].find(x=>x.id===id);if(!v)fail(404,'RECORD_NOT_FOUND','該当する架空データはありません');return v;};
     const locked=()=>fail(403,'DEMO_SIDE_EFFECT_BLOCKED','この操作は架空体験では無効です');
+    // R123: values in generic admin edits are fictional but must still respect business enums.
+    // No arbitrary state/progress strings are accepted; keep UI and dashboard stable.
+    const STATUSES=Object.freeze({
+      clients:['onboarding','active','paused','ended'],
+      cases:['received','checking','waiting_client','waiting_documents','in_progress','staff_review','final_review','completed','on_hold','cancelled'],
+      tasks:['todo','in_progress','waiting_staff','completed','cancelled'],
+      appointments:['requested','confirmed','change_requested','cancel_requested','cancelled','completed','no_show'],
+      inquiries:['new','open','waiting_office','resolved','closed'],
+    });
+    const PRIORITIES=['low','normal','high','urgent'];
+    function validateEdit(type,patch){
+      if('status' in patch&&!STATUSES[type].includes(patch.status))fail(400,'INVALID_DEMO_STATUS','選択できない状態です');
+      if('priority' in patch&&!PRIORITIES.includes(patch.priority))fail(400,'INVALID_DEMO_PRIORITY','選択できない優先度です');
+      if('progress_percent' in patch){
+        const pct=patch.progress_percent;
+        if(!/^(?:100|[1-9]?\d)$/.test(pct))fail(400,'INVALID_DEMO_PROGRESS','進捗は0〜100の整数で指定してください');
+        patch.progress_percent=Number(pct);
+      }
+      if('legal_name' in patch&&!patch.legal_name.trim())fail(400,'INVALID_DEMO_NAME','顧問先名を入力してください');
+      if('title' in patch&&!patch.title.trim())fail(400,'INVALID_DEMO_TITLE','件名を入力してください');
+    }
     function readCollection(type,search){
       const cfg=KINDS[type];if(!cfg)return locked();
       const result=store[type].filter(x=>!search.get('client_id')||x.client_id===search.get('client_id'));
@@ -46,7 +67,8 @@
       if(method==='POST'){
         const data={id:autoId(),office_id:OFFICE_ID,is_demo:true,created_at:new Date().toISOString()};
         for(const key of cfg.createFields)if(key in input)data[key]=String(input[key]).slice(0,220);
-        if(!data[cfg.createFields[0]])fail(400,'REQUIRED_FIELD','必須項目を入力してください');
+        if(!data[cfg.createFields[0]]||!data[cfg.createFields[0]].trim())fail(400,'REQUIRED_FIELD','必須項目を入力してください');
+        if('priority' in data&&!PRIORITIES.includes(data.priority))fail(400,'INVALID_DEMO_PRIORITY','選択できない優先度です');
         if(data.client_id&&!store.clients.some(c=>c.id===data.client_id))fail(403,'CLIENT_ACCESS_DENIED','架空顧問先以外へ紐付けできません');
         // R121: synthetic-only referential integrity; reject orphan cases and cross-client task links.
         if(type==='cases'&&!data.client_id)fail(400,'CASE_CLIENT_REQUIRED','案件の顧問先を選択してください');
@@ -64,6 +86,7 @@
       if(method==='PATCH'){
         const patch={};for(const k of cfg.editFields)if(k in input)patch[k]=String(input[k]).slice(0,220);
         if(!Object.keys(patch).length)fail(400,'NO_CHANGES','変更できる項目がありません');
+        validateEdit(type,patch);
         Object.assign(before,patch);audit.push({type,method,id});return {ok:true,record:clone(before)};
       }
       if(method==='DELETE'){
