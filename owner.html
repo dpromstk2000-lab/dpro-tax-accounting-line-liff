@@ -34,7 +34,7 @@
         <button class="nav-button" type="button" data-admin-view="clients"><span class="nav-icon">▣</span>顧問先・電話検索</button>
         <button class="nav-button" type="button" data-admin-view="cases"><span class="nav-icon">▤</span>案件・申告進捗</button>
         <button class="nav-button" type="button" data-admin-view="documents"><span class="nav-icon">▱</span>資料依頼・提出確認</button>
-        <button class="nav-button" type="button" data-admin-view="monthly-review" hidden><span class="nav-icon">▦</span>月次承認（デモ）</button>
+        <button class="nav-button" type="button" data-admin-view="monthly-review" hidden><span class="nav-icon">▦</span>月次承認・状況</button>
         <button class="nav-button" type="button" data-admin-view="appointments"><span class="nav-icon">◫</span>面談予約・電話受付</button>
         <button class="nav-button" type="button" data-admin-view="inquiries"><span class="nav-icon">◌</span>相談・問い合わせ</button>
         <button class="nav-button" type="button" data-admin-view="tasks"><span class="nav-icon">✓</span>タスク・期限</button>
@@ -65,6 +65,11 @@
             <div class="metric"><div class="metric-top"><span>新着書類</span><span>▱</span></div><div id="metric-documents" class="metric-value">－</div><div class="metric-note">確認待ち</div></div>
             <div class="metric"><div class="metric-top"><span>未対応相談</span><span>◌</span></div><div id="metric-inquiries" class="metric-value">－</div><div class="metric-note">解決・終了を除く</div></div>
           </div>
+          <section class="panel-card r103-dashboard-guide" id="r103-dashboard-guide" aria-label="月次承認センター" hidden>
+            <div class="panel-card-head"><h2>月次承認センター</h2><span class="status" data-tone="warning">スタッフ本人確認が必要</span></div>
+            <p class="small muted">月次の申請・差戻し・最終承認の状況は専用画面で確認できます。管理コードのみで承認はできません。</p>
+            <div class="toolbar"><button type="button" class="btn btn-secondary" data-go-view="monthly-review">承認状況・操作メニューへ →</button></div>
+          </section>
           <section class="panel-card tax-priority-card" aria-labelledby="tax-priority-title">
             <div class="panel-card-head"><h2 id="tax-priority-title">期限超過・要フォロー</h2><span id="tax-priority-count" class="tax-priority-count">確認中</span></div>
             <p class="muted">未完了の案件・タスク・資料依頼から期限を過ぎた項目を自動抽出します。表示は参考情報です。期限・内容は担当者が確認してください。</p>
@@ -96,7 +101,7 @@
           <div class="admin-page-head"><div><p class="eyebrow">Documents</p><h1>資料依頼・提出確認</h1></div><button class="btn btn-primary" type="button" data-open-modal="request-create-modal">資料依頼を作成</button></div>
           <section class="card" style="padding:20px;margin-top:14px;margin-bottom:18px" aria-label="月次資料依頼の安全な検証と確認" id="tax-r85-preview-panel">
             <div class="admin-page-head"><div>
-              <p class="eyebrow" style="margin:0 0 6px">R9.8 · 検証環境のみ</p>
+              <p class="eyebrow" style="margin:0 0 6px">R10.5 · 検証環境のみ</p>
               <h2 style="margin:0;font-size:1.18rem">月次資料依頼の候補・承認フロー</h2>
               <p class="small muted">送信前の候補確認と、2名の認証済みスタッフによる承認検証は、それぞれ独立した検証画面で確認します。</p>
             </div><span class="badge">本番依頼・LINE送信なし</span></div>
@@ -155,12 +160,35 @@
         </section>
 
         <section data-admin-panel="monthly-review" hidden>
-          <div class="admin-page-head"><div><p class="eyebrow">Monthly Document Review · R9.8 Staging</p>
+          <div class="admin-page-head"><div><p class="eyebrow">MONTHLY REVIEW GATEWAY · R10.5 STAGING</p>
             <h1>月次資料依頼・承認管理</h1>
-            <p class="muted">申請担当者と承認担当者を分け、差戻し・再提出・操作履歴を検証します。</p>
+            <p class="muted">スタッフ専用の承認状況と、申請・承認操作を安全に分離して利用します。</p>
           </div><span class="badge">検証用・本番送信なし</span></div>
+          <section class="panel-card r103-gateway" aria-labelledby="r103-gateway-title">
+            <div class="panel-card-head"><h2 id="r103-gateway-title">スタッフ専用・月次承認センター</h2><span class="status" data-tone="warning">本番送信・資料発行なし</span></div>
+            <p class="muted">管理画面はスタッフ本人確認の代わりにはなりません。デモ承認台帳は別のスタッフ専用画面で確認してください。</p>
+            <div class="r103-action-grid">
+              <div class="r103-action-card">
+                <span class="r103-action-kicker">STEP 1｜読み取り専用</span>
+                <h3>承認状況・履歴を確認</h3>
+                <p>R10.2のスタッフ専用画面で、対象月・承認者・差戻し・再提出・操作履歴を確認します。</p>
+                <button type="button" id="r103-status-open" class="btn btn-primary" disabled>承認状況を確認する ↗</button>
+                <span class="small muted">別タブ・Supabaseスタッフ本人確認が必要</span>
+              </div>
+              <div class="r103-action-card">
+                <span class="r103-action-kicker">STEP 2｜検証用の申請・承認</span>
+                <h3>申請・承認操作へ</h3>
+                <p>R9.7の専用画面で、申請担当と承認担当を分けて操作します。実際の資料発行には連動しません。</p>
+                <button id="r103-action-open" type="button" class="btn btn-secondary" disabled>申請・承認操作を開く ↗</button>
+                <span class="small muted">別タブ・独立したスタッフ認証が必要</span>
+              </div>
+            </div>
+            <p class="small muted" role="status">R10.5検証版：この画面からの新規登録・変更・削除は停止しています。R10.1のDBガードは未適用です。</p>
+            <p class="small muted" role="status" aria-live="polite" id="r103-gateway-status">検証用の接続設定を確認しています。</p>
+            <p class="r103-safety-note"><strong>確定前の安全確認：</strong>R10.1のSQLは共有DBへ未適用です。この画面では申請の確定、顧問先公開、LINE送信は行いません。</p>
+          </section>
           <section class="panel-card" aria-labelledby="r98-flow-title" style="border:1px solid #d4e2ed;padding:20px">
-            <div class="panel-card-head"><h2 id="r98-flow-title">月次承認フロー</h2><span class="status" data-tone="success">R9.7 実操作QA合格</span></div>
+            <div class="panel-card-head"><h2 id="r98-flow-title">申請・承認の役割分担</h2><span class="status" data-tone="success">R9.7 実操作QA合格</span></div>
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:12px;margin:15px 0 18px">
               <div style="background:#f1f7fb;border-radius:11px;padding:15px"><strong>1. 申請担当者</strong><p class="small muted" style="margin:6px 0 0">本人確認 → 対象月の候補作成 → 申請</p></div>
               <div style="background:#f1f7fb;border-radius:11px;padding:15px"><strong>2. 承認担当者</strong><p class="small muted" style="margin:6px 0 0">別人として本人確認 → 承認または理由付き差戻し</p></div>
@@ -168,14 +196,13 @@
             </div>
             <p style="margin:0 0 12px">安全性のため、月次承認は別の検証画面で開き、スタッフ本人として再ログインします。<strong>現在の管理コードや顧問先情報を承認画面へ引き継ぐことはありません。</strong></p>
             <div class="toolbar" style="align-items:center;flex-wrap:wrap;gap:12px">
-              <button id="r98-review-open" type="button" class="btn btn-primary" disabled>月次承認画面を開く ↗</button>
               <button data-go-view="documents" type="button" class="btn btn-secondary">資料依頼・提出確認へ戻る</button>
             </div>
-            <p id="r98-review-launch-status" class="small muted" role="status" aria-live="polite" style="margin:12px 0 0">検証用の承認画面を確認しています。</p>
+            <p class="small muted" style="margin:12px 0 0">申請・承認画面は上部「STEP 2」から開きます。操作入口を1か所に統一しました。</p>
           </section>
           <section class="panel-card" aria-labelledby="r98-safe-title" style="padding:20px;margin-top:16px;border:1px solid #d4e2ed">
             <div class="panel-card-head"><h2 id="r98-safe-title">現在の検証範囲</h2></div>
-            <p class="small muted">2026年10月分・11月分のデモ承認履歴は実DBで確認済みです。ここには顧問先の氏名や依頼文を自動表示しません。承認一覧・最新状態はログイン後の専用画面で確認してください。</p>
+            <p class="small muted">2026年10月・11月の承認履歴はR10.2の公開画面でスタッフ本人確認後に実データ照合済みです。この管理画面では承認台帳を自動取得せず、顧問先名・依頼文・スタッフ認証情報を扱いません。最新状態は上の「承認状況を確認する」からご覧ください。</p>
             <p class="small muted" style="margin-top:9px"><strong>本番化まで未接続：</strong>個別資料依頼との統合／実際の資料リスト・期限修正／顧問先への依頼確定／LINE送信／本番スタッフ権限。</p>
           </section>
         </section>
@@ -241,7 +268,7 @@
 
   <div id="case-create-modal" class="modal-backdrop" hidden><div class="modal"><div class="modal-head"><h2>案件を登録</h2><button class="icon-button" type="button" data-close-modal>×</button></div><form id="case-create-form" class="modal-body"><div class="form-grid"><div class="field field-full"><label>顧問先</label><select name="client_id" data-client-options required></select></div><div class="field"><label>案件名</label><input type="text" name="title" required></div><div class="field"><label>案件区分</label><select name="case_type"><option value="monthly_documents">月次資料</option><option value="corporate_tax_return">法人税申告</option><option value="individual_tax_return">確定申告</option><option value="consumption_tax">消費税</option><option value="year_end_adjustment">年末調整</option><option value="tax_consultation">税務相談</option><option value="other">その他</option></select></div><div class="field"><label>期限日</label><input name="deadline_date" type="date"></div><div class="field"><label>優先度</label><select name="priority"><option value="normal">通常</option><option value="high">高</option><option value="urgent">至急</option></select></div><div class="field field-full"><label>顧問先向け説明</label><textarea name="public_summary"></textarea></div><div class="field field-full"><button class="btn btn-primary btn-block" type="submit">登録する</button></div></div></form></div></div>
 
-  <div id="request-create-modal" class="modal-backdrop" hidden><div class="modal"><div class="modal-head"><h2>資料依頼を作成</h2><button class="icon-button" type="button" data-close-modal>×</button></div><form id="request-create-form" class="modal-body"><div class="form-grid"><div class="field field-full"><label>顧問先</label><select name="client_id" data-client-options required></select></div><div class="field"><label>依頼名</label><input type="text" name="title" required></div><div class="field"><label>区分</label><select name="request_category"><option value="monthly">月次</option><option value="closing">決算</option><option value="tax_return">申告</option><option value="year_end_adjustment">年末調整</option><option value="other">その他</option></select></div><div class="field"><label>提出期限</label><input name="due_on" type="date"></div><div class="field"><label>対象期間</label><input type="text" name="target_period_label"></div><div class="field field-full"><label>顧問先向けメッセージ</label><textarea name="public_message"></textarea></div><div class="field field-full"><button class="btn btn-primary btn-block" type="submit">依頼を登録する</button></div></div></form></div></div>
+  <div id="request-create-modal" class="modal-backdrop" hidden><div class="modal"><div class="modal-head"><h2>資料依頼を作成</h2><button class="icon-button" type="button" data-close-modal>×</button></div><form id="request-create-form" class="modal-body"><div class="form-grid"><div class="field field-full"><label>顧問先</label><select name="client_id" data-client-options required></select></div><div class="field"><label>依頼名</label><input type="text" name="title" required></div><div class="field"><label>区分</label><select name="request_category" required><option value="" selected disabled>区分を選択してください</option><option value="monthly">月次（スタッフ承認経由・旧フォーム不可）</option><option value="closing">決算</option><option value="tax_return">申告</option><option value="year_end_adjustment">年末調整</option><option value="other">その他</option></select></div><div class="field"><label>提出期限</label><input name="due_on" type="date"></div><p class="small muted field-full" id="r103-request-guard-hint" hidden>月次資料依頼はこのフォームから登録できません。「月次承認・状況」からスタッフ本人確認へ進んでください。これは画面側の事故防止です。API・DBの正式な発行制限は別工程です。</p><div class="field"><label>対象期間</label><input type="text" name="target_period_label"></div><div class="field field-full"><label>顧問先向けメッセージ</label><textarea name="public_message"></textarea></div><div class="field field-full"><button class="btn btn-primary btn-block" type="submit">依頼を登録する</button></div></div></form></div></div>
 
   <div id="appointment-create-modal" class="modal-backdrop" hidden><div class="modal modal-wide"><div class="modal-head"><div><p class="eyebrow">Phone / Counter Reception</p><h2>電話・来所予約を登録</h2></div><button class="icon-button" type="button" data-close-modal>×</button></div><form id="admin-appointment-form" class="modal-body"><div class="form-grid"><div class="field field-full"><label for="appointment-client-search">既存顧問先検索</label><p class="small muted">電話番号はハイフン・空白・全角・+81を同一番号として検索します。</p><div class="search-row"><input type="text" id="appointment-client-search" placeholder="名前・代表者・電話番号・顧問先コード"><button id="appointment-client-search-button" class="btn btn-secondary" type="button">検索</button></div><div id="appointment-phone-normalized" class="small muted"></div><div id="appointment-client-results" class="client-search-results"></div><input id="appointment-client-id" name="client_id" type="hidden"><input id="appointment-contact-id" name="contact_id" type="hidden"></div><div id="appointment-selected-client" class="field field-full selected-client" hidden></div><div class="field"><label>予約者名</label><input type="text" id="admin-requester-name" name="requester_name" required></div><div class="field"><label>電話番号</label><input type="text" id="admin-requester-phone" name="requester_phone" inputmode="tel"></div><div class="field"><label>メールアドレス</label><input type="email" id="admin-requester-email" name="requester_email"></div><div class="field"><label>担当者</label><select name="assigned_staff_id" data-staff-options></select></div><div class="field"><label>面談サービス</label><select name="service_id" data-service-options required></select></div><div class="field"><label>希望日時</label><input name="requested_start_at" type="datetime-local" step="1800" required></div><div class="field"><label>面談方法</label><select name="appointment_channel"><option value="in_person">事務所</option><option value="online">オンライン</option><option value="phone">電話</option></select></div><div class="field"><label>状態</label><select name="status"><option value="requested">希望受付</option><option value="confirmed">確定</option></select></div><div class="field field-full"><label>内部メモ</label><textarea name="internal_notes" placeholder="電話で確認した内容、折返し事項、持参資料など"></textarea></div><div class="field field-full"><button class="btn btn-primary btn-block" type="submit">予約を登録する</button></div></div></form></div></div>
 

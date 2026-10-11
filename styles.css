@@ -519,3 +519,15 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .tax-priority-item { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .7rem; background: #fffaf0; border: 1px solid #f0e4cf; border-radius: .7rem; }
 .tax-priority-type { display: inline-block; font-weight: 800; color: #805300; margin-right: .25rem; }
 @media (max-width: 640px) { .tax-priority-item { align-items: flex-start; flex-direction: column; } .tax-priority-item .btn { width: 100%; } }
+
+/* TAX R10.3 staging: responsive approval center, separate staff identity. */
+.r103-gateway{border:1px solid #cbdde9;padding:22px;margin-bottom:16px;background:#fff;}
+.r103-action-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:14px;margin:18px 0;}
+.r103-action-card{display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding:18px;border:1px solid #d7e4ec;background:#f5f9fc;border-radius:14px;min-width:0;}
+.r103-action-card h3{font-size:1.13rem;margin:0;line-height:1.45;}
+.r103-action-card p{margin:0;color:#4c6274;font-size:.92rem;line-height:1.65;flex:1;}
+.r103-action-card .btn{white-space:normal;min-height:46px;}
+.r103-action-kicker{font-size:.78rem;letter-spacing:.06em;font-weight:800;color:#0a6b72;}
+.r103-safety-note{background:#fff9eb;border-left:4px solid #d69d28;border-radius:9px;padding:14px 16px;font-size:.88rem;color:#665120;margin:10px 0 0;}
+.r103-dashboard-guide{padding:20px;margin:0 0 16px;border:1px solid #d7e3e9;}
+@media(max-width:580px){.r103-gateway{padding:15px}.r103-action-card{padding:15px}.r103-action-card .btn{width:100%}.r103-action-grid{grid-template-columns:minmax(0,1fr)}}

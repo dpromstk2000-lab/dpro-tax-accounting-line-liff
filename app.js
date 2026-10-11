@@ -130,6 +130,15 @@
   }
 
   async function api(path, { method = "GET", body, adminKey, lineId, formData } = {}) {
+    // R10.5 review-only GitHub staging: fail closed for EVERY mutation method at one network boundary.
+    // This protects the staging UI only; direct API access still requires an independent server/DB gate.
+    if (CONFIG.TAX_R105_STAGING_READ_ONLY === true
+        && !["GET", "HEAD"].includes(String(method).toUpperCase())) {
+      const error = new Error("検証用の管理画面では登録・変更・削除できません。安全な本番連携は未実施です。");
+      error.code = "R105_STAGING_READ_ONLY";
+      error.status = 403;
+      throw error;
+    }
     const headers = { Accept: "application/json" };
     if (adminKey) headers["X-Admin-Key"] = adminKey;
     if (lineIdToken) headers["X-Line-Id-Token"] = lineIdToken;
@@ -578,25 +587,58 @@
     } else if (r98Nav) {
       r98Nav.hidden = false;
     }
-    const r98Open = $("#r98-review-open");
-    const r98Status = $("#r98-review-launch-status");
-    if (r98Open) {
-      r98Open.disabled = !r98ReviewAllowed;
-      if (r98Status) r98Status.textContent = r98ReviewAllowed
-        ? "安全な別タブで開きます。スタッフ本人確認が別途必要です。"
-        : "この環境ではデモ承認画面への導線を無効にしています。";
-      r98Open.addEventListener("click", () => {
-        if (!r98ReviewAllowed) return;
-        const link = document.createElement("a");
-        link.href = r98ReviewUrl;
-        link.target = "_blank";
-        link.rel = "noopener noreferrer";
-        link.referrerPolicy = "no-referrer";
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        if (r98Status) r98Status.textContent = "別タブを開きました。別のスタッフ本人確認が必要です。";
+    // R10.4 owner integration: two separate staff-authenticated origins, no SSO or shared credentials.
+    // NEVER fetch the review board from owner/admin-code scope.
+    const r103Url = "https://dpro-tax-accounting-r102-staff-review.dpromstk2000.workers.dev/staff-review.html";
+    const r103Enabled = r98ReviewAllowed
+      && CONFIG.TAX_R103_STATUS_GATEWAY_ENABLED === true
+      && CONFIG.TAX_R103_STATUS_URL === r103Url;
+    const r103StatusBtn = $("#r103-status-open");
+    const r103ActionBtn = $("#r103-action-open");
+    const r103GatewayState = $("#r103-gateway-status");
+    const r103DashboardGuide = $("#r103-dashboard-guide");
+    if (r103DashboardGuide) r103DashboardGuide.hidden = !r103Enabled;
+    function openR103SeparateStaffApp(targetUrl) {
+      const link = document.createElement("a");
+      link.href = targetUrl; // Only hardcoded allowlisted URLs, no search or fragment parameters.
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.referrerPolicy = "no-referrer";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    }
+    if (r103StatusBtn) {
+      r103StatusBtn.disabled = !r103Enabled;
+      r103StatusBtn.addEventListener("click", () => {
+        if (!r103Enabled) return;
+        openR103SeparateStaffApp(r103Url);
+        if (r103GatewayState) r103GatewayState.textContent = "承認状況画面を別タブで開きました。スタッフ本人確認が必要です。";
       });
+    }
+    if (r103ActionBtn) {
+      r103ActionBtn.disabled = !r103Enabled;
+      r103ActionBtn.addEventListener("click", () => {
+        if (!r103Enabled) return;
+        openR103SeparateStaffApp(r98ReviewUrl);
+        if (r103GatewayState) r103GatewayState.textContent = "申請・承認操作画面を別タブで開きました。スタッフ本人確認が必要です。";
+      });
+    }
+    if (r103GatewayState) r103GatewayState.textContent = r103Enabled
+      ? "承認状況と承認操作は、別々のスタッフ専用画面で安全に開きます。管理コードは引き継ぎません。"
+      : "この環境ではスタッフ専用の承認画面を利用できません。";
+    // Prevent accidental legacy monthly POST in staging UI. Server API remains independently unguarded until R10.1 is deployed.
+    const r103BlockLegacyMonthly = CONFIG.OFFICE_CODE === "dpro_taxacc_demo"
+      && CONFIG.TAX_R103_BLOCK_LEGACY_MONTHLY_FORM === true
+      && CONFIG.TAX_R9_FORMAL_APPROVAL_ENABLED === false;
+    const r103LegacyForm = $("#request-create-form");
+    if (r103BlockLegacyMonthly && r103LegacyForm) {
+      const select = $("select[name='request_category']", r103LegacyForm);
+      const option = select?.querySelector("option[value='monthly']");
+      if (option) option.disabled = true;
+      if (select) select.value = "";
+      const hint = $("#r103-request-guard-hint");
+      if (hint) hint.hidden = false;
     }
     // R8.6: review readiness only. NEVER treat these client-side boxes as a server approval.
     // No admin key, LINE ID token or personal data is sent or persisted by this worksheet.
@@ -796,6 +838,15 @@
     ];
     forms.forEach(([selector, path, transform, message]) => $(selector).addEventListener("submit", async (event) => {
       event.preventDefault(); const form = event.currentTarget; const button = $("button[type=submit]", form);
+      if (selector === "#request-create-form"
+        && CONFIG.OFFICE_CODE === "dpro_taxacc_demo"
+        && CONFIG.TAX_R103_BLOCK_LEGACY_MONTHLY_FORM === true
+        && CONFIG.TAX_R9_FORMAL_APPROVAL_ENABLED === false
+        && String(formObject(form).request_category) === "monthly") {
+        toast("月次依頼は従来フォームから登録できません。スタッフ承認画面をご利用ください。", "error");
+        showAdminView("monthly-review");
+        return;
+      }
       try { setButtonBusy(button, true, "登録中..."); await api(path, { method: "POST", body: transform(formObject(form)), adminKey: adminState.key }); toast(message); closeModal(form); form.reset(); if (selector === "#admin-appointment-form") clearAppointmentClientSelection(); await refreshOwner(); }
       catch (error) { toast(error.message, "error"); } finally { setButtonBusy(button, false); }
     }));
