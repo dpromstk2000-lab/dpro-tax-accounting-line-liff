@@ -148,6 +148,9 @@ jobs:
             # Chromium's report-only style directive? Actual CSP meta enforced.
             page.evaluate('window.__r120violations=[];document.addEventListener("securitypolicyviolation",e=>window.__r120violations.push(e.effectiveDirective))')
             page.evaluate("async()=>{try{await fetch('https://invalid.r120.example/api')}catch(e){}}")
+            # securitypolicyviolation is dispatched asynchronously by Chromium.
+            # Await the actual connect-src event; do not replace it with a static-only assertion.
+            page.wait_for_function("window.__r120violations && window.__r120violations.includes('connect-src')", timeout=7000)
             test('csp_connect_src_blocks_external','connect-src' in page.evaluate('window.__r120violations'))
             test('external_network_never_reached_proxy',not requested_external)
             test('no_javascript_errors',not errors)
