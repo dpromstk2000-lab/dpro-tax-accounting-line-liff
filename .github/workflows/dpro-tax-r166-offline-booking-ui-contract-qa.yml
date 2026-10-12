@@ -1,0 +1,285 @@
+name: DPRO TAX R166 Real Staging Booking UI Gap and Offline UX QA (Read Only)
+
+on:
+  push:
+    branches: [tax-r7-staging-20261010]
+    paths:
+      - '.github/workflows/dpro-tax-r166-offline-booking-ui-contract-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dpro-tax-r166-source-only-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  offline-booking-ux-qa:
+    if: ${{ github.repository == 'dpromstk2000-lab/dpro-tax-accounting-line-liff' && github.ref == 'refs/heads/tax-r7-staging-20261010' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Checkout exact staging commit without credentials
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Protect existing source and forbid real integrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'dpromstk2000-lab/dpro-tax-accounting-line-liff'
+          test "$GITHUB_REF" = 'refs/heads/tax-r7-staging-20261010'
+          test "$GITHUB_EVENT_NAME" = 'push' -o "$GITHUB_EVENT_NAME" = 'workflow_dispatch'
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}" && test -z "${LINE_CHANNEL_SECRET:-}" || { echo 'R166_STOP_UNEXPECTED_SECRET'; exit 1; }
+          test "$(git hash-object '.github/workflows/dpro-tax-r151-staging-boundary-qa.yml')" = 'bd6a075f06f0692ff868067416afb5781faad6c1' || { echo 'R166_PROTECTED_SOURCE_DRIFT: .github/workflows/dpro-tax-r151-staging-boundary-qa.yml'; exit 1; }
+          test "$(git hash-object '.github/workflows/dpro-tax-r152-disposable-postgres-booking-qa.yml')" = '8c3ed43f0f1fdc3217382f47b43c5f68763f1f37' || { echo 'R166_PROTECTED_SOURCE_DRIFT: .github/workflows/dpro-tax-r152-disposable-postgres-booking-qa.yml'; exit 1; }
+          test "$(git hash-object '.github/workflows/dpro-tax-r153-disposable-direct-dml-qa.yml')" = 'd931f63a70a560b7f447fbcef1e6fd25868fb06d' || { echo 'R166_PROTECTED_SOURCE_DRIFT: .github/workflows/dpro-tax-r153-disposable-direct-dml-qa.yml'; exit 1; }
+          test "$(git hash-object '.github/workflows/dpro-tax-r154-disposable-auth-role-boundary-qa.yml')" = '3d5964f33675a636bf1f35e90c98d59aaaafd437' || { echo 'R166_PROTECTED_SOURCE_DRIFT: .github/workflows/dpro-tax-r154-disposable-auth-role-boundary-qa.yml'; exit 1; }
+          test "$(git hash-object '.github/workflows/dpro-tax-r155-synthetic-trust-boundary-qa.yml')" = 'e21797ce5271a949c337b6bcf85d3d1339ce4ffd' || { echo 'R166_PROTECTED_SOURCE_DRIFT: .github/workflows/dpro-tax-r155-synthetic-trust-boundary-qa.yml'; exit 1; }
+          test "$(git hash-object '.github/workflows/dpro-tax-r156-disposable-rls-replay-qa.yml')" = 'ff6442c6b4d2d0c409b906625a3322cdb16ab47e' || { echo 'R166_PROTECTED_SOURCE_DRIFT: .github/workflows/dpro-tax-r156-disposable-rls-replay-qa.yml'; exit 1; }
+          test "$(git hash-object '.github/workflows/dpro-tax-r157-loopback-http-gateway-qa.yml')" = 'c6cf3510194b6f3af3474554966f57905fce7224' || { echo 'R166_PROTECTED_SOURCE_DRIFT: .github/workflows/dpro-tax-r157-loopback-http-gateway-qa.yml'; exit 1; }
+          test "$(git hash-object '.github/workflows/dpro-tax-r158-public-demo-source-integrity-qa.yml')" = '7590c8417fa940b73ccaf4e65534176e1d643f32' || { echo 'R166_PROTECTED_SOURCE_DRIFT: .github/workflows/dpro-tax-r158-public-demo-source-integrity-qa.yml'; exit 1; }
+          test "$(git hash-object '.github/workflows/dpro-tax-r159-release-evidence-contract-qa.yml')" = 'b631da2cf67eb198160a0ffd8b88596b020d51e9' || { echo 'R166_PROTECTED_SOURCE_DRIFT: .github/workflows/dpro-tax-r159-release-evidence-contract-qa.yml'; exit 1; }
+          test "$(git hash-object '.github/workflows/dpro-tax-r160-staging-commercial-gap-qa.yml')" = '5f359b6ec11b1e119a180302e64c19e68885a637' || { echo 'R166_PROTECTED_SOURCE_DRIFT: .github/workflows/dpro-tax-r160-staging-commercial-gap-qa.yml'; exit 1; }
+          test "$(git hash-object '.github/workflows/dpro-tax-r161-disposable-booking-atomicity-qa.yml')" = '7ae80a66d01c45e5bb2a8debfc5d0a4b0be5a838' || { echo 'R166_PROTECTED_SOURCE_DRIFT: .github/workflows/dpro-tax-r161-disposable-booking-atomicity-qa.yml'; exit 1; }
+          test "$(git hash-object '.github/workflows/dpro-tax-r162-booking-bridge-contract-qa.yml')" = 'ebc86c4e716f79b159cadac3b3b5e115934114f1' || { echo 'R166_PROTECTED_SOURCE_DRIFT: .github/workflows/dpro-tax-r162-booking-bridge-contract-qa.yml'; exit 1; }
+          test "$(git hash-object '.github/workflows/dpro-tax-r163-guest-capability-loopback-qa.yml')" = '9a20d807bb0f47f9016e0609f2e04af7e35a2210' || { echo 'R166_PROTECTED_SOURCE_DRIFT: .github/workflows/dpro-tax-r163-guest-capability-loopback-qa.yml'; exit 1; }
+          test "$(git hash-object '.github/workflows/dpro-tax-r164-ui-retry-bridge-contract-qa.yml')" = '292100ad0c5fdfa933c1cf3ad252658b6482a50f' || { echo 'R166_PROTECTED_SOURCE_DRIFT: .github/workflows/dpro-tax-r164-ui-retry-bridge-contract-qa.yml'; exit 1; }
+          test "$(git hash-object '.github/workflows/dpro-tax-r165-disposable-recovery-http-qa.yml')" = '1ae15008458d07531fe8b784b6de17fa9ae6261f' || { echo 'R166_PROTECTED_SOURCE_DRIFT: .github/workflows/dpro-tax-r165-disposable-recovery-http-qa.yml'; exit 1; }
+          test "$(git hash-object 'app.js')" = '4c3475219e5c7fc9203ec5e5143d4f6eb8299423' || { echo 'R166_PROTECTED_SOURCE_DRIFT: app.js'; exit 1; }
+          test "$(git hash-object 'config.js')" = 'da1876bae8333a3a10ee13495c0063ded0c2b351' || { echo 'R166_PROTECTED_SOURCE_DRIFT: config.js'; exit 1; }
+          test "$(node --version)" != ''
+          echo 'R166_REAL_STAGING_SOURCE_HASH_PINS_OK: 17/17 READONLY'
+      - name: Materialize synthetic preview and offline-only QA in runner temp
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/r166_preview.html" <<'R166_HTML_PREVIEW_END'
+          <!DOCTYPE html>
+          <html lang="ja">
+          <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'none'; form-action 'none'; connect-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'none'; object-src 'none'">
+          <meta name="referrer" content="no-referrer">
+          <title>DPRO TAX | 予約希望の安全な再送・復旧（架空デモ）</title>
+          <style>
+          :root{color-scheme:light;--navy:#18334e;--muted:#39536c;--border:#b9c8d3;--blue:#135c9c;--light:#edf5fb;--warn:#945900;--warnbg:#fff5e2;--ok:#17613f;--okbg:#e9f6ee}*{box-sizing:border-box}body{margin:0;background:#f5f8fb;color:var(--navy);font-family:system-ui,-apple-system,"Yu Gothic",Meiryo,sans-serif;line-height:1.65;font-size:17px}header{background:var(--navy);color:white;padding:22px 18px}header .wrap{max-width:790px;margin:auto}header p{margin:4px 0 0;font-size:15px;color:#e2ebf4}.wrap{max-width:790px;margin:0 auto;padding:0 16px}main{padding-top:24px;padding-bottom:28px}.banner{background:var(--warnbg);border:2px solid #cf953b;border-radius:12px;padding:12px 17px;margin:0 0 18px;font-weight:700}.card{background:white;border:1px solid var(--border);border-radius:15px;padding:22px;margin-bottom:18px;box-shadow:0 3px 14px #1230480d}h1{font-size:25px;line-height:1.3;margin:0}h2{font-size:21px;line-height:1.4;margin:0 0 12px}p{margin:8px 0 13px}.small{font-size:15px;color:var(--muted)}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}label{display:block;font-weight:700;font-size:16px;margin:12px 0 6px}select,input{width:100%;font:inherit;min-height:48px;padding:10px;border:1.5px solid #8199ae;border-radius:8px;background:white;color:var(--navy)}button{font:inherit;font-weight:700;cursor:pointer;border-radius:9px;min-height:48px;padding:10px 17px;border:1px solid #5a7994;background:white;color:var(--navy)}button.primary{background:var(--blue);color:white;border-color:var(--blue)}button:disabled,select:disabled,input:disabled{opacity:.55;cursor:not-allowed}.actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:18px}.status{border:1px solid var(--border);border-radius:10px;padding:14px 16px;background:var(--light);min-height:88px}.status.unknown{background:var(--warnbg);border-color:#cd974e}.status.pending{background:var(--okbg);border-color:#80b697}.status strong{display:block;font-size:20px}.status small{display:block;margin-top:7px;font-size:15px}.indicator{font-size:14px;display:inline-block;border-radius:5px;padding:3px 9px;background:#dcebf6;color:var(--navy);margin-bottom:6px;font-weight:700}.muted{color:var(--muted)}.foot{font-size:14px;color:var(--muted)}@media(max-width:560px){body{font-size:16px}.card{padding:17px}.grid{grid-template-columns:1fr}h1{font-size:22px}h2{font-size:20px}button{width:100%}.actions{flex-direction:column}}
+          </style>
+          </head>
+          <body>
+          <header><div class="wrap"><h1>DPRO TAX | 面談予約の体験</h1><p>希望受付と予約確定を区別するための操作イメージ</p></div></header>
+          <main class="wrap">
+          <div class="banner" id="demo-warning">架空デモ・完全オフライン。実際の予約は受け付けません。電話・メール・氏名は入力しないでください。</div>
+          <section class="card" aria-labelledby="booking-title">
+          <span class="indicator">STEP 1 | 希望内容</span><h2 id="booking-title">面談の希望内容を選ぶ</h2>
+          <p class="small">選択した内容は、この画面のメモリ内だけで扱います。通信や保存は行いません。</p>
+          <div class="grid"><div><label for="service">相談メニュー（架空）</label><select id="service"><option value="initial">初回相談（30分）</option><option value="followup">継続相談（60分）</option></select></div><div><label for="date">希望日（架空）</label><select id="date"><option value="2030-03-04">架空の日付A</option><option value="2030-03-05">架空の日付B</option></select></div><div><label for="time">希望開始時間</label><select id="time"><option value="10:00">10:00</option><option value="10:30">10:30</option></select></div><div><label for="channel">面談方法</label><select id="channel"><option value="office">来所</option><option value="online">オンライン</option></select></div></div>
+          <div class="actions"><button id="send" class="primary" type="button">面談の希望を送信（架空）</button><button id="new" type="button" disabled>別の希望を入力</button></div>
+          </section>
+          <section class="card" aria-labelledby="status-title">
+          <span class="indicator">STEP 2 | 受付状態</span><h2 id="status-title">現在の受付状態</h2>
+          <div class="status" role="status" aria-live="polite" id="state"><strong id="state-label">未送信</strong><span id="state-body">まだ面談希望を送信していません。</span><small id="receipt"></small></div>
+          <div class="actions"><button id="unknown" type="button">通信結果不明を再現（架空）</button><button id="retry" type="button" disabled>同じ希望で再送（架空）</button><button id="reauth" type="button" disabled>再本人確認を模擬</button><button id="recover" type="button" disabled>受付結果を復旧（架空）</button></div>
+          <p class="small" id="helper">これは送信・復旧の画面設計を確認するための架空デモです。</p>
+          </section>
+          <section class="card"><h2>この画面で確認できること</h2><p>通信が切れて受付結果が分からない場合は、別の予約を新たに送信しません。同じ希望に対して結果を確認します。表示されるのは<strong>「希望受付」</strong>であり、事務所が承認するまでは予約確定ではありません。</p><p class="foot">未接続：LINE/SMS/メール本人確認、Worker、Supabase、予約DB、本番通知。実際の本人確認・商用利用には別途検証と承認が必要です。</p></section>
+          </main>
+          <script>
+          (() => {
+          'use strict';
+          const $=id=>document.getElementById(id);
+          let phase='idle',storedIntent=null,receiptId=null,identityReady=false,serial=0,requestKey=null;
+          const fields=['service','date','time','channel'];
+          function intent(){return fields.map(id=>$(id).value).join('|');}
+          function redraw(){
+           const locked=phase==='unknown'||phase==='pending';
+           for(const id of fields)$(id).disabled=locked;
+           $('send').disabled=phase!=='idle';
+           $('new').disabled=phase!=='pending';
+           $('retry').disabled=phase!=='unknown';
+           $('reauth').disabled=phase!=='unknown';
+           $('recover').disabled=phase!=='unknown'||!identityReady;
+           $('unknown').disabled=phase==='unknown';
+           const messages={
+           idle:['未送信','まだ面談希望を送信していません。'],
+           pending:['希望受付（未確定）','架空の面談希望を受け付けました。事務所の承認待ちです。予約確定ではありません。'],
+           unknown:['通信結果不明','受付できたか分かりません。新しい予約を送らず、同じ内容で再試行または再確認します。']
+           };
+           const [name,body]=messages[phase]; $('state-label').textContent=name; $('state-body').textContent=body;
+           $('state').className='status '+(phase==='unknown'?'unknown':phase==='pending'?'pending':'');
+           $('receipt').textContent=receiptId?'架空受付番号：'+receiptId+'（実際の予約ではありません）':'';
+           $('helper').textContent=phase==='unknown'?'別の希望への変更は受付状態が判明するまで禁止しています。':phase==='pending'?'希望受付は確定予約ではありません。':'実際のサーバーやLINEには通信しません。';
+          }
+          $('send').addEventListener('click',()=>{if(phase!=='idle')return;storedIntent=intent();requestKey='LOCAL-DEMO-'+(++serial);receiptId='DEMO-'+String(serial).padStart(4,'0');phase='pending';identityReady=false;redraw();});
+          $('unknown').addEventListener('click',()=>{if(phase==='unknown')return;if(phase==='idle'){storedIntent=intent();requestKey='LOCAL-DEMO-'+(++serial);receiptId='DEMO-'+String(serial).padStart(4,'0');}phase='unknown';identityReady=false;redraw();});
+          $('retry').addEventListener('click',()=>{if(phase!=='unknown')return;if(!receiptId||!storedIntent||!requestKey)return;phase='pending';identityReady=false;redraw();});
+          $('reauth').addEventListener('click',()=>{if(phase!=='unknown')return;identityReady=true;redraw();});
+          $('recover').addEventListener('click',()=>{if(phase!=='unknown'||!identityReady)return;phase='pending';identityReady=false;redraw();});
+          $('new').addEventListener('click',()=>{if(phase!=='pending')return;phase='idle';storedIntent=null;requestKey=null;receiptId=null;identityReady=false;redraw();});
+          redraw();
+          })();
+          </script>
+          </body></html>
+          R166_HTML_PREVIEW_END
+          printf "%s  %s\n" "25e5fb8d1431f4a264762c1ff1e7f48f11b7cfe4462ccc8fa7085db85347bcfb" "$RUNNER_TEMP/r166_preview.html" | sha256sum --check --status
+          cat > "$RUNNER_TEMP/r166_static.py" <<'R166_STATIC_PY_END'
+          #!/usr/bin/env python3
+          """R166 source-only checks. Actual GitHub staging repo must be available as current working dir.
+          Reference-only; never serves or deploys the preview."""
+          from pathlib import Path
+          import os,re,hashlib,sys
+          preview=Path(os.environ.get('R166_HTML','R166_BOOKING_UX_PREVIEW_DO_NOT_DEPLOY.html')).read_text(encoding='utf8')
+          app=Path(os.environ.get('R166_APP','R105_STAGING_app.js')).read_text(encoding='utf8')
+          config=Path(os.environ.get('R166_CONFIG','config.js')).read_text(encoding='utf8') if Path(os.environ.get('R166_CONFIG','config.js')).exists() else None
+          passes=[]
+          def ok(name,predicate):
+           if not predicate: raise AssertionError('R166_FAIL: '+name)
+           passes.append(name)
+           print(f'R166_STATIC_PASS_{len(passes):02d}: {name}',flush=True)
+          def safety(s):
+           # Static preview restrictions only. Does not assess deployed Worker or actual identity provider.
+           required=['connect-src \'none\'','form-action \'none\'','default-src \'none\'','架空デモ','実際の予約は受け付けません','未確定','通信結果不明','再本人確認を模擬','aria-live="polite"','role="status"','希望受付（未確定）']
+           forbidden=['fetch(', 'XMLHttpRequest','localStorage','sessionStorage','navigator.sendBeacon','WebSocket','<iframe','<form','src="http','src="//','<img','http-equiv="refresh"']
+           return all(r in s for r in required) and not any(x in s for x in forbidden)
+          ok('source app uses expected public appointment route','/api/public/appointments' in app)
+          ok('source booking does not provide Idempotency-Key yet','Idempotency-Key' not in app)
+          ok('source has public form submission', '$("#booking-form").addEventListener("submit"' in app)
+          ok('source currently uses POST','method: "POST", body: values' in app)
+          ok('source has read-only network guard','TAX_R105_STAGING_READ_ONLY === true' in app)
+          ok('source call has no idempotency argument','/api/public/appointments", { method: "POST", body: values, lineId: lineUserId }' in app)
+          ok('source sets submit busy then clears','setButtonBusy(submit, true' in app and 'setButtonBusy(submit, false)' in app)
+          ok('source resets form on success', 'form.reset(); $("#slot-grid")' in app)
+          ok('source does not persist request key', 'localStorage.setItem("booking_key"' not in app)
+          ok('preview passes offline restrictions',safety(preview))
+          ok('preview has restrictive CSP','Content-Security-Policy' in preview)
+          ok('preview uses responsive viewport', 'width=device-width, initial-scale=1' in preview)
+          ok('preview has mobile-specific styles', '@media(max-width:560px)' in preview)
+          ok('preview has keyboard-accessible native buttons',preview.count('<button ')==6)
+          ok('preview status is polite live announcement','aria-live="polite"' in preview)
+          ok('preview has no user-identifying input','type="email"' not in preview and 'type="tel"' not in preview and '<textarea' not in preview)
+          ok('preview states distinguish pending and confirmed','事務所の承認待ち' in preview and '予約確定ではありません' in preview)
+          ok('preview has no external network calls',not any(w in preview for w in ('fetch(', 'XMLHttpRequest','sendBeacon','WebSocket')))
+          ok('preview prevents unknown-phase new intent',"$('new').disabled=phase!=='pending'" in preview)
+          ok('preview prevents unknown-phase new send',"$('send').disabled=phase!=='idle'" in preview)
+          ok('preview recovery requires mock reauth',"$('recover').disabled=phase!=='unknown'||!identityReady" in preview)
+          ok('preview uses unchanged receipt on retry',"phase='pending';identityReady=false;redraw();" in preview)
+          ok('preview keeps synthetic ID only',"receiptId='DEMO-'" in preview)
+          ok('preview externally isolated origin policy','connect-src \'none\'' in preview and "default-src 'none'" in preview)
+          mutants={
+           'without network CSP':preview.replace("connect-src 'none'; ",''),
+           'without default deny':preview.replace("default-src 'none'; ",''),
+           'without form CSP':preview.replace("form-action 'none'; ",''),
+           'with fetch':preview+'fetch(',
+           'with localStorage':preview+'localStorage',
+           'with XMLHTTPRequest':preview+'XMLHttpRequest',
+           'without warning':preview.replace('架空デモ','offline test'),
+           'without no booking notice':preview.replace('実際の予約は受け付けません','実予約対応済'),
+           'without pending label':preview.replace('希望受付（未確定）','希望受付のみ'),
+           'without recovery requirement':preview.replace('再本人確認を模擬','再本人確認省略'),
+           'without live role':preview.replace('role="status"','role="none"'),
+           'without aria live':preview.replace('aria-live="polite"','aria-live="off"'),
+           'with iframe':preview+'<iframe>',
+           'with external script':preview+'<script src="https://bad.example/test.js"></script>',
+          }
+          for name,mut in mutants.items():ok('mutation blocked: '+name, not safety(mut))
+          print(f'R166_STATIC_SUMMARY {len(passes)} / {len(passes)} PASS: SOURCE_REFERENCE_ONLY_PRODUCTION_HOLD')
+          R166_STATIC_PY_END
+          printf "%s  %s\n" "7038a9df9b0fc2cbadef982226cd10a9a942f27c425ee15cc708b1eeec776615" "$RUNNER_TEMP/r166_static.py" | sha256sum --check --status
+          cat > "$RUNNER_TEMP/r166_vm.cjs" <<'R166_VM_JS_END'
+          'use strict';
+          /* R166 runner-only VM; no production integration and no external connections. */
+          const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+          const html=fs.readFileSync(process.env.R166_HTML||'R166_BOOKING_UX_PREVIEW_DO_NOT_DEPLOY.html','utf8');
+          const match=html.match(/<script>([\s\S]*?)<\/script>/);
+          assert(match,'INLINE_SCRIPT_EXPECTED');
+          const selectors={service:'initial',date:'2030-03-04',time:'10:00',channel:'office'};
+          const ids=['demo-warning','service','date','time','channel','send','new','state','state-label','state-body','receipt','unknown','retry','reauth','recover','helper'];
+          const nodes=new Map();
+          for(const id of ids){nodes.set(id,{value:selectors[id]||'',disabled:false,textContent:'',className:'',handlers:{},addEventListener(t,fn){this.handlers[t]=fn;}})}
+          const document={getElementById:id=>{if(!nodes.has(id))throw new Error('Unexpected selector '+id);return nodes.get(id);}};
+          const globals=Object.freeze({document});vm.runInNewContext(match[1],globals,{timeout:1200});
+          const $=x=>nodes.get(x);const button=x=>{if(!$(x).disabled)$(x).handlers.click?.({type:'click'})};
+          let n=0;function ok(label,b){assert.equal(!!b,true,label);n++;console.log('R166_VM_PASS_'+String(n).padStart(2,'0')+': '+label)}
+          ok('initial idle', $('state-label').textContent==='未送信');
+          ok('initial empty receipt',$('receipt').textContent==='');
+          ok('send enabled',!$('send').disabled);
+          ok('new booking disabled at idle',$('new').disabled);
+          ok('retry disabled at idle',$('retry').disabled);
+          ok('recovery disabled at idle',$('recover').disabled);
+          ok('form editable at idle',ids.slice(1,5).every(id=>!$(id).disabled));
+          button('send');
+          ok('sending yields pending only',$('state-label').textContent==='希望受付（未確定）');
+          ok('pending description explicitly not confirmed',$('state-body').textContent.includes('確定ではありません'));
+          ok('first receipt synthetic',$('receipt').textContent.includes('DEMO-0001'));
+          ok('form locked after acknowledged',$('service').disabled && $('date').disabled && $('time').disabled && $('channel').disabled);
+          ok('send locked after accepted',$('send').disabled);
+          ok('new booking explicitly allowed',$('new').disabled===false);
+          let receipt=$('receipt').textContent;button('send');
+          ok('double send returns same receipt',$('receipt').textContent===receipt);
+          button('unknown');
+          ok('unknown state correctly displayed',$('state-label').textContent==='通信結果不明');
+          ok('unknown form is locked',$('service').disabled && $('time').disabled);
+          ok('unknown cannot send new request',$('send').disabled);
+          ok('unknown cannot clear to new booking',$('new').disabled);
+          ok('unknown allows same-intent retry',!$('retry').disabled);
+          ok('unknown reauth begins disabled recovery',$('recover').disabled);
+          let unknownReceipt=$('receipt').textContent;
+          button('recover');
+          ok('unverified recovery cannot change state',$('state-label').textContent==='通信結果不明');
+          button('reauth');
+          ok('mock reauth permits recovery',!$('recover').disabled);
+          button('recover');
+          ok('recovery returns pending label',$('state-label').textContent==='希望受付（未確定）');
+          ok('recovery does not change receipt',$('receipt').textContent===unknownReceipt);
+          ok('recovery does not say confirmed',$('state-body').textContent.includes('予約確定ではありません'));
+          button('new');
+          ok('explicit new booking clears prior receipt',$('receipt').textContent==='');
+          ok('explicit new booking resets idle',$('state-label').textContent==='未送信');
+          $('service').value='followup';$('date').value='2030-03-05';$('channel').value='online';$('time').value='10:30';
+          button('unknown');
+          ok('new unknown creates synthetic receipt',$('receipt').textContent.includes('DEMO-0002'));
+          ok('unknown from idle locks new parameters',$('service').disabled && $('date').disabled);
+          ok('reauth initially required every unknown',$('recover').disabled);
+          let secondReceipt=$('receipt').textContent;button('retry');
+          ok('retry same unknown yields pending',$('state-label').textContent==='希望受付（未確定）');
+          ok('retry retains same receipt',$('receipt').textContent===secondReceipt);
+          ok('retry never allows confirmed status',$('state-body').textContent.includes('確定ではありません'));
+          ok('recovery button locked again',$('recover').disabled);
+          ok('no external network available',!('fetch' in globals)&&!('XMLHttpRequest' in globals));
+          ok('no persistent browser storage available',!('localStorage' in globals)&&!('sessionStorage' in globals));
+          console.log(`R166_VM_SUMMARY ${n} / ${n} PASS: REFERENCE_ONLY_RELEASE_HOLD`);
+          R166_VM_JS_END
+          printf "%s  %s\n" "7468666917aa622bffebc2b644b1ff8e0d2cde5ac799eef741d3ce895668fd9e" "$RUNNER_TEMP/r166_vm.cjs" | sha256sum --check --status
+          python3 -m py_compile "$RUNNER_TEMP/r166_static.py"
+          node --check "$RUNNER_TEMP/r166_vm.cjs"
+          echo R166_RUNNER_TEMP_SOURCES_HASH_VERIFIED
+      - name: Audit actual staging booking code against offline UX reference
+        shell: bash
+        run: |
+          set -euo pipefail
+          R166_HTML="$RUNNER_TEMP/r166_preview.html" R166_APP=app.js python3 -I "$RUNNER_TEMP/r166_static.py"
+      - name: Exercise exact offline preview state transitions with isolated Node VM
+        shell: bash
+        run: |
+          set -euo pipefail
+          R166_HTML="$RUNNER_TEMP/r166_preview.html" node "$RUNNER_TEMP/r166_vm.cjs"
+          echo 'R166_OFFLINE_BOOKING_UI_SOURCE_AND_VM_PASS: REAL_STACK_NOT_CONNECTED_RELEASE_HOLD'
+      - name: Report no-deployment limitations and unresolved commercial gates
+        if: success()
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'R166_SCOPE_END'
+          ## R166 real staging source + isolated UX contract PASS — COMMERCIAL RELEASE HOLD
+          - Checked hash-pinned original GitHub staging files R151-R165, app.js and config.js (17 files) read-only.
+          - Audited **actual** current public appointment POST in app.js. It still lacks Idempotency-Key and retains R105 read-only guard.
+          - Evaluated a separate self-contained OFFLINE fictional HTML preview; JavaScript state transitions via Node VM and negative static mutations.
+          - The local author additionally tested this preview in Chromium at 1280/390/320 px; GitHub Actions does NOT perform Chromium visual tests.
+          - Pending acknowledgement is never displayed as confirmed; ambiguous result locks changed intent and requires mock reauth before simulated recovery.
+          - No real contact verification, provider integration, JWT, LINE, Cloudflare Worker, Supabase, database, real reservation UI integration or customer data.
+          - The preview and its public test keys/IDs are NOT a product implementation; do not upload or deploy them.
+          - No secret access, branch writes, LINE messages, SQL mutations, Worker deployments, new Worker, or external API calls.
+          - Real customer environment release gates remain 0/18 NOT_TESTED. Commercial release is HOLD until human approval.
+          R166_SCOPE_END
