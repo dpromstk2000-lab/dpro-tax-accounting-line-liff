@@ -1,0 +1,455 @@
+name: DPRO TAX R163 Synthetic Guest Verified-Receipt Booking Capability QA
+
+on:
+  push:
+    branches: [tax-r7-staging-20261010]
+    paths:
+      - '.github/workflows/dpro-tax-r163-guest-capability-loopback-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dpro-tax-r163-synthetic-guest-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  guest-capability-loopback-qa:
+    if: ${{ github.repository == 'dpromstk2000-lab/dpro-tax-accounting-line-liff' && github.ref == 'refs/heads/tax-r7-staging-20261010' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout only this staging revision without persisted credentials
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Enforce staging-only source integrity, no production secrets or writes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'dpromstk2000-lab/dpro-tax-accounting-line-liff'
+          test "$GITHUB_REF" = 'refs/heads/tax-r7-staging-20261010'
+          test "$GITHUB_EVENT_NAME" = push -o "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}" || { echo 'R163_FORBIDDEN_PRIVILEGED_SECRET'; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r151-staging-boundary-qa.yml)" = "bd6a075f06f0692ff868067416afb5781faad6c1" || { echo "R163_PINNED_SOURCE_DRIFT .github/workflows/dpro-tax-r151-staging-boundary-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r152-disposable-postgres-booking-qa.yml)" = "8c3ed43f0f1fdc3217382f47b43c5f68763f1f37" || { echo "R163_PINNED_SOURCE_DRIFT .github/workflows/dpro-tax-r152-disposable-postgres-booking-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r153-disposable-direct-dml-qa.yml)" = "d931f63a70a560b7f447fbcef1e6fd25868fb06d" || { echo "R163_PINNED_SOURCE_DRIFT .github/workflows/dpro-tax-r153-disposable-direct-dml-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r154-disposable-auth-role-boundary-qa.yml)" = "3d5964f33675a636bf1f35e90c98d59aaaafd437" || { echo "R163_PINNED_SOURCE_DRIFT .github/workflows/dpro-tax-r154-disposable-auth-role-boundary-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r155-synthetic-trust-boundary-qa.yml)" = "e21797ce5271a949c337b6bcf85d3d1339ce4ffd" || { echo "R163_PINNED_SOURCE_DRIFT .github/workflows/dpro-tax-r155-synthetic-trust-boundary-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r156-disposable-rls-replay-qa.yml)" = "ff6442c6b4d2d0c409b906625a3322cdb16ab47e" || { echo "R163_PINNED_SOURCE_DRIFT .github/workflows/dpro-tax-r156-disposable-rls-replay-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r157-loopback-http-gateway-qa.yml)" = "c6cf3510194b6f3af3474554966f57905fce7224" || { echo "R163_PINNED_SOURCE_DRIFT .github/workflows/dpro-tax-r157-loopback-http-gateway-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r158-public-demo-source-integrity-qa.yml)" = "7590c8417fa940b73ccaf4e65534176e1d643f32" || { echo "R163_PINNED_SOURCE_DRIFT .github/workflows/dpro-tax-r158-public-demo-source-integrity-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r159-release-evidence-contract-qa.yml)" = "b631da2cf67eb198160a0ffd8b88596b020d51e9" || { echo "R163_PINNED_SOURCE_DRIFT .github/workflows/dpro-tax-r159-release-evidence-contract-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r160-staging-commercial-gap-qa.yml)" = "5f359b6ec11b1e119a180302e64c19e68885a637" || { echo "R163_PINNED_SOURCE_DRIFT .github/workflows/dpro-tax-r160-staging-commercial-gap-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r161-disposable-booking-atomicity-qa.yml)" = "7ae80a66d01c45e5bb2a8debfc5d0a4b0be5a838" || { echo "R163_PINNED_SOURCE_DRIFT .github/workflows/dpro-tax-r161-disposable-booking-atomicity-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r162-booking-bridge-contract-qa.yml)" = "ebc86c4e716f79b159cadac3b3b5e115934114f1" || { echo "R163_PINNED_SOURCE_DRIFT .github/workflows/dpro-tax-r162-booking-bridge-contract-qa.yml"; exit 1; }
+          test "$(git hash-object app.js)" = "4c3475219e5c7fc9203ec5e5143d4f6eb8299423" || { echo "R163_PINNED_SOURCE_DRIFT app.js"; exit 1; }
+          test "$(git hash-object config.js)" = "da1876bae8333a3a10ee13495c0063ded0c2b351" || { echo "R163_PINNED_SOURCE_DRIFT config.js"; exit 1; }
+          test -z "$(git status --porcelain)" || { echo R163_DIRTY_CHECKOUT; exit 1; }
+          echo R163_UPSTREAM_R151_R162_LOCKED_STAGING_ONLY
+      - name: Run synthetic receipt guest capability and SQLite HTTP negative tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/r163_reference.py" <<'PY_R163_SYNTHETIC_ONLY'
+          """DPRO TAX R163: disposable synthetic guest booking capability reference.
+          NO REAL VERIFICATION, NO PRODUCTION INTEGRATION, NO NETWORK EXCEPT LOOPBACK.
+          The synthetic verifier signer is NOT an email/SMS/LINE attestation provider.
+          """
+          import base64
+          import binascii
+          import hashlib
+          import hmac
+          import http.server
+          import json
+          import os
+          import re
+          import sqlite3
+          import tempfile
+          import threading
+          import time
+          import urllib.error
+          import urllib.request
+          import uuid
+          from concurrent.futures import ThreadPoolExecutor
+          from datetime import datetime, timedelta
+          from zoneinfo import ZoneInfo
+          
+          TOKYO = ZoneInfo('Asia/Tokyo')
+          GUEST_SECRET = b'R163_FAKE_GUEST_SIGNING_KEY_NOT_A_DEPLOYMENT_SECRET'
+          RECEIPT_SECRET = b'R163_FAKE_TRUSTED_VERIFIER_KEY_NOT_FOR_PRODUCTION'
+          ISSUER = 'r163-synthetic-capability-only'
+          AUDIENCE = 'r163-booking-pending-only'
+          VERIFIER_ISSUER = 'synthetic-verifier-simulator-NOT-SMS-OR-LINE'
+          ORIGINS = {'a': 'https://demo-a.invalid', 'b': 'https://demo-b.invalid'}
+          SERVICES = {'a': {'consult_30': 30, 'consult_60': 60}, 'b': {'consult_30': 30}}
+          KEY_RE = re.compile(r'^[A-Za-z0-9_-]{16,64}$')
+          TIME_RE = re.compile(r'^\d{4}-\d\d-\d\dT\d\d:\d\d:00\+09:00$')
+          
+          class Denied(Exception):
+              def __init__(self, status=403, code='DENIED'):
+                  self.status, self.code = status, code
+                  super().__init__(code)
+          
+          def strict_json(raw):
+              def unique(pairs):
+                  d = {}
+                  for k, v in pairs:
+                      if k in d: raise ValueError('duplicate JSON key')
+                      d[k] = v
+                  return d
+              obj = json.loads(raw, object_pairs_hook=unique, parse_constant=lambda _: (_ for _ in ()).throw(ValueError('bad constant')))
+              if not isinstance(obj, dict): raise ValueError('not an object')
+              return obj
+          
+          def canonical(o):
+              return json.dumps(o, sort_keys=True, separators=(',', ':'), ensure_ascii=True).encode()
+          
+          def encoded(b):
+              return base64.urlsafe_b64encode(b).decode().rstrip('=')
+          
+          def decoded(s):
+              if not isinstance(s, str) or not re.fullmatch(r'[A-Za-z0-9_-]+', s): raise Denied(401,'TOKEN_FORMAT')
+              try: b = base64.urlsafe_b64decode(s + '=' * (-len(s) % 4))
+              except (binascii.Error, ValueError) as ex: raise Denied(401,'TOKEN_BASE64') from ex
+              if encoded(b) != s: raise Denied(401,'TOKEN_NONCANONICAL')
+              return b
+          
+          def hmac_sha(secret, message):
+              return hmac.new(secret, message, hashlib.sha256).digest()
+          
+          def token_sign(payload, secret=GUEST_SECRET):
+              header = {'alg': 'HS256', 'typ': 'JWT', 'kid': 'r163-synthetic-only'}
+              content = encoded(canonical(header)) + '.' + encoded(canonical(payload))
+              return content + '.' + encoded(hmac_sha(secret, content.encode()))
+          
+          def token_decode(token):
+              if not isinstance(token,str) or len(token)>3000 or token.count('.')!=2: raise Denied(401,'TOKEN_FORMAT')
+              h,p,s = token.split('.')
+              try:
+                  header = strict_json(decoded(h)); payload = strict_json(decoded(p))
+              except (ValueError, UnicodeError, json.JSONDecodeError) as e: raise Denied(401,'TOKEN_JSON') from e
+              if header != {'alg':'HS256','typ':'JWT','kid':'r163-synthetic-only'}: raise Denied(401,'TOKEN_ALGORITHM')
+              if not hmac.compare_digest(hmac_sha(GUEST_SECRET,(h+'.'+p).encode()),decoded(s)):
+                  raise Denied(401,'TOKEN_SIGNATURE')
+              return payload
+          
+          def sign_receipt(p):
+              return {'payload':p,'proof':encoded(hmac_sha(RECEIPT_SECRET,canonical(p)))}
+          
+          class BookingDB:
+              def __init__(self):
+                  self.tmp = tempfile.TemporaryDirectory(prefix='r163-synthetic-only-')
+                  self.file = os.path.join(self.tmp.name,'guest.sqlite3')
+                  with self.connect() as conn:
+                      conn.executescript('''
+                      CREATE TABLE receipts(receipt_jti TEXT PRIMARY KEY);
+                      CREATE TABLE capabilities(jti TEXT PRIMARY KEY, guest TEXT NOT NULL, office TEXT NOT NULL,
+                          service TEXT NOT NULL, expires INTEGER NOT NULL, revoked INTEGER NOT NULL DEFAULT 0,
+                          idem_key TEXT, fingerprint TEXT, booking_id TEXT);
+                      CREATE TABLE bookings(id TEXT PRIMARY KEY, jti TEXT NOT NULL UNIQUE,
+                          office TEXT NOT NULL, service TEXT NOT NULL, start TEXT NOT NULL,
+                          status TEXT NOT NULL CHECK(status='pending'));
+                      ''')
+              def connect(self):
+                  c = sqlite3.connect(self.file, timeout=15, isolation_level=None)
+                  c.execute('PRAGMA busy_timeout=15000')
+                  return c
+              def close(self):
+                  self.tmp.cleanup()
+              def issue(self, receipt):
+                  """Trusted-process adapter only; NOT an HTTP route or a real verification provider."""
+                  if not isinstance(receipt,dict) or set(receipt)!={'payload','proof'}: raise Denied(403,'RECEIPT_FORMAT')
+                  p = receipt['payload']
+                  if not isinstance(p,dict) or set(p)!={'iss','aud','jti','guest','office','service','verified','verified_at'}:
+                      raise Denied(403,'RECEIPT_FORMAT')
+                  if not isinstance(receipt['proof'],str) or not hmac.compare_digest(
+                      hmac_sha(RECEIPT_SECRET,canonical(p)),decoded(receipt['proof'])):
+                      raise Denied(403,'RECEIPT_SIGNATURE')
+                  now = int(time.time())
+                  if p['iss'] != VERIFIER_ISSUER or p['aud']!='r163-server-trusted-adapter': raise Denied(403,'RECEIPT_TRUST')
+                  if p['verified'] is not True or type(p['verified_at']) is not int or not now-120 <= p['verified_at'] <= now+5:
+                      raise Denied(403,'RECEIPT_EXPIRED')
+                  if not all(isinstance(p[k],str) and re.fullmatch(r'[a-zA-Z0-9_-]{4,80}',p[k]) for k in ['jti','guest']):
+                      raise Denied(403,'RECEIPT_IDENTITY')
+                  if p['office'] not in SERVICES or p['service'] not in SERVICES[p['office']]:
+                      raise Denied(403,'RECEIPT_SCOPE')
+                  jti=str(uuid.uuid4())
+                  expiry=now+300
+                  c=self.connect()
+                  try:
+                      c.execute('BEGIN IMMEDIATE')
+                      c.execute('INSERT INTO receipts(receipt_jti) VALUES(?)',(p['jti'],))
+                      c.execute('INSERT INTO capabilities(jti,guest,office,service,expires) VALUES(?,?,?,?,?)',
+                               (jti,p['guest'],p['office'],p['service'],expiry))
+                      c.commit()
+                  except sqlite3.IntegrityError:
+                      c.rollback(); raise Denied(409,'RECEIPT_REPLAY')
+                  finally: c.close()
+                  payload={'iss':ISSUER,'aud':AUDIENCE,'sub':p['guest'],'office':p['office'],
+                           'service':p['service'],'jti':jti,'iat':now,'nbf':now,'exp':expiry}
+                  return token_sign(payload)
+              def revoke(self, token):
+                  payload=token_decode(token)
+                  with self.connect() as c: c.execute('UPDATE capabilities SET revoked=1 WHERE jti=?',(payload['jti'],))
+              def post_booking(self, token, office, idem, data):
+                  p=token_decode(token)
+                  now=int(time.time())
+                  if set(p)!={'iss','aud','sub','office','service','jti','iat','nbf','exp'}: raise Denied(401,'TOKEN_FIELDS')
+                  if p['iss']!=ISSUER or p['aud']!=AUDIENCE: raise Denied(401,'TOKEN_AUDIENCE')
+                  if any(type(p[k]) is not int for k in ['iat','nbf','exp']): raise Denied(401,'TOKEN_TIME')
+                  if p['iat']>now+5 or p['nbf']>now or p['exp']<=now or p['exp']-p['iat']>300:
+                      raise Denied(401,'TOKEN_EXPIRED')
+                  if office not in SERVICES or p['office']!=office: raise Denied(403,'OFFICE_SCOPE')
+                  if not isinstance(idem,str) or not KEY_RE.fullmatch(idem): raise Denied(400,'IDEMPOTENCY_KEY')
+                  if not isinstance(data,dict) or set(data)!={'service_id','requested_start'}: raise Denied(400,'BOOKING_BODY')
+                  if data['service_id']!=p['service'] or data['service_id'] not in SERVICES[office]:
+                      raise Denied(403,'SERVICE_SCOPE')
+                  start=data['requested_start']
+                  if not isinstance(start,str) or not TIME_RE.fullmatch(start): raise Denied(400,'START_FORMAT')
+                  try: dt=datetime.fromisoformat(start)
+                  except ValueError: raise Denied(400,'START_FORMAT')
+                  now_dt=datetime.now(TOKYO)
+                  if dt <= now_dt or dt > now_dt+timedelta(days=90) or dt.minute not in (0,30) or dt.second:
+                      raise Denied(400,'START_POLICY')
+                  if dt.weekday()>=5 or dt.hour<9 or dt.hour>=17:
+                      raise Denied(400,'OFFICE_CLOSED')
+                  # A reference for a 30- or 60-minute service, not a real business calendar.
+                  if dt.hour * 60+dt.minute+SERVICES[office][p['service']] > 17*60:
+                      raise Denied(400,'OFFICE_CLOSED')
+                  fingerprint=hashlib.sha256(canonical({'office':office,'service':p['service'],'start':start})).hexdigest()
+                  c=self.connect()
+                  try:
+                      c.execute('BEGIN IMMEDIATE')
+                      x=c.execute('SELECT guest,office,service,expires,revoked,idem_key,fingerprint,booking_id FROM capabilities WHERE jti=?',(p['jti'],)).fetchone()
+                      if x is None or x[:3]!=(p['sub'],office,p['service']) or x[3]!=p['exp'] or x[4]!=0:
+                          raise Denied(401,'CAPABILITY_INVALID')
+                      if x[5] is not None:
+                          if x[5]!=idem or x[6]!=fingerprint: raise Denied(409,'REPLAY_CONFLICT')
+                          c.commit()
+                          return 200, {'ok':True,'status':'pending','booking_id':x[7],'deduplicated':True}
+                      booking_id=str(uuid.uuid4())
+                      c.execute('INSERT INTO bookings(id,jti,office,service,start,status) VALUES(?,?,?,?,?,?)',
+                                (booking_id,p['jti'],office,p['service'],start,'pending'))
+                      c.execute('UPDATE capabilities SET idem_key=?,fingerprint=?,booking_id=? WHERE jti=?',
+                                (idem,fingerprint,booking_id,p['jti']))
+                      c.commit()
+                      return 201, {'ok':True,'status':'pending','booking_id':booking_id,'deduplicated':False}
+                  except Exception:
+                      c.rollback(); raise
+                  finally: c.close()
+          
+          class ServerHandler(http.server.BaseHTTPRequestHandler):
+              def log_message(self, *args): pass
+              def send_json(self, status, obj, origin=None):
+                  data=canonical(obj)
+                  self.send_response(status)
+                  self.send_header('Content-Type','application/json; charset=utf-8')
+                  self.send_header('Content-Length',str(len(data)))
+                  self.send_header('Cache-Control','no-store')
+                  self.send_header('X-Content-Type-Options','nosniff')
+                  self.send_header('Referrer-Policy','no-referrer')
+                  if origin: self.send_header('Access-Control-Allow-Origin',origin); self.send_header('Vary','Origin')
+                  self.end_headers(); self.wfile.write(data)
+              def do_POST(self):
+                  m=re.fullmatch(r'/offices/(a|b)/guest-booking',self.path)
+                  if not m:
+                      self.send_json(404,{'ok':False,'error':'NOT_FOUND'}); return
+                  office=m.group(1)
+                  origin=self.headers.get('Origin','')
+                  if origin!=ORIGINS[office]:
+                      self.send_json(403,{'ok':False,'error':'ORIGIN_DENIED'}); return
+                  if self.headers.get('Content-Type')!='application/json':
+                      self.send_json(415,{'ok':False,'error':'CONTENT_TYPE'},origin);return
+                  size=self.headers.get('Content-Length','')
+                  if not size.isascii() or not size.isdecimal() or int(size)>4096 or int(size)<2:
+                      self.send_json(413,{'ok':False,'error':'REQUEST_SIZE'},origin);return
+                  body=self.rfile.read(int(size))
+                  try: doc=strict_json(body)
+                  except (ValueError,UnicodeError):
+                      self.send_json(400,{'ok':False,'error':'INVALID_JSON'},origin);return
+                  auth=self.headers.get('Authorization','')
+                  if not auth.startswith('Guest ') or len(auth)<=6:
+                      self.send_json(401,{'ok':False,'error':'GUEST_CAPABILITY_REQUIRED'},origin);return
+                  try:
+                      status,payload=self.server.db.post_booking(auth[6:],office,self.headers.get('Idempotency-Key'),doc)
+                      self.send_json(status,payload,origin)
+                  except Denied as ex:
+                      self.send_json(ex.status,{'ok':False,'error':ex.code},origin)
+                  except Exception:
+                      # Never emit SQL/tracebacks or credentials to the caller.
+                      self.send_json(503,{'ok':False,'error':'BOOKING_UNAVAILABLE'},origin)
+              def do_GET(self):
+                  if self.path=='/health':self.send_json(200,{'ok':True,'mode':'synthetic_only','release':'HOLD'})
+                  else:self.send_json(404,{'ok':False,'error':'NOT_FOUND'})
+              def do_PATCH(self):self.send_json(405,{'ok':False,'error':'METHOD_DENIED'})
+              def do_DELETE(self):self.send_json(405,{'ok':False,'error':'METHOD_DENIED'})
+              def do_OPTIONS(self):self.send_json(405,{'ok':False,'error':'METHOD_DENIED'})
+          
+          class ThreadServer(http.server.ThreadingHTTPServer):
+              daemon_threads=True
+              allow_reuse_address=True
+          
+          TESTS=[]
+          def check(name, fn):
+              outcome=fn()
+              if outcome is not True: raise AssertionError(f'R163_CHECK_FAILED: {name} / {outcome!r}')
+              TESTS.append(name)
+              print(f'R163_PASS_{len(TESTS):02d}: {name}',flush=True)
+          
+          def expect_denied(fn, status):
+              try: fn()
+              except Denied as d:return d.status==status
+              return False
+          
+          def main():
+              db=BookingDB()
+              server=ThreadServer(('127.0.0.1',0),ServerHandler)
+              server.db=db
+              runner=threading.Thread(target=server.serve_forever,daemon=True); runner.start()
+              url=f'http://127.0.0.1:{server.server_port}'
+              now=int(time.time())
+              serial=0
+              def receipt(office='a',service='consult_30',guest='fake-guest-0001',verified=True,age=0,**kw):
+                  nonlocal serial
+                  serial+=1
+                  p=dict(iss=VERIFIER_ISSUER,aud='r163-server-trusted-adapter',jti=f'fake-receipt-{serial:06d}',
+                         guest=guest,office=office,service=service,verified=verified,verified_at=int(time.time())-age)
+                  p.update(kw)
+                  return sign_receipt(p)
+              def issue(**args):return db.issue(receipt(**args))
+              def call(path='/offices/a/guest-booking', token=None, office='a', key='R163_synthetic_key_1234',
+                       body=None, origin=None,ctype='application/json',raw=None, method='POST',extra=None):
+                  if body is None:body={'service_id':'consult_30','requested_start':slot()}
+                  data=canonical(body) if raw is None else raw
+                  hdr={'Content-Type':ctype,'Origin':origin if origin is not None else ORIGINS[office],
+                       'Idempotency-Key':key}
+                  if token:hdr['Authorization']='Guest '+token
+                  if extra:hdr.update(extra)
+                  req=urllib.request.Request(url+path, data=data if method=='POST' else None,headers=hdr,method=method)
+                  try:
+                      with urllib.request.urlopen(req,timeout=10) as resp:
+                          return resp.status,strict_json(resp.read()),dict(resp.headers)
+                  except urllib.error.HTTPError as e:
+                      return e.code,strict_json(e.read()),dict(e.headers)
+              def slot(days=5,hour=10):
+                  d=datetime.now(TOKYO)+timedelta(days=days)
+                  while d.weekday()>=5:d+=timedelta(days=1)
+                  return d.replace(hour=hour,minute=0,second=0,microsecond=0).isoformat(timespec='seconds')
+              try:
+                  valid=issue()
+                  check('valid verifier-signed receipt mints synthetic capability',lambda:len(valid.split('.'))==3)
+                  check('HTTP cannot mint guest capability',lambda:call('/guest/issue',method='POST')[0]==404)
+                  check('unverified provider event rejected',lambda:expect_denied(lambda:db.issue(receipt(verified=False)),403))
+                  x=receipt(); x['payload']['guest']='attacker-guest'
+                  check('tampered verifier receipt rejected',lambda:expect_denied(lambda:db.issue(x),403))
+                  check('expired trusted receipt rejected',lambda:expect_denied(lambda:db.issue(receipt(age=300)),403))
+                  check('wrong verifier issuer rejected',lambda:expect_denied(lambda:db.issue(receipt(iss='attacker')),403))
+                  check('wrong verifier audience rejected',lambda:expect_denied(lambda:db.issue(receipt(aud='other')),403))
+                  check('unknown tenant in verification rejected',lambda:expect_denied(lambda:db.issue(receipt(office='z')),403))
+                  check('invalid verified service rejected',lambda:expect_denied(lambda:db.issue(receipt(service='private')),403))
+                  used_receipt=receipt(); db.issue(used_receipt)
+                  check('trusted verifier proof cannot mint twice',lambda:expect_denied(lambda:db.issue(used_receipt),409))
+                  check('unknown guest identity refused',lambda:expect_denied(lambda:db.issue(receipt(guest='')),403))
+                  check('health indicates synthetic HOLD only',lambda: (lambda x:x[0]==200 and x[1]['release']=='HOLD')(call('/health',method='GET')))
+                  check('unauthenticated booking rejected',lambda:call(token=None)[0]==401)
+                  check('malformed guest token rejected',lambda:call(token='not.a.jwt')[0]==401)
+                  check('wrong token signature rejected',lambda:call(token=token_sign(token_decode(valid),b'wrong-key'))[0]==401)
+                  none_header=encoded(canonical({'alg':'none','typ':'JWT','kid':'r163-synthetic-only'}))
+                  check('JWT alg none rejected',lambda:call(token=none_header+'.'+valid.split('.')[1]+'.'+valid.split('.')[2])[0]==401)
+                  def modified(token,**changes):
+                      p=token_decode(token);p.update(changes);return token_sign(p)
+                  check('token expired rejected',lambda:call(token=modified(valid,exp=now-1))[0]==401)
+                  check('token future not-before rejected',lambda:call(token=modified(valid,nbf=now+100))[0]==401)
+                  check('token wrong issuer rejected',lambda:call(token=modified(valid,iss='forged'))[0]==401)
+                  check('token wrong audience rejected',lambda:call(token=modified(valid,aud='forged'))[0]==401)
+                  check('token future issued-at rejected',lambda:call(token=modified(valid,iat=now+60))[0]==401)
+                  check('overlong capability lifetime rejected',lambda:call(token=modified(valid,exp=now+900))[0]==401)
+                  check('unknown but validly signed jti denied by DB',lambda:call(token=modified(valid,jti=str(uuid.uuid4())))[0]==401)
+                  check('client forged subject denied by server DB binding',lambda:call(token=modified(valid,sub='fake-guest-hacker'))[0]==401)
+                  check('cross-office path rejected',lambda:call(path='/offices/b/guest-booking',token=valid,office='b')[0]==403)
+                  revoked=issue(guest='fake-guest-revoked');db.revoke(revoked)
+                  check('revoked capability refused',lambda:call(token=revoked)[0]==401)
+                  check('cross-origin attempt rejected',lambda:call(token=valid,origin='https://evil.invalid')[0]==403)
+                  check('missing Origin rejected',lambda:call(token=valid,origin=' ')[0]==403)
+                  check('wrong content type rejected',lambda:call(token=valid,ctype='text/plain')[0]==415)
+                  check('malformed JSON body rejected',lambda:call(token=valid,raw=b'{broken')[0]==400)
+                  check('duplicate JSON keys rejected',lambda:call(token=valid,raw=b'{"service_id":"consult_30","service_id":"consult_60"}')[0]==400)
+                  check('JSON array body rejected',lambda:call(token=valid,raw=b'[1,2]')[0]==400)
+                  check('tenant ID injection forbidden',lambda:call(token=valid,body={**{'service_id':'consult_30','requested_start':slot()},'office':'b'})[0]==400)
+                  check('role escalation in body forbidden',lambda:call(token=valid,body={'service_id':'consult_30','requested_start':slot(),'role':'staff'})[0]==400)
+                  check('guest subject injection forbidden',lambda:call(token=valid,body={'service_id':'consult_30','requested_start':slot(),'guest':'attacker'})[0]==400)
+                  check('unknown service denied',lambda:call(token=valid,body={'service_id':'unknown','requested_start':slot()})[0]==403)
+                  check('cross service denied',lambda:call(token=valid,body={'service_id':'consult_60','requested_start':slot()})[0]==403)
+                  check('invalid date rejected',lambda:call(token=valid,body={'service_id':'consult_30','requested_start':'2026-02-30T10:00:00+09:00'})[0]==400)
+                  check('UTC date rejected for office-local contract',lambda:call(token=valid,body={'service_id':'consult_30','requested_start':slot().replace('+09:00','Z')})[0]==400)
+                  check('past slot rejected',lambda:call(token=valid,body={'service_id':'consult_30','requested_start':'2020-01-06T10:00:00+09:00'})[0]==400)
+                  check('off-grid 15-minute slot rejected',lambda:call(token=valid,body={'service_id':'consult_30','requested_start':slot().replace('10:00','10:15')})[0]==400)
+                  check('outside office hours rejected',lambda:call(token=valid,body={'service_id':'consult_30','requested_start':slot(hour=18)})[0]==400)
+                  check('over 90 days forward rejected',lambda:call(token=valid,body={'service_id':'consult_30','requested_start':slot(days=100)})[0]==400)
+                  check('missing idempotency key rejected',lambda:call(token=valid,key='')[0]==400)
+                  check('short idempotency key rejected',lambda:call(token=valid,key='short')[0]==400)
+                  check('idempotency header whitespace rejected',lambda:call(token=valid,key='R163_invalid whitespace_key')[0]==400)
+                  p1=call(token=valid)
+                  check('first guest request creates pending booking',lambda:p1[0]==201 and p1[1]['status']=='pending')
+                  p2=call(token=valid)
+                  check('identical retry yields same booking id',lambda:p2[0]==200 and p1[1]['booking_id']==p2[1]['booking_id'] and p2[1]['deduplicated'])
+                  check('changed body same key conflicts',lambda:call(token=valid,body={'service_id':'consult_30','requested_start':slot(hour=11)})[0]==409)
+                  check('changed idempotency key on used capability conflicts',lambda:call(token=valid,key='R163_different_key_999')[0]==409)
+                  check('token cannot book in second office',lambda:call(path='/offices/b/guest-booking',office='b',token=valid)[0]==403)
+                  new=issue(guest='fake-guest-next')
+                  check('separate verified guest can use same request key',lambda:call(token=new)[0]==201)
+                  check('response has no identity token or contact',lambda:all(x not in canonical(p1[1]).decode() for x in ['fake-guest','Guest ','guest','office','token','secret']))
+                  check('success responses prevent caching and MIME sniffing',lambda:p1[2].get('Cache-Control')=='no-store' and p1[2].get('X-Content-Type-Options')=='nosniff')
+                  check('no wildcard CORS',lambda:p1[2].get('Access-Control-Allow-Origin')==ORIGINS['a'])
+                  check('guest cannot directly confirm booking',lambda:call('/offices/a/confirm',token=valid)[0]==404)
+                  check('guest cannot PATCH booking',lambda:call('/offices/a/guest-booking',token=valid,method='PATCH')[0]==405)
+                  check('guest cannot DELETE booking',lambda:call('/offices/a/guest-booking',token=valid,method='DELETE')[0]==405)
+                  racing=issue(guest='fake-guest-race')
+                  def race(_):return call(token=racing,key='R163_8_thread_duplicate',body={'service_id':'consult_30','requested_start':slot(hour=11)})
+                  with ThreadPoolExecutor(max_workers=8) as pool: outs=list(pool.map(race,range(8)))
+                  check('eight concurrent HTTP retries all return valid successful responses',lambda:len(outs)==8 and sorted(x[0] for x in outs)==[200]*7+[201])
+                  check('eight concurrent HTTP retries share one persisted booking',lambda:len({x[1].get('booking_id') for x in outs})==1)
+                  with db.connect() as conn:
+                      num=conn.execute('SELECT count(*) FROM bookings WHERE jti=?',(token_decode(racing)['jti'],)).fetchone()[0]
+                  check('cross-session database unique reservation persisted',lambda:num==1)
+                  check('payload change following concurrency fails closed',lambda:call(token=racing,key='R163_8_thread_duplicate',body={'service_id':'consult_30','requested_start':slot(hour=12)})[0]==409)
+                  with db.connect() as conn: count=conn.execute('SELECT COUNT(*) FROM bookings WHERE status="pending"').fetchone()[0]
+                  check('database never claims confirmed booking',lambda:count==3)
+                  check('synthetic guest capability is never production-ready',lambda:ISSUER.startswith('r163-synthetic') and all('.invalid' in x for x in ORIGINS.values()))
+                  print(f'R163_SUMMARY {len(TESTS)} / {len(TESTS)} PASS',flush=True)
+                  print('R163_GUEST_PROOF_CAPABILITY_LOOPBACK_QA_PASS: VERIFIED_CONTACT_ADAPTER_NOT_IMPLEMENTED_PRODUCTION_HOLD',flush=True)
+              finally:
+                  server.shutdown(); server.server_close();runner.join(timeout=5);db.close()
+          
+          if __name__=='__main__':main()
+          PY_R163_SYNTHETIC_ONLY
+          printf '%s  %s\n' 'b0d824de13ab7e5312e452c509bdf05204d327093bb4e5ac3ca3078c97553d25' "$RUNNER_TEMP/r163_reference.py" | sha256sum --check --status
+          python3 -m py_compile "$RUNNER_TEMP/r163_reference.py"
+          for attempt in 1 2 3; do
+            echo "R163_REPETITION_${attempt}_START"
+            env -u SUPABASE_SERVICE_ROLE_KEY -u LINE_CHANNEL_SECRET -u CLOUDFLARE_API_TOKEN \
+              python3 -I "$RUNNER_TEMP/r163_reference.py" > "$RUNNER_TEMP/r163_${attempt}.log" 2>&1
+            cat "$RUNNER_TEMP/r163_${attempt}.log"
+            grep -Fxq 'R163_SUMMARY 64 / 64 PASS' "$RUNNER_TEMP/r163_${attempt}.log"
+            grep -Fxq 'R163_GUEST_PROOF_CAPABILITY_LOOPBACK_QA_PASS: VERIFIED_CONTACT_ADAPTER_NOT_IMPLEMENTED_PRODUCTION_HOLD' "$RUNNER_TEMP/r163_${attempt}.log"
+            test "$(grep -Ec '^R163_PASS_[0-9]{2}:' "$RUNNER_TEMP/r163_${attempt}.log")" = 64
+          done
+          echo 'R163_THREE_REPETITIONS_192_TESTS_PASS: RELEASE_HOLD'
+      - name: Record truthful production exclusions
+        if: success()
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF_R163_SUMMARY'
+          ## R163 synthetic guest verified-receipt booking reference — COMMERCIAL RELEASE HOLD
+          - 64 local synthetic cases, 3 independent repetitions (192 pass events) on ephemeral loopback HTTP and SQLite.
+          - Exercises fake server-side verifier receipt, short-lived one-time office/service capability, tamper/expiry/issuer/audience, tenant isolation, duplicate JSON, timezone/30-minute rules, idempotency and eight concurrent retries.
+          - **Not a real identity proof:** there is NO email/SMS/LINE provider, anti-bot service, Turnstile, shared Supabase, production Worker, rate limit, booking-resource lock or production database migration.
+          - Test signing secrets are public synthetic literals in source and must NEVER be deployed, copied into Worker secrets or used for real users.
+          - Origin is not authentication; bearer token theft is a remaining real-world risk; external verification, abuse-control, consent, session/key rotation, audit and rate limits must be designed independently.
+          - Only 'pending' requests, no confirmed appointments, no LINE dispatch or customer data.
+          - Protects R151-R162, app/config by pinned hashes, no branch write, no real API calls or production changes.
+          - Actual release evidence gates remain 0/18 reviewed. Production release **HOLD** until explicit approval.
+          EOF_R163_SUMMARY
