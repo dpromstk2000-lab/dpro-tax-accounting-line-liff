@@ -1,0 +1,108 @@
+name: DPRO TAX R151 Staging Boundary QA (Read Only)
+
+on:
+  push:
+    branches: [tax-r7-staging-20261010]
+    paths:
+      - 'app.js'
+      - 'config.js'
+      - 'staff-auth-staging.js'
+      - 'staff-auth-staging.html'
+      - '01_R101_STAGE_MONTHLY_FINALIZE_DO_NOT_DEPLOY.sql'
+      - '06_R101_AUTHENTICATED_ROLE_QA_DO_NOT_RUN.sql'
+      - '.github/workflows/dpro-tax-r151-staging-boundary-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dpro-tax-r151-staging-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  r151-readonly-source-boundary:
+    if: ${{ github.repository == 'dpromstk2000-lab/dpro-tax-accounting-line-liff' && github.ref == 'refs/heads/tax-r7-staging-20261010' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout staging source read-only
+        uses: actions/checkout@v4
+        with:
+          ref: tax-r7-staging-20261010
+          persist-credentials: false
+      - name: JavaScript syntax gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check app.js
+          node --check config.js
+          node --check staff-auth-staging.js
+          echo R151_JAVASCRIPT_SYNTAX_PASS
+      - name: Pinned staging hash, disabled commercial features, no-secrets check
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, re, subprocess, sys
+          expected={
+            'app.js':'4c3475219e5c7fc9203ec5e5143d4f6eb8299423',
+            'config.js':'da1876bae8333a3a10ee13495c0063ded0c2b351',
+            'staff-auth-staging.js':'78120236aea54ddf0473ffad14af64ce058bf004',
+            'staff-auth-staging.html':'c9241fa5b610c3dfce6704e10a64a604a850b960',
+            '01_R101_STAGE_MONTHLY_FINALIZE_DO_NOT_DEPLOY.sql':'c393a59d26450765cd563754f4c2dbfc0580cfc8',
+            '06_R101_AUTHENTICATED_ROLE_QA_DO_NOT_RUN.sql':'6cb7f793be0f650706face4865f112a51e40f9d3',
+            '.github/workflows/dpro-tax-r118-isolated-browser-e2e.yml':'339c743bd04cf87a2d8b69de4abb5e2779cd00e3',
+            '.github/workflows/dpro-tax-r120-isolated-browser-evidence.yml':'907cae2cbd505e7546f4bf52e629bba33cb9fb5d',
+          }
+          checks=[]
+          def chk(name,yes):
+              checks.append((name,bool(yes)))
+              print(('PASS ' if yes else 'FAIL ')+name)
+          for name,digest in expected.items():
+              path=Path(name)
+              present=path.is_file()
+              if present:
+                  data=path.read_bytes()
+                  gitsha=hashlib.sha1(f'blob {len(data)}\0'.encode()+data).hexdigest()
+              else:gitsha='MISSING'
+              chk('pinned_'+name,present and gitsha==digest)
+          c=Path('config.js').read_text(encoding='utf-8')
+          app=Path('app.js').read_text(encoding='utf-8')
+          staff=Path('staff-auth-staging.js').read_text(encoding='utf-8')
+          pairs=[
+              ('staging_readonly',r'TAX_R105_STAGING_READ_ONLY\s*:\s*true\b'),
+              ('demo_ui_off',r'ENABLE_DEMO_UI\s*:\s*false\b'),
+              ('formal_approval_off',r'TAX_R9_FORMAL_APPROVAL_ENABLED\s*:\s*false\b'),
+              ('batch_send_off',r'TAX_R9_BATCH_SEND_ENABLED\s*:\s*false\b'),
+              ('legacy_monthly_block',r'TAX_R103_BLOCK_LEGACY_MONTHLY_FORM\s*:\s*true\b'),
+              ('liff_not_fake_production',r'LIFF_ID\s*:\s*["\x27]{2}\s*,'),
+              ('staging_worker_endpoint',r'API_BASE\s*:\s*"https://dpro-tax-accounting-line-r7-staging\.dpromstk2000\.workers\.dev"'),
+          ]
+          for name,pat in pairs:chk(name,re.search(pat,c) is not None)
+          chk('demo_optin_also_requires_config',
+              'params.get("demo") === "1" && CONFIG.ENABLE_DEMO_UI === true' in app)
+          chk('staff_auth_distinguishes_identity_from_roles',
+              'スタッフ権限・承認権限はまだ未確認' in staff)
+          chk('sql_files_marked_do_not_deploy',all('DO_NOT_' in n for n in expected if n.endswith('.sql')))
+          chk('no_service_role_inline',all(not re.search(r'(?i)(?:service_role|sk_live|ghp_)[A-Za-z0-9_-]{25,}',s)
+              for s in (c,app,staff)))
+          chk('no_uncommitted_source_changes',not subprocess.check_output(['git','status','--porcelain'],text=True).strip())
+          count=len(checks);passed=sum(ok for _,ok in checks)
+          print(f'R151_SOURCE_BOUNDARY_QA {passed}/{count} PASS; main/prod never modified')
+          if passed!=count:sys.exit(1)
+          PY
+      - name: Report read-only staged commercial readiness boundary
+        if: success()
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## R151 STAGING BOUNDARY PASS — COMMERCIAL RELEASE STILL HOLD
+          - Pinned staging source files match approved Git blobs, with syntax checked.
+          - Staging is read-only; demo UI, formal approvals and batch-send are off.
+          - Existing R118/R120 isolated QA source files remain pinned.
+          - **This is not production PostgreSQL/RLS, Worker, Storage or LINE QA.**
+          - No customer data, credentials, SQL execution, Worker deployment, branch changes or outbound notifications.
+          - Real tenant deployment remains **HOLD** pending owner sign-off and all 18 commercial gates.
+          EOF
