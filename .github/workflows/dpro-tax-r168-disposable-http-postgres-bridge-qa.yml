@@ -1,0 +1,469 @@
+name: DPRO TAX R168 Disposable HTTP to PostgreSQL End-to-End QA (Synthetic Only)
+
+on:
+  push:
+    branches: [tax-r7-staging-20261010]
+    paths:
+      - '.github/workflows/dpro-tax-r168-disposable-http-postgres-bridge-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dpro-tax-r168-ephemeral-db-only-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  synthetic-http-postgres:
+    if: ${{ github.repository == 'dpromstk2000-lab/dpro-tax-accounting-line-liff' && github.ref == 'refs/heads/tax-r7-staging-20261010' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    services:
+      pg:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: r168-disposable-only-do-not-use-real-db
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    steps:
+      - name: Checkout only pinned staging, credentials disabled
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Protect source and forbid live integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'dpromstk2000-lab/dpro-tax-accounting-line-liff'
+          test "$GITHUB_REF" = 'refs/heads/tax-r7-staging-20261010'
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}"
+          test -z "${LINE_CHANNEL_SECRET:-}"
+          test -z "${CLOUDFLARE_API_TOKEN:-}"
+          test "$(git hash-object .github/workflows/dpro-tax-r151-staging-boundary-qa.yml)" = "bd6a075f06f0692ff868067416afb5781faad6c1" || { echo "R168_SOURCE_DRIFT .github/workflows/dpro-tax-r151-staging-boundary-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r152-disposable-postgres-booking-qa.yml)" = "8c3ed43f0f1fdc3217382f47b43c5f68763f1f37" || { echo "R168_SOURCE_DRIFT .github/workflows/dpro-tax-r152-disposable-postgres-booking-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r153-disposable-direct-dml-qa.yml)" = "d931f63a70a560b7f447fbcef1e6fd25868fb06d" || { echo "R168_SOURCE_DRIFT .github/workflows/dpro-tax-r153-disposable-direct-dml-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r154-disposable-auth-role-boundary-qa.yml)" = "3d5964f33675a636bf1f35e90c98d59aaaafd437" || { echo "R168_SOURCE_DRIFT .github/workflows/dpro-tax-r154-disposable-auth-role-boundary-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r155-synthetic-trust-boundary-qa.yml)" = "e21797ce5271a949c337b6bcf85d3d1339ce4ffd" || { echo "R168_SOURCE_DRIFT .github/workflows/dpro-tax-r155-synthetic-trust-boundary-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r156-disposable-rls-replay-qa.yml)" = "ff6442c6b4d2d0c409b906625a3322cdb16ab47e" || { echo "R168_SOURCE_DRIFT .github/workflows/dpro-tax-r156-disposable-rls-replay-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r157-loopback-http-gateway-qa.yml)" = "c6cf3510194b6f3af3474554966f57905fce7224" || { echo "R168_SOURCE_DRIFT .github/workflows/dpro-tax-r157-loopback-http-gateway-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r158-public-demo-source-integrity-qa.yml)" = "7590c8417fa940b73ccaf4e65534176e1d643f32" || { echo "R168_SOURCE_DRIFT .github/workflows/dpro-tax-r158-public-demo-source-integrity-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r159-release-evidence-contract-qa.yml)" = "b631da2cf67eb198160a0ffd8b88596b020d51e9" || { echo "R168_SOURCE_DRIFT .github/workflows/dpro-tax-r159-release-evidence-contract-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r160-staging-commercial-gap-qa.yml)" = "5f359b6ec11b1e119a180302e64c19e68885a637" || { echo "R168_SOURCE_DRIFT .github/workflows/dpro-tax-r160-staging-commercial-gap-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r161-disposable-booking-atomicity-qa.yml)" = "7ae80a66d01c45e5bb2a8debfc5d0a4b0be5a838" || { echo "R168_SOURCE_DRIFT .github/workflows/dpro-tax-r161-disposable-booking-atomicity-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r162-booking-bridge-contract-qa.yml)" = "ebc86c4e716f79b159cadac3b3b5e115934114f1" || { echo "R168_SOURCE_DRIFT .github/workflows/dpro-tax-r162-booking-bridge-contract-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r163-guest-capability-loopback-qa.yml)" = "9a20d807bb0f47f9016e0609f2e04af7e35a2210" || { echo "R168_SOURCE_DRIFT .github/workflows/dpro-tax-r163-guest-capability-loopback-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r164-ui-retry-bridge-contract-qa.yml)" = "292100ad0c5fdfa933c1cf3ad252658b6482a50f" || { echo "R168_SOURCE_DRIFT .github/workflows/dpro-tax-r164-ui-retry-bridge-contract-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r165-disposable-recovery-http-qa.yml)" = "1ae15008458d07531fe8b784b6de17fa9ae6261f" || { echo "R168_SOURCE_DRIFT .github/workflows/dpro-tax-r165-disposable-recovery-http-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r166-offline-booking-ui-contract-qa.yml)" = "a0313ee52c2924ac66ec776a789d10608546c111" || { echo "R168_SOURCE_DRIFT .github/workflows/dpro-tax-r166-offline-booking-ui-contract-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r167-real-ui-candidate-isolation-qa.yml)" = "0b5957a015a378002eb81ee271c0880a11ab7cac" || { echo "R168_SOURCE_DRIFT .github/workflows/dpro-tax-r167-real-ui-candidate-isolation-qa.yml"; exit 1; }
+          test "$(git hash-object app.js)" = "4c3475219e5c7fc9203ec5e5143d4f6eb8299423" || { echo "R168_SOURCE_DRIFT app.js"; exit 1; }
+          test "$(git hash-object config.js)" = "da1876bae8333a3a10ee13495c0063ded0c2b351" || { echo "R168_SOURCE_DRIFT config.js"; exit 1; }
+          echo "R168_SOURCE_PIN_SUMMARY 19 / 19 PASS"
+      - name: Boot real disposable PostgreSQL SQL reference and loopback HTTP gateway
+        shell: bash
+        run: |
+          set -euo pipefail
+          R168_PG_CONTAINER="$(docker ps --filter ancestor=postgres:17-alpine --format '{{.ID}}' | head -n 1)"
+          test -n "$R168_PG_CONTAINER" || { echo R168_NO_DISPOSABLE_DB; exit 1; }
+          cat > "$RUNNER_TEMP/r168_reference.sql" <<'SQL_R168_REFERENCE_ONLY'
+          -- DPRO TAX R161 isolated reference ONLY. Not a Supabase migration; NEVER deploy.
+          -- Authoritative tenant identity, verified JWT, resource policy, timezone rules and business
+          -- approvals remain separate production gates. This assumes a trusted server invokes
+          -- the r161_gateway / r161_staff functions, NEVER an untrusted SQL client.
+          CREATE EXTENSION IF NOT EXISTS btree_gist;
+          CREATE SCHEMA r161;
+          REVOKE ALL ON SCHEMA r161 FROM PUBLIC;
+          CREATE ROLE r161_fn_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
+          CREATE ROLE r161_gateway NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
+          CREATE ROLE r161_staff NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
+          GRANT USAGE ON SCHEMA r161 TO r161_fn_owner,r161_gateway,r161_staff;
+          CREATE TABLE r161.memberships(
+            subject text PRIMARY KEY,
+            office text NOT NULL,
+            actor_kind text NOT NULL CHECK(actor_kind IN ('client','staff'))
+          );
+          INSERT INTO r161.memberships(subject,office,actor_kind) VALUES
+            ('clientA1','A','client'),('clientA2','A','client'),
+            ('clientB1','B','client'),('staffA','A','staff'),('staffB','B','staff');
+          CREATE TABLE r161.resources(office text NOT NULL,resource text NOT NULL,
+            PRIMARY KEY(office,resource));
+          INSERT INTO r161.resources VALUES ('A','desk1'),('A','desk2'),('B','desk1');
+          CREATE TABLE r161.bookings(
+            id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            office text NOT NULL,
+            client text NOT NULL,
+            resource text NOT NULL,
+            idempotency_key text NOT NULL,
+            starts_at timestamptz NOT NULL,
+            ends_at timestamptz NOT NULL,
+            status text NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','confirmed','cancelled')),
+            CHECK(ends_at > starts_at),
+            UNIQUE(office,client,idempotency_key),
+            FOREIGN KEY(office,resource) REFERENCES r161.resources(office,resource),
+            CONSTRAINT r161_confirmed_no_overlap EXCLUDE USING gist (
+              office WITH =, resource WITH =, tstzrange(starts_at,ends_at,'[)') WITH &&
+            ) WHERE (status = 'confirmed')
+          );
+          -- Raw tables and sequence are not available to gateway/staff roles.
+          GRANT SELECT ON r161.memberships,r161.resources TO r161_fn_owner;
+          GRANT SELECT,INSERT,UPDATE ON r161.bookings TO r161_fn_owner;
+          GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA r161 TO r161_fn_owner;
+          -- Untrusted business identity must NOT be sourced from PostgreSQL custom GUC claims.
+          -- p_office/p_subject are trusted-server fields only; server binding is not modeled here.
+          CREATE FUNCTION r161.request_booking(
+           p_office text,p_subject text,p_resource text,p_key text,p_start timestamptz,p_minutes integer
+          ) RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,r161 AS $$
+          DECLARE v_id bigint; v_old r161.bookings%ROWTYPE;
+          BEGIN
+           IF p_office IS NULL OR p_subject IS NULL OR p_resource IS NULL OR p_key IS NULL
+              OR p_key !~ '^[A-Za-z0-9_-]{16,96}$'
+              OR NOT EXISTS(SELECT 1 FROM r161.memberships
+                 WHERE subject=p_subject AND office=p_office AND actor_kind='client')
+              OR NOT EXISTS(SELECT 1 FROM r161.resources
+                 WHERE office=p_office AND resource=p_resource)
+              OR p_start IS NULL OR p_start <= clock_timestamp() OR p_start > clock_timestamp()+interval '365 days'
+              OR extract(minute from p_start AT TIME ZONE 'Asia/Tokyo')::int NOT IN (0,30)
+              OR extract(second from p_start AT TIME ZONE 'Asia/Tokyo') <> 0
+              OR p_minutes IS NULL OR p_minutes NOT IN (30,60,90) THEN
+              RAISE EXCEPTION 'R161_BOOKING_REQUEST_DENIED';
+           END IF;
+           INSERT INTO r161.bookings(office,client,resource,idempotency_key,starts_at,ends_at)
+           VALUES(p_office,p_subject,p_resource,p_key,p_start,p_start+make_interval(mins=>p_minutes))
+           ON CONFLICT(office,client,idempotency_key) DO NOTHING RETURNING id INTO v_id;
+           IF v_id IS NOT NULL THEN RETURN 'new:'||v_id::text; END IF;
+           SELECT * INTO v_old FROM r161.bookings
+             WHERE office=p_office AND client=p_subject AND idempotency_key=p_key;
+           IF NOT FOUND OR v_old.resource IS DISTINCT FROM p_resource
+             OR v_old.starts_at IS DISTINCT FROM p_start
+             OR v_old.ends_at IS DISTINCT FROM p_start+make_interval(mins=>p_minutes) THEN
+              RAISE EXCEPTION 'R161_IDEMPOTENCY_PAYLOAD_CONFLICT';
+           END IF;
+           RETURN 'duplicate:'||v_old.id::text;
+          END $$;
+          CREATE FUNCTION r161.confirm_booking(p_office text,p_staff text,p_id bigint)
+           RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,r161 AS $$
+          DECLARE v r161.bookings%ROWTYPE;
+          BEGIN
+           IF NOT EXISTS(SELECT 1 FROM r161.memberships
+               WHERE subject=p_staff AND office=p_office AND actor_kind='staff') THEN
+              RAISE EXCEPTION 'R161_STAFF_SCOPE_DENIED'; END IF;
+           SELECT * INTO v FROM r161.bookings WHERE id=p_id FOR UPDATE;
+           IF NOT FOUND OR v.office IS DISTINCT FROM p_office THEN
+              RAISE EXCEPTION 'R161_CROSS_OFFICE_DENIED'; END IF;
+           IF v.status='confirmed' THEN RETURN 'already_confirmed'; END IF;
+           IF v.status<>'pending' THEN RAISE EXCEPTION 'R161_CANCELLED_IS_FINAL'; END IF;
+           UPDATE r161.bookings SET status='confirmed' WHERE id=p_id;
+           RETURN 'confirmed';
+          END $$;
+          CREATE FUNCTION r161.cancel_booking(p_office text,p_staff text,p_id bigint)
+           RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,r161 AS $$
+          DECLARE v r161.bookings%ROWTYPE;
+          BEGIN
+           IF NOT EXISTS(SELECT 1 FROM r161.memberships
+               WHERE subject=p_staff AND office=p_office AND actor_kind='staff') THEN
+              RAISE EXCEPTION 'R161_STAFF_SCOPE_DENIED'; END IF;
+           SELECT * INTO v FROM r161.bookings WHERE id=p_id FOR UPDATE;
+           IF NOT FOUND OR v.office IS DISTINCT FROM p_office THEN
+              RAISE EXCEPTION 'R161_CROSS_OFFICE_DENIED'; END IF;
+           IF v.status='cancelled' THEN RETURN 'already_cancelled'; END IF;
+           UPDATE r161.bookings SET status='cancelled' WHERE id=p_id;
+           RETURN 'cancelled';
+          END $$;
+          ALTER FUNCTION r161.request_booking(text,text,text,text,timestamptz,integer) OWNER TO r161_fn_owner;
+          ALTER FUNCTION r161.confirm_booking(text,text,bigint) OWNER TO r161_fn_owner;
+          ALTER FUNCTION r161.cancel_booking(text,text,bigint) OWNER TO r161_fn_owner;
+          REVOKE ALL ON ALL FUNCTIONS IN SCHEMA r161 FROM PUBLIC;
+          GRANT EXECUTE ON FUNCTION r161.request_booking(text,text,text,text,timestamptz,integer) TO r161_gateway;
+          GRANT EXECUTE ON FUNCTION r161.confirm_booking(text,text,bigint),r161.cancel_booking(text,text,bigint) TO r161_staff;
+          -- No user/role gets CREATE on this schema; never expose role privileges to public endpoints.
+          SQL_R168_REFERENCE_ONLY
+          cat > "$RUNNER_TEMP/r168_http_pg.py" <<'PY_R168_EPHEMERAL_ONLY'
+          #!/usr/bin/env python3
+          """R168 synthetic HTTP -> disposable PostgreSQL reference. NEVER DEPLOY.
+          Verified fake signed test claims only. No real JWT, LINE, Supabase, Worker, or customer calls.
+          R168_PG_CONTAINER set: real disposable PostgreSQL role and SECURITY DEFINER function.
+          No R168_PG_CONTAINER: local in-memory atomic DB double, NOT PostgreSQL evidence.
+          """
+          import base64, concurrent.futures, datetime as dt, hashlib, hmac, json, os, re, secrets, subprocess, threading, uuid
+          import urllib.error, urllib.request
+          from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+          from datetime import timedelta, timezone
+          
+          JST=timezone(timedelta(hours=9))
+          TEST_SECRET=secrets.token_bytes(32)  # ephemeral per run, NOT a deployed/test constant
+          TEST_ISS='r168-fixture.local.invalid'
+          TEST_AUD='r168-disposable-booking-only'
+          SUBJECT_OFFICE={'clientA1':'A','clientA2':'A','clientB1':'B'}
+          SERVICES={'consult_a':('A','desk1',30),'consult_a_other':('A','desk2',30),'consult_b':('B','desk1',30)}
+          SLOT_PATTERN=re.compile(r'\d{4}-\d{2}-\d{2}T\d{2}:(?:00|30):00\+09:00\Z')
+          UUID_PATTERN=re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\Z')
+          CONTAINER=os.environ.get('R168_PG_CONTAINER','')
+          if CONTAINER and not re.fullmatch(r'[0-9a-f]{12,64}',CONTAINER): raise RuntimeError('Bad disposable container ID')
+          
+          class Validation(Exception):
+              def __init__(self,status,code):super().__init__(code);self.status=status;self.code=code
+          
+          def b64(v):return base64.urlsafe_b64encode(v).rstrip(b'=').decode()
+          def ub64(v):
+              if not isinstance(v,str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,4096}',v): raise Validation(401,'INVALID_TOKEN')
+              try: return base64.urlsafe_b64decode(v+'='*((-len(v))%4))
+              except Exception: raise Validation(401,'INVALID_TOKEN')
+          def json_unique(data):
+              def pairs(rows):
+                  obj={}
+                  for k,v in rows:
+                      if k in obj:raise ValueError('duplicate-json-key')
+                      obj[k]=v
+                  return obj
+              return json.loads(data,object_pairs_hook=pairs,parse_constant=lambda _: (_ for _ in ()).throw(ValueError('invalid-number')))
+          
+          def mint(subject='clientA1',**changes):
+              now=int(dt.datetime.now(timezone.utc).timestamp())
+              p={'iss':TEST_ISS,'aud':TEST_AUD,'sub':subject,'iat':now,'nbf':now-1,'exp':now+120}
+              p.update(changes)
+              a=b64(json.dumps({'alg':'HS256','typ':'JWT'},separators=(',',':')).encode())
+              c=b64(json.dumps(p,separators=(',',':')).encode())
+              return f'{a}.{c}.'+b64(hmac.new(TEST_SECRET,f'{a}.{c}'.encode(),hashlib.sha256).digest())
+          
+          def verified_subject(token):
+              if not isinstance(token,str) or len(token)>4096: raise Validation(401,'INVALID_TOKEN')
+              parts=token.split('.')
+              if len(parts)!=3: raise Validation(401,'INVALID_TOKEN')
+              header=ub64(parts[0]);payload=ub64(parts[1]);sig=ub64(parts[2])
+              want=hmac.new(TEST_SECRET,f'{parts[0]}.{parts[1]}'.encode(),hashlib.sha256).digest()
+              if not hmac.compare_digest(sig,want):raise Validation(401,'INVALID_TOKEN')
+              try:
+                  h=json_unique(header.decode()); p=json_unique(payload.decode())
+              except Exception:raise Validation(401,'INVALID_TOKEN')
+              if h!={'alg':'HS256','typ':'JWT'} or not isinstance(p,dict):raise Validation(401,'INVALID_TOKEN')
+              now=int(dt.datetime.now(timezone.utc).timestamp())
+              if p.get('iss')!=TEST_ISS or p.get('aud')!=TEST_AUD:raise Validation(401,'INVALID_TOKEN')
+              if any(type(p.get(k)) is not int for k in ('iat','nbf','exp')):raise Validation(401,'INVALID_TOKEN')
+              if p['exp']<=now or p['nbf']>now or p['iat']>now+5 or p['exp']-p['iat']>120:raise Validation(401,'INVALID_TOKEN')
+              subject=p.get('sub')
+              if type(subject) is not str or subject not in SUBJECT_OFFICE:raise Validation(403,'UNKNOWN_MEMBER')
+              # Never take office, role, resources, or staff flags from caller-controlled HTTP body or untrusted claims.
+              return subject
+          
+          class FakeAtomicStore:
+              def __init__(self):self.lock=threading.Lock();self.rows={};self.next=1
+              def request(self,office,subject,resource,key,start,duration):
+                  with self.lock:
+                      scope=(office,subject,key);spec=(resource,start,duration)
+                      if scope in self.rows:
+                          old,ident=self.rows[scope]
+                          if old!=spec:raise Validation(409,'IDEMPOTENCY_CONFLICT')
+                          return 'duplicate:'+str(ident)
+                      ident=self.next;self.next+=1;self.rows[scope]=(spec,ident)
+                      return 'new:'+str(ident)
+              def count(self):return len(self.rows)
+          
+          class PgAtomicStore:
+              def psql(self,statement,role=None):
+                  assert CONTAINER
+                  if role is not None:
+                      assert role=='r161_gateway'
+                      statement='BEGIN; SET LOCAL ROLE r161_gateway; '+statement+'; COMMIT;'
+                  z=subprocess.run(['docker','exec','-i','-u','postgres',CONTAINER,'psql','-XAt','-v','ON_ERROR_STOP=1','-U','postgres','-d','postgres'],input=statement,text=True,capture_output=True,timeout=25)
+                  return z
+              def request(self,office,subject,resource,key,start,duration):
+                  # All six values must have passed server mapping or narrowly specified regex/date validation.
+                  assert office in ('A','B') and subject in SUBJECT_OFFICE and resource in ('desk1','desk2')
+                  assert UUID_PATTERN.fullmatch(key) and SLOT_PATTERN.fullmatch(start) and duration==30
+                  query=f"SELECT r161.request_booking('{office}','{subject}','{resource}','{key}','{start}'::timestamptz,{duration})"
+                  v=self.psql(query,'r161_gateway')
+                  if v.returncode:
+                      if 'R161_IDEMPOTENCY_PAYLOAD_CONFLICT' in v.stderr:raise Validation(409,'IDEMPOTENCY_CONFLICT')
+                      if 'R161_BOOKING_REQUEST_DENIED' in v.stderr:raise Validation(422,'BOOKING_POLICY_DENIED')
+                      raise Validation(503,'DATABASE_UNAVAILABLE')
+                  match=re.search(r'\b(new|duplicate):(\d+)\b',v.stdout)
+                  if not match:raise Validation(503,'DATABASE_RESPONSE_INVALID')
+                  return match.group(0)
+              def count(self):
+                  x=self.psql('SELECT count(*) FROM r161.bookings')
+                  if x.returncode:raise AssertionError(x.stderr[-400:])
+                  return int(x.stdout.strip())
+          
+          STORE=PgAtomicStore() if CONTAINER else FakeAtomicStore()
+          
+          class LocalGateway(BaseHTTPRequestHandler):
+              protocol_version='HTTP/1.1'
+              def log_message(self,*args):pass
+              def respond(self,status,body):
+                  encoded=json.dumps(body,separators=(',',':'),ensure_ascii=False).encode()
+                  self.send_response(status);self.send_header('Content-Type','application/json; charset=utf-8')
+                  self.send_header('Content-Length',str(len(encoded)));self.send_header('Cache-Control','no-store')
+                  self.send_header('X-Content-Type-Options','nosniff');self.send_header('Referrer-Policy','no-referrer')
+                  self.end_headers();self.wfile.write(encoded)
+              def do_GET(self):
+                  if self.path=='/synthetic/health':self.respond(200,{'ok':True,'synthetic':True,'production_release':'HOLD','identity_provider':'NOT_IMPLEMENTED'})
+                  else:self.respond(404,{'ok':False,'error':'NOT_FOUND'})
+              def do_POST(self):
+                  try:
+                      if self.path!='/synthetic/api/public/appointments':raise Validation(404,'NOT_FOUND')
+                      bearer=self.headers.get('Authorization','')
+                      if not bearer.startswith('Bearer ') or bearer.count(' ')!=1:raise Validation(401,'AUTH_REQUIRED')
+                      subject=verified_subject(bearer[7:])
+                      k=self.headers.get('Idempotency-Key','')
+                      if not UUID_PATTERN.fullmatch(k):raise Validation(400,'INVALID_KEY')
+                      if self.headers.get('Content-Type')!='application/json':raise Validation(415,'CONTENT_TYPE_REQUIRED')
+                      length=self.headers.get('Content-Length','')
+                      if not length.isdigit() or not 0<int(length)<=4096:raise Validation(413,'PAYLOAD_SIZE_INVALID')
+                      try:payload=json_unique(self.rfile.read(int(length)).decode('utf-8'))
+                      except Exception:raise Validation(400,'INVALID_JSON')
+                      if not isinstance(payload,dict) or set(payload)!={'service_code','requested_start_at','channel','duration_minutes'}:raise Validation(400,'UNKNOWN_OR_MISSING_FIELD')
+                      service=payload.get('service_code');when=payload.get('requested_start_at');channel=payload.get('channel');minutes=payload.get('duration_minutes')
+                      if type(service) is not str or service not in SERVICES:raise Validation(422,'SERVICE_DENIED')
+                      office,resource,duration=SERVICES[service]
+                      if SUBJECT_OFFICE[subject]!=office:raise Validation(403,'OFFICE_DENIED')
+                      if channel not in ('in_person','online') or type(minutes) is not int or minutes!=duration:raise Validation(422,'POLICY_DENIED')
+                      if type(when) is not str or not SLOT_PATTERN.fullmatch(when):raise Validation(422,'TIME_DENIED')
+                      try:
+                          instant=dt.datetime.fromisoformat(when)
+                          if instant<=dt.datetime.now(timezone.utc) or instant>dt.datetime.now(timezone.utc)+timedelta(days=365):raise Validation(422,'TIME_DENIED')
+                      except Validation:raise
+                      except Exception:raise Validation(422,'TIME_DENIED')
+                      returned=STORE.request(office,subject,resource,k,when,duration)
+                      if not re.fullmatch(r'(new|duplicate):\d+',returned):raise Validation(503,'DATABASE_RESPONSE_INVALID')
+                      self.respond(200,{'ok':True,'status':'pending','request_id':'r168_'+returned.split(':')[1]})
+                  except Validation as ex:self.respond(ex.status,{'ok':False,'error':ex.code})
+                  except Exception:self.respond(503,{'ok':False,'error':'UNAVAILABLE'})
+              do_PATCH=do_DELETE=do_PUT=lambda self:self.respond(405,{'ok':False,'error':'METHOD_DENIED'})
+          
+          TESTS=[]
+          def check(name,passed):
+              if not passed:raise AssertionError(f'R168_FAIL_{len(TESTS)+1:02d}: {name}')
+              TESTS.append(name)
+              print(f'R168_PASS_{len(TESTS):02d}: {name}',flush=True)
+          
+          def request(base,body=None,token=None,key=None,headers=None,method='POST',path='/synthetic/api/public/appointments',raw=None):
+              if body is None:body={'service_code':'consult_a','requested_start_at':SLOT,'channel':'online','duration_minutes':30}
+              data=raw if raw is not None else json.dumps(body,separators=(',',':')).encode()
+              hdr={'Content-Type':'application/json','Idempotency-Key':key or str(uuid.uuid4())}
+              if token is not False:hdr['Authorization']='Bearer '+(token if token is not None else mint())
+              if headers:hdr.update(headers)
+              u=urllib.request.Request(base+path,data=data if method=='POST' else None,headers=hdr,method=method)
+              try:
+                  with urllib.request.urlopen(u,timeout=15) as res:return res.status,json.loads(res.read()),res.headers
+              except urllib.error.HTTPError as e:return e.code,json.loads(e.read()),e.headers
+          
+          def server():
+              s=ThreadingHTTPServer(('127.0.0.1',0),LocalGateway)
+              t=threading.Thread(target=s.serve_forever,daemon=True);t.start()
+              return s,t,'http://127.0.0.1:'+str(s.server_port)
+          
+          SLOT=(dt.datetime.now(JST)+timedelta(days=5)).replace(hour=10,minute=0,second=0,microsecond=0).isoformat()
+          OTHER=(dt.datetime.fromisoformat(SLOT)+timedelta(minutes=30)).isoformat()
+          
+          if __name__=='__main__':
+              s,t,base=server()
+              try:
+                  with urllib.request.urlopen(base+'/synthetic/health',timeout=5) as z:h=json.loads(z.read())
+                  check('server explicit synthetic HOLD',h['production_release']=='HOLD' and h['identity_provider']=='NOT_IMPLEMENTED')
+                  a=request(base,key=str(uuid.uuid4()));check('first HTTP request accepted as pending',a[0]==200 and a[1]['status']=='pending' and a[1]['request_id'].startswith('r168_'))
+                  check('response forbids caching and content sniffing',a[2].get('Cache-Control')=='no-store' and a[2].get('X-Content-Type-Options')=='nosniff')
+                  check('response has no permissive CORS',a[2].get('Access-Control-Allow-Origin') is None)
+                  check('no confirmed time in response','confirmed_start_at' not in a[1])
+                  key=str(uuid.uuid4());v=request(base,key=key); w=request(base,key=key)
+                  check('same client same key deduplicates',v[1].get('request_id')==w[1].get('request_id'))
+                  changed=request(base,body={'service_code':'consult_a','requested_start_at':OTHER,'channel':'online','duration_minutes':30},key=key)
+                  check('same key altered time returns conflict',changed[0]==409)
+                  changed2=request(base,body={'service_code':'consult_a_other','requested_start_at':SLOT,'channel':'online','duration_minutes':30},key=key)
+                  check('same key different mapped resource conflicts',changed2[0]==409)
+                  check('missing bearer denied',request(base,token=False)[0]==401)
+                  check('invalid bearer denied',request(base,token='not.jwt.here')[0]==401)
+                  good=mint(); tampered=good.split('.')[0]+'.'+good.split('.')[1]+'.'+('A' if good.split('.')[2][0]!='A' else 'B')+good.split('.')[2][1:]
+                  check('tampered signature denied',request(base,token=tampered)[0]==401)
+                  check('expired test token denied',request(base,token=mint(exp=1))[0]==401)
+                  check('future nbf denied',request(base,token=mint(nbf=int(dt.datetime.now(timezone.utc).timestamp())+600))[0]==401)
+                  check('wrong issuer denied',request(base,token=mint(iss='attacker.invalid'))[0]==401)
+                  check('wrong audience denied',request(base,token=mint(aud='wrong'))[0]==401)
+                  x=mint().split('.'); x[0]=b64(json.dumps({'alg':'none','typ':'JWT'}).encode()); x[2]=b64(hmac.new(TEST_SECRET,(x[0]+'.'+x[1]).encode(),hashlib.sha256).digest())
+                  check('none-alg signed token denied',request(base,token='.'.join(x))[0]==401)
+                  check('unknown subject denied',request(base,token=mint('outsider'))[0]==403)
+                  check('known staff identity not admitted',request(base,token=mint('staffA'))[0]==403)
+                  check('forge office claim does not change membership',request(base,token=mint(office='B'))[0]==200)
+                  check('forge role claim cannot grant staff privileges',request(base,token=mint(role='owner'))[0]==200)
+                  check('client from A cannot book B service',request(base,body={'service_code':'consult_b','requested_start_at':SLOT,'channel':'online','duration_minutes':30})[0]==403)
+                  check('verified B subject can book B resource',request(base,token=mint('clientB1'),body={'service_code':'consult_b','requested_start_at':SLOT,'channel':'online','duration_minutes':30})[0]==200)
+                  check('forged office field rejected',request(base,body={'service_code':'consult_a','requested_start_at':SLOT,'channel':'online','duration_minutes':30,'office':'B'})[0]==400)
+                  check('forged subject field rejected',request(base,body={'service_code':'consult_a','requested_start_at':SLOT,'channel':'online','duration_minutes':30,'subject':'clientB1'})[0]==400)
+                  check('forged resource field rejected',request(base,body={'service_code':'consult_a','requested_start_at':SLOT,'channel':'online','duration_minutes':30,'resource':'desk2'})[0]==400)
+                  check('forged status confirmed rejected',request(base,body={'service_code':'consult_a','requested_start_at':SLOT,'channel':'online','duration_minutes':30,'status':'confirmed'})[0]==400)
+                  check('phone PII injection rejected',request(base,body={'service_code':'consult_a','requested_start_at':SLOT,'channel':'online','duration_minutes':30,'phone':'0123456789'})[0]==400)
+                  check('unknown service denied',request(base,body={'service_code':'bad','requested_start_at':SLOT,'channel':'online','duration_minutes':30})[0]==422)
+                  check('wrong duration denied',request(base,body={'service_code':'consult_a','requested_start_at':SLOT,'channel':'online','duration_minutes':60})[0]==422)
+                  check('string duration denied',request(base,body={'service_code':'consult_a','requested_start_at':SLOT,'channel':'online','duration_minutes':'30'})[0]==422)
+                  check('quarter-hour slot denied',request(base,body={'service_code':'consult_a','requested_start_at':SLOT.replace('10:00','10:15'),'channel':'online','duration_minutes':30})[0]==422)
+                  check('missing timezone denied',request(base,body={'service_code':'consult_a','requested_start_at':SLOT[:-6],'channel':'online','duration_minutes':30})[0]==422)
+                  check('invalid date denied',request(base,body={'service_code':'consult_a','requested_start_at':'2027-02-30T10:00:00+09:00','channel':'online','duration_minutes':30})[0]==422)
+                  check('past slot denied',request(base,body={'service_code':'consult_a','requested_start_at':'2020-01-01T10:00:00+09:00','channel':'online','duration_minutes':30})[0]==422)
+                  check('invalid channel denied',request(base,body={'service_code':'consult_a','requested_start_at':SLOT,'channel':'phone','duration_minutes':30})[0]==422)
+                  check('missing key denied',request(base,headers={'Idempotency-Key':''})[0]==400)
+                  check('weak key denied',request(base,headers={'Idempotency-Key':'1111111111111111'})[0]==400)
+                  check('non UUID version4 denied',request(base,headers={'Idempotency-Key':'00000000-0000-1000-8000-000000000000'})[0]==400)
+                  check('invalid content type denied',request(base,headers={'Content-Type':'text/plain'})[0]==415)
+                  check('duplicate JSON keys denied',request(base,raw=b'{"service_code":"consult_a","service_code":"consult_b","requested_start_at":"'+SLOT.encode()+b'","channel":"online","duration_minutes":30}')[0]==400)
+                  check('malformed JSON denied',request(base,raw=b'not-json')[0]==400)
+                  check('top-level JSON array denied',request(base,raw=b'[]')[0]==400)
+                  check('oversized body denied',request(base,raw=b'x'*5000)[0]==413)
+                  check('wrong path denied',request(base,path='/api/admin/appointments')[0]==404)
+                  check('DELETE method denied',request(base,method='DELETE')[0]==405)
+                  check('PATCH method denied',request(base,method='PATCH')[0]==405)
+                  check('GET booking collection denied',urllib.request.urlopen(base+'/synthetic/health').status==200) # separate check for 404 below
+                  try:urllib.request.urlopen(base+'/synthetic/api/public/appointments'); allowed=False
+                  except urllib.error.HTTPError as e:allowed=e.code==404
+                  check('GET private booking API not exposed',allowed)
+                  check('response does not reveal office and subject',set(a[1])=={'ok','status','request_id'})
+                  check('same request key separate subject independent',request(base,token=mint('clientA2'),key=key)[1].get('request_id')!=v[1].get('request_id'))
+                  check('same key separate office independent',request(base,token=mint('clientB1'),key=key,body={'service_code':'consult_b','requested_start_at':SLOT,'channel':'online','duration_minutes':30})[1].get('request_id')!=v[1].get('request_id'))
+                  before=STORE.count();racekey=str(uuid.uuid4())
+                  with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+                      results=list(pool.map(lambda _:request(base,key=racekey),range(8)))
+                  check('eight parallel HTTP calls return successful pending',[r[0] for r in results]==[200]*8 and all(v[1].get('status')=='pending' for v in results))
+                  check('eight retries return same request ID',len(set(z[1]['request_id'] for z in results))==1)
+                  check('eight retries create exactly one DB row',STORE.count()==before+1)
+                  before=STORE.count();
+                  with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+                      separate=list(pool.map(lambda _:request(base),range(8)))
+                  check('eight distinct keys accepted pending',all(z[0]==200 for z in separate))
+                  check('distinct keys permit separate pending requests, NOT confirms',STORE.count()==before+8)
+                  s.shutdown();s.server_close();t.join(timeout=4)
+                  s,t,base=server()
+                  check('new HTTP server instance exposes synthetic HOLD',json.loads(urllib.request.urlopen(base+'/synthetic/health').read())['production_release']=='HOLD')
+                  check('after restart exact key recovers original receipt',request(base,key=key)[1]['request_id']==v[1]['request_id'])
+                  check('after restart altered payload still conflicts',request(base,key=key,body={'service_code':'consult_a','requested_start_at':OTHER,'channel':'online','duration_minutes':30})[0]==409)
+                  check('reference never returns confirmed status',all(x[1].get('status')=='pending' for x in [a,v,w]))
+                  expected=60
+                  if len(TESTS)!=expected:raise AssertionError(f'R168_CASE_COUNT_MISMATCH got={len(TESTS)} expected={expected}')
+                  print(f'R168_SUMMARY {len(TESTS)} / {expected} PASS',flush=True)
+                  print('R168_HTTP_DISPOSABLE_POSTGRES_REFERENCE_PASS: VERIFIED_IDENTITY_PROVIDER_ASSUMED_RELEASE_HOLD' if CONTAINER else 'R168_INMEMORY_HTTP_REFERENCE_PASS: POSTGRES_RUNTIME_NOT_EXECUTED',flush=True)
+              finally:s.shutdown();s.server_close()
+          PY_R168_EPHEMERAL_ONLY
+          printf "%s  %s\n" '679487d4bd40ea93118b64ea2cd047da5f0ec355b03b9eae09b6cd29b0226421' "$RUNNER_TEMP/r168_reference.sql" | sha256sum --check --status
+          printf "%s  %s\n" '653d75a5f69b435849290fab19c903ab4049806bc2592d598f3d56e3c323eb8d' "$RUNNER_TEMP/r168_http_pg.py" | sha256sum --check --status
+          python3 -m py_compile "$RUNNER_TEMP/r168_http_pg.py"
+          docker exec -i -u postgres "$R168_PG_CONTAINER" psql -XAt -v ON_ERROR_STOP=1 -U postgres -d postgres < "$RUNNER_TEMP/r168_reference.sql"
+          R168_PG_CONTAINER="$R168_PG_CONTAINER" python3 -I "$RUNNER_TEMP/r168_http_pg.py"
+      - name: Record actual boundaries and hold commercial release
+        if: success()
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'R168_SCOPE_END'
+          ## R168 disposable HTTP → PostgreSQL 17 integration reference PASS — COMMERCIAL RELEASE HOLD
+          - 60 local HTTP requests/negative and concurrency checks through real Docker PostgreSQL 17 with the R161 reference SQL, only in an isolated GitHub runner.
+          - Synthetic HS256 issuer/tokens minted in-process, strictly NOT actual LINE / Supabase / real guest verified identity. No service discovery, rate limiting, Turnstile, business consent, or external identity provider integration.
+          - SQL SECURITY DEFINER functions trust a server-bound verified subject. Real verified caller / tenant RLS / Supabase integration NOT proven.
+          - Only pending requests. Multiple DISTINCT pending bookings for one slot are allowed; confirmation overlap and real booking lifecycle require separate R161/cross-service acceptance.
+          - The HTTP adapter is a Python demonstration, NOT the actual Cloudflare Worker nor the actual staging public app. User-facing Idempotency-Key bridge remains OFF, and R105 read-only remains ON.
+          - Strict only staging source pins (R151-R167 + app/config), source checkout with no write credentials. No customer DB, LINE notifications, CONTROL CENTER, Worker deployments, SQL migrations, main changes or real traffic.
+          - R161 SQL is only a disposable reference, DO NOT migrate into real Supabase. Real customer release gates remain 0/18 NOT_TESTED. Commercial deployment HOLD pending explicit authorization.
+          R168_SCOPE_END
