@@ -1,0 +1,247 @@
+name: DPRO TAX R169 Sanitized Booking Fallback Model QA (Read Only)
+
+on:
+  push:
+    branches: [tax-r7-staging-20261010]
+    paths:
+      - '.github/workflows/dpro-tax-r169-archived-worker-booking-fallback-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dpro-tax-r169-archived-reference-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  archived-worker-reference-only:
+    if: ${{ github.repository == 'dpromstk2000-lab/dpro-tax-accounting-line-liff' && github.ref == 'refs/heads/tax-r7-staging-20261010' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact staging source read only
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Enforce protected baseline, prohibit production references
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'dpromstk2000-lab/dpro-tax-accounting-line-liff'
+          test "$GITHUB_REF" = 'refs/heads/tax-r7-staging-20261010'
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}" && test -z "${LINE_CHANNEL_SECRET:-}" || exit 1
+          test "$(git hash-object .github/workflows/dpro-tax-r151-staging-boundary-qa.yml)" = "bd6a075f06f0692ff868067416afb5781faad6c1" || { echo "R169_PROTECTED_SOURCE_DRIFT .github/workflows/dpro-tax-r151-staging-boundary-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r152-disposable-postgres-booking-qa.yml)" = "8c3ed43f0f1fdc3217382f47b43c5f68763f1f37" || { echo "R169_PROTECTED_SOURCE_DRIFT .github/workflows/dpro-tax-r152-disposable-postgres-booking-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r153-disposable-direct-dml-qa.yml)" = "d931f63a70a560b7f447fbcef1e6fd25868fb06d" || { echo "R169_PROTECTED_SOURCE_DRIFT .github/workflows/dpro-tax-r153-disposable-direct-dml-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r154-disposable-auth-role-boundary-qa.yml)" = "3d5964f33675a636bf1f35e90c98d59aaaafd437" || { echo "R169_PROTECTED_SOURCE_DRIFT .github/workflows/dpro-tax-r154-disposable-auth-role-boundary-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r155-synthetic-trust-boundary-qa.yml)" = "e21797ce5271a949c337b6bcf85d3d1339ce4ffd" || { echo "R169_PROTECTED_SOURCE_DRIFT .github/workflows/dpro-tax-r155-synthetic-trust-boundary-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r156-disposable-rls-replay-qa.yml)" = "ff6442c6b4d2d0c409b906625a3322cdb16ab47e" || { echo "R169_PROTECTED_SOURCE_DRIFT .github/workflows/dpro-tax-r156-disposable-rls-replay-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r157-loopback-http-gateway-qa.yml)" = "c6cf3510194b6f3af3474554966f57905fce7224" || { echo "R169_PROTECTED_SOURCE_DRIFT .github/workflows/dpro-tax-r157-loopback-http-gateway-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r158-public-demo-source-integrity-qa.yml)" = "7590c8417fa940b73ccaf4e65534176e1d643f32" || { echo "R169_PROTECTED_SOURCE_DRIFT .github/workflows/dpro-tax-r158-public-demo-source-integrity-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r159-release-evidence-contract-qa.yml)" = "b631da2cf67eb198160a0ffd8b88596b020d51e9" || { echo "R169_PROTECTED_SOURCE_DRIFT .github/workflows/dpro-tax-r159-release-evidence-contract-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r160-staging-commercial-gap-qa.yml)" = "5f359b6ec11b1e119a180302e64c19e68885a637" || { echo "R169_PROTECTED_SOURCE_DRIFT .github/workflows/dpro-tax-r160-staging-commercial-gap-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r161-disposable-booking-atomicity-qa.yml)" = "7ae80a66d01c45e5bb2a8debfc5d0a4b0be5a838" || { echo "R169_PROTECTED_SOURCE_DRIFT .github/workflows/dpro-tax-r161-disposable-booking-atomicity-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r162-booking-bridge-contract-qa.yml)" = "ebc86c4e716f79b159cadac3b3b5e115934114f1" || { echo "R169_PROTECTED_SOURCE_DRIFT .github/workflows/dpro-tax-r162-booking-bridge-contract-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r163-guest-capability-loopback-qa.yml)" = "9a20d807bb0f47f9016e0609f2e04af7e35a2210" || { echo "R169_PROTECTED_SOURCE_DRIFT .github/workflows/dpro-tax-r163-guest-capability-loopback-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r164-ui-retry-bridge-contract-qa.yml)" = "292100ad0c5fdfa933c1cf3ad252658b6482a50f" || { echo "R169_PROTECTED_SOURCE_DRIFT .github/workflows/dpro-tax-r164-ui-retry-bridge-contract-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r165-disposable-recovery-http-qa.yml)" = "1ae15008458d07531fe8b784b6de17fa9ae6261f" || { echo "R169_PROTECTED_SOURCE_DRIFT .github/workflows/dpro-tax-r165-disposable-recovery-http-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r166-offline-booking-ui-contract-qa.yml)" = "a0313ee52c2924ac66ec776a789d10608546c111" || { echo "R169_PROTECTED_SOURCE_DRIFT .github/workflows/dpro-tax-r166-offline-booking-ui-contract-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r167-real-ui-candidate-isolation-qa.yml)" = "0b5957a015a378002eb81ee271c0880a11ab7cac" || { echo "R169_PROTECTED_SOURCE_DRIFT .github/workflows/dpro-tax-r167-real-ui-candidate-isolation-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r168-disposable-http-postgres-bridge-qa.yml)" = "aa139b7cb7723ec066310d35fe45888df9933254" || { echo "R169_PROTECTED_SOURCE_DRIFT .github/workflows/dpro-tax-r168-disposable-http-postgres-bridge-qa.yml"; exit 1; }
+          test "$(git hash-object app.js)" = "4c3475219e5c7fc9203ec5e5143d4f6eb8299423" || { echo "R169_PROTECTED_SOURCE_DRIFT app.js"; exit 1; }
+          test "$(git hash-object config.js)" = "da1876bae8333a3a10ee13495c0063ded0c2b351" || { echo "R169_PROTECTED_SOURCE_DRIFT config.js"; exit 1; }
+          echo 'R169_20_PINNED_CURRENT_SOURCES_UNCHANGED'
+      - name: Test SANITIZED model only and the fail-closed contract; private Worker excluded
+        shell: bash
+        env:
+          R169_TEMP: ${{ runner.temp }}/r169
+        run: |
+          set -euo pipefail
+          mkdir -p "$R169_TEMP"
+          cat > "$R169_TEMP/synthetic_fixture.gz.b64" <<'R169_SAFE_FIXTURE_END'
+          H4sIAAAAAAAC/41SYW/aQAz9zq+w8qGCKgp0Q5WWKasQRRsTLRXQD11VoeNilNPCXXrnQBHNf98l
+          lzDWTVojEQXbz37v2d1zmF1cfoL54Ha8GP8YXcP84XbxbbQYD2Ey+joYPsBser8Ywc30ejQJ4FYB
+          zw2pDepupsWWEYJRueYYwHm3xcxecljnkpNQErTKCWf4nKOhNleS8IU6cGgB2D+G4KBdzs8YJUVU
+          V3y2ebGGdp0MNkiJiiGKIvDupvOFB2dnUCJcqMsy0c3yVSq4/cyUkLRBScZzkwA0Uq4lJEzGKd5V
+          hYPfdUONVsSRXTm8sD9KtNqBxB2MtFa67d1LsclSLCEYw1pUClnqNHoWV7Teyn/fxBM/VireQwRs
+          xwRZ2iz+bpRsCoPaj4piigQb3KxQ23qZp2ljWsLMREi0M2I7SrDUvMX70ARQbv1qZqex6tiyoWBU
+          usWbKjp0qKZdjQw4I56021i61IHoS93JsamiIKw2JjmqNQwyUflZrvCx37vwod/7WL76T4GQPM1j
+          NA4VWAzlxlKr99eoLB+3narOhYrj4pyTNm2OMuLVWBrUR+pOuEfshXG+/ONm/Jq+WtsN41LEIXh2
+          qZQgCb50Uc85yDhVeefZVVDHrgIRw+trRdev76/yHeOllaRpySisvAv+TpQAJ6UWfXAuhB+sVSUm
+          PKifIekc/RPaYan2sfdUFP+7wrF8zoXe/+sC333wwvU4PfxfVpAFy0YEAAA=
+          R169_SAFE_FIXTURE_END
+          base64 --decode "$R169_TEMP/synthetic_fixture.gz.b64" | gzip -dc > "$R169_TEMP/R169_SYNTHETIC_LEGACY_WORKER_FIXTURE.js"
+          printf '%s  %s\n' '08bd21ed26b1d1c365b2a1932cffe6b1e709d3da300522b250e1488f5facad5c' "$R169_TEMP/R169_SYNTHETIC_LEGACY_WORKER_FIXTURE.js" | sha256sum --check --status
+          cat > "$R169_TEMP/R169_BOOKING_HANDLER_PATCH_REFERENCE_DO_NOT_DEPLOY.js" <<'R169_BOOKING_HANDLER_PATCH_REFERENCE_DO_NOT_DEPLOY_js_END'
+          async function handlePublicAppointmentCreate(context) {
+            // R169 ARCHIVED REFERENCE ONLY. NOT WIRED OR DEPLOYED. No implicit fallback.
+            // This injection point is absent from the archived real routeRequest() context,
+            // so the candidate is OFF by default even if the old Worker were mistakenly used.
+            const gateway = context && context.r169VerifiedAtomicBookingGateway;
+            if (!gateway || typeof gateway.verify !== "function" || typeof gateway.atomicRequest !== "function") {
+              throw new ApiError(503, "R169_VERIFIED_ATOMIC_BACKEND_MISSING", "予約受付は安全な認証・確定処理の準備中です。");
+            }
+            const key = context.request.headers.get("Idempotency-Key");
+            if (typeof key !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(key)) {
+              throw new ApiError(400, "R169_IDEMPOTENCY_KEY_REQUIRED", "予約受付の識別子が無効です。");
+            }
+            const body = await readJson(context.request);
+            if (!body || typeof body !== "object" || Array.isArray(body) ||
+                Object.keys(body).some((k) => !["service_id", "requested_start_at"].includes(k))) {
+              throw new ApiError(400, "R169_BODY_SCOPE_DENIED", "予約の入力内容に許可されていない項目があります。");
+            }
+            const proof = await gateway.verify(context.request, body, context.env);
+            // Proof authenticity is ASSUMED by this contract. A real adapter must verify
+            // issuer, subject, audience, office membership, anti-bot and consent server-side.
+            if (!proof || proof.verified !== true ||
+                !["verified_guest", "client_contact"].includes(proof.kind) ||
+                proof.anti_abuse_verified !== true ||
+                proof.consent_verified !== true || typeof proof.office_id !== "string" || !proof.office_id ||
+                typeof proof.subject_id !== "string" || !proof.subject_id ||
+                proof.office_id !== gateway.office_id) {
+              throw new ApiError(403, "R169_VERIFIED_IDENTITY_REQUIRED", "予約の本人確認が完了していません。");
+            }
+            if (typeof body.service_id !== "string" || !/^[0-9a-f-]{36}$/i.test(body.service_id)) {
+              throw new ApiError(400, "R169_SERVICE_INVALID", "予約サービスが無効です。");
+            }
+            const start = validateTimestamp(body.requested_start_at, "予約希望日時");
+            assertThirtyMinuteSlot(start);
+            assertFutureAppointment(start);
+            const accepted = await gateway.atomicRequest({
+              office_id: proof.office_id, subject_id: proof.subject_id,
+              service_id: body.service_id, requested_start_at: start,
+              idempotency_key: key,
+            });
+            if (!accepted || accepted.ok !== true || accepted.status !== "pending" ||
+                typeof accepted.id !== "string" || !/^[0-9a-f-]{36}$/i.test(accepted.id) ||
+                Object.keys(accepted).some((k) => !["ok", "status", "id"].includes(k))) {
+              throw new ApiError(502, "R169_ATOMIC_RESPONSE_INVALID", "予約受付結果の確認ができません。");
+            }
+            return { status: 201, body: {
+              ok: true, status: "pending", request_id: accepted.id,
+              message: "面談希望を受け付けました。確定の連絡をお待ちください。",
+            } };
+          }
+          R169_BOOKING_HANDLER_PATCH_REFERENCE_DO_NOT_DEPLOY_js_END
+          cat > "$R169_TEMP/R169_PUBLIC_SAFE_QA.cjs" <<'R169_PUBLIC_SAFE_QA_cjs_END'
+          'use strict';
+          const fs=require('node:fs'),crypto=require('node:crypto'),vm=require('node:vm'),assert=require('node:assert/strict');
+          const dir=__dirname, original=fs.readFileSync(dir+'/R169_SYNTHETIC_LEGACY_WORKER_FIXTURE.js','utf8');
+          const candidate=fs.readFileSync(dir+'/R169_SYNTHETIC_CANDIDATE_DO_NOT_DEPLOY.js','utf8');
+          const old=fs.readFileSync(dir+'/R169_SYNTHETIC_BOOKING_HANDLER_ORIGINAL.js','utf8');
+          const patch=fs.readFileSync(dir+'/R169_BOOKING_HANDLER_PATCH_REFERENCE_DO_NOT_DEPLOY.js','utf8');
+          const blob=(v)=>crypto.createHash('sha256').update(v).digest('hex');
+          const TESTS=[];
+          const test=(name,fn)=>TESTS.push([name,fn]);
+          function error(status,code,msg){let e=new Error(msg||code);e.status=status;e.code=code;return e}
+          const SERVICE='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',REQUEST_ID='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+          const K='123e4567-e89b-42d3-a456-426614174000';
+          const FUTURE='2030-11-11T10:30:00+09:00';
+          let invocations=[];
+          function contextFor(opts={}) {
+            const body=opts.body===undefined?{service_id:SERVICE,requested_start_at:FUTURE}:opts.body;
+            const providedKey=opts.key===undefined?K:opts.key;
+            const header={get(name){if(name.toLowerCase()==='idempotency-key')return providedKey;
+              if(name.toLowerCase()==='x-line-id-token')return opts.lineCredential?'synthetic-bad':null;
+              return null;}};
+            const request={headers:header, method:'POST',body};
+            let dbWrites=0,atomicCalls=[], verifyCalls=0;
+            const proof={verified:true,kind:'client_contact',office_id:'office_A',subject_id:'subject_A',anti_abuse_verified:true,consent_verified:true,...(opts.proof||{})};
+            const gateway={office_id:'office_A',verify:async()=>{verifyCalls++;if(opts.verifyThrows)throw error(401,'VERIFIER_DOWN');return opts.proofNull?null:proof},atomicRequest:async(v)=>{atomicCalls.push(v);if(opts.atomicThrows)throw error(503,'DB_DOWN');return Object.prototype.hasOwnProperty.call(opts,'receipt')?opts.receipt:{ok:true,status:'pending',id:REQUEST_ID}},...(opts.gateway||{})};
+            const c={request,env:{},r169VerifiedAtomicBookingGateway:opts.noGateway?undefined:gateway};
+            const stubs={
+              readJson:async()=>body,
+              verifyTurnstile:async()=>true, getOffice:async()=>({id:'office_A',is_demo:true}),
+              requireOfficeRecord:async()=>({id:SERVICE,is_active:true,is_public:true,duration_minutes:30,channel_options:['online']}),
+              validateTimestamp:(value)=>{if(typeof value!=='string'||Number.isNaN(Date.parse(value)))throw error(400,'BAD_DATE');return value},
+              assertThirtyMinuteSlot:(value)=>{if(!/T\d{2}:(00|30):00/.test(value.replace(/([+-]\d\d:\d\d|Z)$/,'')))throw error(400,'BAD_GRID')},
+              assertFutureAppointment:(value)=>{if(Date.parse(value)<Date.parse('2029-01-01'))throw error(400,'PAST')},
+              rpc:async()=>true,
+              hasLineCredentials:()=>!!opts.lineCredential,
+              resolveMemberContext:async()=>{if(opts.lineCredential)throw error(401,'AUTH_INVALID');return null},
+              requiredText:(v)=>v||'Synthetic User',normalizePhone:()=> '09012345678',validateEmail:()=>'',
+              enumValue:(v)=>v||'online',optionalText:()=>null,makeCode:()=> 'APT-DEMO',
+              dbInsert:async()=>{dbWrites++;return[{id:REQUEST_ID,status:'requested',appointment_code:'APT-DEMO'}]},
+              scheduleAudit:()=>{},publicAppointment:(x)=>x,
+            };
+            return {c,stubs,gateway,get writes(){return dbWrites},get atomic(){return atomicCalls},get verified(){return verifyCalls}};
+          }
+          function makeRunner(fn,stubs){let ctx=vm.createContext({Headers,console,...stubs});const runner=vm.runInContext(`class ApiError extends Error { constructor(status,code,message){super(message);this.status=status;this.code=code;} }\n${fn}\nhandlePublicAppointmentCreate`,ctx,{timeout:2000});ctx.resolveMemberContext=vm.runInContext('async()=>{throw new ApiError(401,"AUTH_INVALID","Synthetic bad identity")}',ctx);return runner}
+          async function call(opts={}){const x=contextFor(opts);const f=makeRunner(patch,x.stubs);let result,err;try{result=await f(x.c)}catch(e){err=e}return {result,err,writes:x.writes,atomic:x.atomic,verified:x.verified};}
+          const deny=async (name,opts,code,status,stage='atomic')=>{const x=await call(opts);assert.equal(x.result,undefined);assert.equal(x.err?.code,code);assert.equal(x.err?.status,status);assert.equal(x.writes,0);if(stage==='pre')assert.equal(x.atomic.length,0);};
+          
+          test('sanitized synthetic legacy fixture integrity',()=>assert.equal(blob(original),'08bd21ed26b1d1c365b2a1932cffe6b1e709d3da300522b250e1488f5facad5c'));
+          test('sanitized synthetic handler extracted accurately',()=>assert.ok(original.includes(old)));
+          test('candidate changes ONLY one isolated booking handler',()=>assert.equal(candidate,original.replace(old,patch)));
+          test('synthetic legacy handler uses non-atomic insert',()=>assert.match(old,/dbInsert\(context\.env, "taxacc_appointments"/));
+          test('synthetic legacy handler contains auth error anonymous fallback',()=>assert.match(old,/\[401, 403, 404\]\.includes\(error\.status\)\) return null/));
+          test('candidate never directly inserts booking',()=>assert.doesNotMatch(patch,/dbInsert\(/));
+          test('candidate never imports public synthetic key',()=>assert.doesNotMatch(patch,/R163|HS256|1234|sb_service|SERVICE_ROLE/i));
+          test('candidate does not trust URL/query identity',()=>assert.doesNotMatch(patch,/searchParams|get\('office_id'\)|body\.office_id\s*\|\|/));
+          test('candidate requires server injected verified adapter',()=>assert.match(patch,/context\.r169VerifiedAtomicBookingGateway/));
+          test('candidate requires verified booking idempotency',()=>assert.match(patch,/headers\.get\("Idempotency-Key"\)/));
+          test('candidate never returns confirmed status',()=>assert.doesNotMatch(patch,/status:\s*"confirmed"/));
+          test('candidate preserves synthetic route dispatch',()=>assert.equal((candidate.match(/if \(request\.method === "POST" && path === "\/api\/public\/appointments"\)/g)||[]).length,1));
+          test('candidate is valid source with single public appointment handler',()=>{new vm.Script(candidate.replace(/^export default\s*\{/m,'const R169_EXTERNAL_ENTRY = {'));assert.equal((candidate.match(/async function handlePublicAppointmentCreate\(/g)||[]).length,1)});
+          test('synthetic original anonymous request inserts without identity',async()=>{const x=contextFor({lineCredential:false});const f=makeRunner(old,x.stubs);const out=await f(x.c);assert.equal(out.status,201);assert.equal(x.writes,1)});
+          test('synthetic original bad identity falls back anonymous and inserts',async()=>{const x=contextFor({lineCredential:true});const f=makeRunner(old,x.stubs);const out=await f(x.c);assert.equal(out.status,201);assert.equal(x.writes,1)});
+          test('synthetic original twice can insert twice without key',async()=>{const x=contextFor({lineCredential:false,key:null});const f=makeRunner(old,x.stubs);await f(x.c);await f(x.c);assert.equal(x.writes,2)});
+          test('candidate absent adapter fails closed',async()=>deny('absent',{noGateway:true},'R169_VERIFIED_ATOMIC_BACKEND_MISSING',503,'pre'));
+          test('candidate missing verifier fails closed',async()=>deny('missing verifier',{gateway:{verify:undefined}},'R169_VERIFIED_ATOMIC_BACKEND_MISSING',503,'pre'));
+          test('candidate missing atomic service fails closed',async()=>deny('missing atomic',{gateway:{atomicRequest:undefined}},'R169_VERIFIED_ATOMIC_BACKEND_MISSING',503,'pre'));
+          for(const [nm,k] of [['missing',null],['short','short'],['random text','hello_world'],['wrong version','123e4567-e89b-12d3-a456-426614174000'],['wrong variant','123e4567-e89b-42d3-0456-426614174000'],['header whitespace',' '+K],['header injection','aaa\r\nbbb'],['uuid incomplete',K.slice(0,25)]])test('deny invalid idempotency '+nm,async()=>deny(nm,{key:k},'R169_IDEMPOTENCY_KEY_REQUIRED',400,'pre'));
+          for(const [nm,body] of [['null',null],['array',[]],['office override',{service_id:SERVICE,requested_start_at:FUTURE,office_id:'office_B'}],['client override',{service_id:SERVICE,requested_start_at:FUTURE,client_id:'client_X'}],['role override',{service_id:SERVICE,requested_start_at:FUTURE,role:'admin'}],['status confirmed',{service_id:SERVICE,requested_start_at:FUTURE,status:'confirmed'}],['resource override',{service_id:SERVICE,requested_start_at:FUTURE,resource_id:SERVICE}],['line id override',{service_id:SERVICE,requested_start_at:FUTURE,line_user_id:'forged'}],['personal email',{service_id:SERVICE,requested_start_at:FUTURE,requester_email:'test@example.test'}],['unknown field',{service_id:SERVICE,requested_start_at:FUTURE,unexpected:'a'}]])test('deny untrusted body '+nm,async()=>deny(nm,{body},'R169_BODY_SCOPE_DENIED',400,'pre'));
+          for(const [nm,proof] of [['unverified',{verified:false}],['role unknown',{kind:'owner'}],['wrong office',{office_id:'office_B'}],['missing office',{office_id:''}],['no subject',{subject_id:''}],['anti abuse absent',{anti_abuse_verified:false}],['consent absent',{consent_verified:false}]])test('deny invalid server proof '+nm,async()=>deny(nm,{proof},'R169_VERIFIED_IDENTITY_REQUIRED',403,'pre'));
+          test('deny missing service',async()=>deny('missing service',{body:{}},'R169_SERVICE_INVALID',400,'pre'));
+          test('deny null server proof',async()=>deny('null',{proofNull:true},'R169_VERIFIED_IDENTITY_REQUIRED',403,'pre'));
+          test('deny verifier error',async()=>deny('verifier error',{verifyThrows:true},'VERIFIER_DOWN',401,'pre'));
+          for(const [nm,service] of [['blank',''],['text','fake'],['SQL string',"abc';DROP TABLE;--"]])test('deny unapproved service '+nm,async()=>deny(nm,{body:{service_id:service,requested_start_at:FUTURE}},'R169_SERVICE_INVALID',400,'pre'));
+          test('reject missing start date',async()=>deny('missing',{body:{service_id:SERVICE}},'BAD_DATE',400,'pre'));
+          test('reject malformed start date',async()=>deny('bad',{body:{service_id:SERVICE,requested_start_at:'not a date'}},'BAD_DATE',400,'pre'));
+          test('reject quarter hour',async()=>deny('quarter',{body:{service_id:SERVICE,requested_start_at:'2030-11-11T10:15:00+09:00'}},'BAD_GRID',400,'pre'));
+          test('reject stale booking date',async()=>deny('stale',{body:{service_id:SERVICE,requested_start_at:'2020-01-01T10:00:00+09:00'}},'PAST',400,'pre'));
+          test('reject backend down without fallback to insert',async()=>deny('backend down',{atomicThrows:true},'DB_DOWN',503));
+          for(const [nm,receipt] of [['null',null],['false',{ok:false,status:'pending',id:REQUEST_ID}],['confirmed',{ok:true,status:'confirmed',id:REQUEST_ID}],['no id',{ok:true,status:'pending'}],['bad id',{ok:true,status:'pending',id:'1234'}],['leak subject',{ok:true,status:'pending',id:REQUEST_ID,subject_id:'secret'}],['leak phone',{ok:true,status:'pending',id:REQUEST_ID,requester_phone:'090xxxxxxxx'}],['no status',{ok:true,id:REQUEST_ID}]])test('reject invalid atomic receipt '+nm,async()=>deny(nm,{receipt},'R169_ATOMIC_RESPONSE_INVALID',502));
+          test('happy path sends only verified identifiers and key',async()=>{const o=await call();assert.equal(o.err,undefined);assert.equal(o.result.status,201);assert.equal(o.result.body.status,'pending');assert.deepEqual(Object.keys(o.result.body).sort(),['message','ok','request_id','status']);assert.equal(o.result.body.request_id,REQUEST_ID);assert.equal(o.writes,0);assert.equal(o.verified,1);assert.equal(o.atomic.length,1);assert.equal(o.atomic[0].office_id,'office_A');assert.equal(o.atomic[0].subject_id,'subject_A');assert.equal(o.atomic[0].idempotency_key,K)});
+          test('verified guest proof can use same trusted-only bridge contract',async()=>{const o=await call({proof:{kind:'verified_guest'}});assert.equal(o.err,undefined);assert.equal(o.result.body.status,'pending')});
+          test('client claim body cannot influence trusted office',async()=>{const o=await call({proof:{office_id:'office_B'}});assert.equal(o.err?.code,'R169_VERIFIED_IDENTITY_REQUIRED')});
+          (async()=>{let n=0;for(const [name,fn] of TESTS){await fn();n++;console.log(`R169_PASS_${String(n).padStart(2,'0')}: ${name}`)}console.log(`R169_SUMMARY ${n} / ${TESTS.length} PASS`);console.log('R169_SANITIZED_GITHUB_REFERENCE_PASS: PRIVATE_WORKER_WITHHELD_RELEASE_HOLD')})().catch(e=>{console.error('R169_FAILED',e?.stack||String(e));process.exitCode=1});
+          R169_PUBLIC_SAFE_QA_cjs_END
+          printf '%s  %s\n' '979f8a90cad568ff031d3455a2045591f7a14e9e9149553797d77a801f5a1138' "$R169_TEMP/R169_BOOKING_HANDLER_PATCH_REFERENCE_DO_NOT_DEPLOY.js" | sha256sum --check --status
+          printf '%s  %s\n' '88c0a5fc810273cd5c8448e0ae6e112e6a116e1d0bc6137b5a6e6a8f455c71be' "$R169_TEMP/R169_PUBLIC_SAFE_QA.cjs" | sha256sum --check --status
+          python3 - <<'PY_R169_SAFE_EXTRACT'
+          import pathlib,re,hashlib,os
+          p=pathlib.Path(os.environ['R169_TEMP'])
+          a=(p/'R169_SYNTHETIC_LEGACY_WORKER_FIXTURE.js').read_text()
+          patch=(p/'R169_BOOKING_HANDLER_PATCH_REFERENCE_DO_NOT_DEPLOY.js').read_text()
+          pattern=r'async function handlePublicAppointmentCreate\(context\) \{[\s\S]*?\n\}\n(?=\nasync function handlePublicInquiryCreate)'
+          m=re.search(pattern,a)
+          assert m is not None, 'R169_SANITIZED_FIXTURE_LAYOUT_ERROR'
+          old=m.group()
+          assert hashlib.sha256(old.encode()).hexdigest()=='773293a7a5a17af463d56c68bfeb1140acf2deab0d904112807a7240d5ef2c30'
+          (p/'R169_SYNTHETIC_BOOKING_HANDLER_ORIGINAL.js').write_text(old)
+          new=a[:m.start()]+patch+a[m.end():]
+          assert hashlib.sha256(new.encode()).hexdigest()=='f192a0d80972237b2e7a3065d5d1f142e73fa7f06cc072c6b2ccaddea00d67db','R169_SANITIZED_CANDIDATE_DRIFT'
+          (p/'R169_SYNTHETIC_CANDIDATE_DO_NOT_DEPLOY.js').write_text(new)
+          print('R169_SANITIZED_CANDIDATE_INTEGRITY_PASS')
+          PY_R169_SAFE_EXTRACT
+          node --check "$R169_TEMP/R169_SYNTHETIC_CANDIDATE_DO_NOT_DEPLOY.js"
+          node "$R169_TEMP/R169_PUBLIC_SAFE_QA.cjs" | tee "$R169_TEMP/r169.log"
+          grep -Fx 'R169_SUMMARY 66 / 66 PASS' "$R169_TEMP/r169.log"
+          grep -Fx 'R169_SANITIZED_GITHUB_REFERENCE_PASS: PRIVATE_WORKER_WITHHELD_RELEASE_HOLD' "$R169_TEMP/r169.log"
+      - name: Report private source withheld and release HOLD
+        if: success()
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'R169_PUBLIC_SCOPE_END'
+          ## R169 Sanitary synthetic model / archived Worker audit is PRIVATE and NOT uploaded
+          - GitHub runs 66 checks on a newly authored **synthetic reproducer**, NOT on original R115 archived Worker bytes.
+          - Historical R115 Worker source was reviewed and locally tested in the owner's handoff context only; no archived Worker or full private source was embedded in this workflow.
+          - Synthetic model reproduces how identity errors becoming anonymous and direct inserts cause duplicate requests; the alternative fails closed when no server-injected trusted verifier and atomic backend exists.
+          - Any mock verifier and mock DB are **not** production identity or atomic transaction evidence.
+          - Archived production Worker state, real Supabase schema, existing public form, validated guest identity, rate limits, consent, anti-abuse and deployment all remain unverified/unfinished.
+          - Only staging read-only source checkout, no real network/customer data; 20 pinned GitHub blobs, no app.js, Worker, LINE or Supabase changes.
+          - Real-customer 18 gates still 0/18 NOT_TESTED. Commercial production release HOLD pending separate evidence and explicit consent.
+          R169_PUBLIC_SCOPE_END
