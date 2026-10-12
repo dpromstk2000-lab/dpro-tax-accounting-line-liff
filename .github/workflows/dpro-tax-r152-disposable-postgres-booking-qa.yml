@@ -1,0 +1,349 @@
+name: DPRO TAX R152 Disposable PostgreSQL Booking QA (Reference Only)
+
+on:
+  push:
+    branches: [tax-r7-staging-20261010]
+    paths:
+      - '.github/workflows/dpro-tax-r152-disposable-postgres-booking-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dpro-tax-r152-disposable-postgres-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  disposable-postgres-qa:
+    if: ${{ github.repository == 'dpromstk2000-lab/dpro-tax-accounting-line-liff' && github.ref == 'refs/heads/tax-r7-staging-20261010' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      pg:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: r152-synthetic-container-only
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    steps:
+      - name: Checkout pinned staging commit read-only
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Refuse to test on unexpected branch or modified R151 baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ github.ref }}" = 'refs/heads/tax-r7-staging-20261010'
+          test "$(git hash-object .github/workflows/dpro-tax-r151-staging-boundary-qa.yml)" = 'bd6a075f06f0692ff868067416afb5781faad6c1'
+          test "$(git hash-object config.js)" = 'da1876bae8333a3a10ee13495c0063ded0c2b351'
+          test "$(git hash-object app.js)" = '4c3475219e5c7fc9203ec5e5143d4f6eb8299423'
+          echo R152_STAGING_MAIN_ISOLATION_OK
+      - name: Create synthetic schema and exercise real PostgreSQL concurrency
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${{ job.services.pg.id }}"
+          test "${{ github.repository }}" = 'dpromstk2000-lab/dpro-tax-accounting-line-liff'
+          cat > "$RUNNER_TEMP/r152_disposable.sql" <<'R152_DISPOSABLE_SQL'
+          -- R152 disposable PostgreSQL17 reference only. DO NOT DEPLOY to shared Supabase.
+          -- Purpose: test transaction-level idempotency, confirmation overlaps and simulated row isolation.
+          -- The r152.office/r152.kind GUCs are test-only and NOT production authentication.
+          CREATE EXTENSION IF NOT EXISTS btree_gist;
+          CREATE SCHEMA r152;
+          CREATE ROLE r152_app NOLOGIN;
+          CREATE TABLE r152.bookings (
+            id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            office_id text NOT NULL,
+            client_id text NOT NULL,
+            staff_id text NOT NULL,
+            request_key text NOT NULL,
+            payload_hash text NOT NULL,
+            starts_at timestamptz NOT NULL,
+            ends_at timestamptz NOT NULL,
+            status text NOT NULL DEFAULT 'requested' CHECK (status IN ('requested','confirmed','cancelled')),
+            CONSTRAINT r152_end_after_start CHECK (ends_at > starts_at),
+            CONSTRAINT r152_30min_grid CHECK (MOD(EXTRACT(EPOCH FROM starts_at)::bigint,1800) = 0),
+            CONSTRAINT r152_allowed_durations CHECK (EXTRACT(EPOCH FROM (ends_at-starts_at)) IN (1800,3600,5400)),
+            CONSTRAINT r152_request_replay_once UNIQUE (office_id,request_key),
+            CONSTRAINT r152_no_confirmed_overlap
+              EXCLUDE USING gist (office_id WITH =, staff_id WITH =,
+                tstzrange(starts_at,ends_at,'[)') WITH &&)
+                WHERE (status='confirmed')
+          );
+          ALTER TABLE r152.bookings ENABLE ROW LEVEL SECURITY;
+          ALTER TABLE r152.bookings FORCE ROW LEVEL SECURITY;
+          CREATE POLICY r152_per_office_actor ON r152.bookings TO r152_app
+            USING (
+              office_id = current_setting('r152.office',true)
+              AND (
+                current_setting('r152.kind',true) IN ('staff','owner')
+                OR (current_setting('r152.kind',true) = 'client'
+                    AND client_id = current_setting('r152.actor',true))
+              )
+            )
+            WITH CHECK (
+              office_id = current_setting('r152.office',true)
+              AND (
+                current_setting('r152.kind',true) IN ('staff','owner')
+                OR (current_setting('r152.kind',true) = 'client'
+                    AND client_id = current_setting('r152.actor',true))
+              )
+            );
+          GRANT USAGE ON SCHEMA r152 TO r152_app;
+          GRANT SELECT, INSERT, UPDATE ON r152.bookings TO r152_app;
+          GRANT USAGE, SELECT ON SEQUENCE r152.bookings_id_seq TO r152_app;
+          
+          CREATE FUNCTION r152.request_slot(
+            p_office text, p_client text, p_staff text,
+            p_key text, p_hash text, p_start timestamptz, p_minutes integer
+          ) RETURNS bigint LANGUAGE plpgsql SECURITY INVOKER AS $$
+          DECLARE v_id bigint; v_end timestamptz;
+          BEGIN
+            IF coalesce(current_setting('r152.kind',true),'') NOT IN ('client','staff','owner')
+              OR p_office IS DISTINCT FROM current_setting('r152.office',true)
+              OR (current_setting('r152.kind',true) = 'client'
+                  AND p_client IS DISTINCT FROM current_setting('r152.actor',true))
+            THEN RAISE EXCEPTION 'R152_REQUEST_FORBIDDEN' USING ERRCODE='42501'; END IF;
+            IF p_minutes NOT IN (30,60,90) OR p_start <= clock_timestamp()
+               OR MOD(EXTRACT(EPOCH FROM p_start)::bigint,1800) <> 0
+            THEN RAISE EXCEPTION 'R152_BAD_SLOT' USING ERRCODE='22023'; END IF;
+            v_end := p_start + make_interval(mins=>p_minutes);
+            INSERT INTO r152.bookings (office_id,client_id,staff_id,request_key,payload_hash,starts_at,ends_at)
+              VALUES(p_office,p_client,p_staff,p_key,p_hash,p_start,v_end)
+              ON CONFLICT(office_id,request_key) DO NOTHING RETURNING id INTO v_id;
+            IF v_id IS NULL THEN
+              SELECT id INTO v_id FROM r152.bookings
+               WHERE office_id=p_office AND request_key=p_key AND client_id=p_client
+                 AND staff_id=p_staff AND payload_hash=p_hash
+                 AND starts_at=p_start AND ends_at=v_end;
+              IF v_id IS NULL THEN
+                RAISE EXCEPTION 'R152_REPLAY_PAYLOAD_MISMATCH' USING ERRCODE='23505';
+              END IF;
+            END IF;
+            RETURN v_id;
+          END $$;
+          
+          CREATE FUNCTION r152.confirm_slot(p_id bigint)
+          RETURNS bigint LANGUAGE plpgsql SECURITY INVOKER AS $$
+          DECLARE v_id bigint;
+          BEGIN
+            IF coalesce(current_setting('r152.kind',true),'') NOT IN ('staff','owner')
+              THEN RAISE EXCEPTION 'R152_CONFIRM_FORBIDDEN' USING ERRCODE='42501'; END IF;
+            UPDATE r152.bookings SET status='confirmed'
+             WHERE id=p_id AND office_id=current_setting('r152.office',true)
+               AND status='requested' RETURNING id INTO v_id;
+            IF v_id IS NULL THEN
+              RAISE EXCEPTION 'R152_CONFIRM_NOT_AVAILABLE' USING ERRCODE='42501';
+            END IF;
+            RETURN v_id;
+          END $$;
+          
+          CREATE FUNCTION r152.cancel_slot(p_id bigint)
+          RETURNS bigint LANGUAGE plpgsql SECURITY INVOKER AS $$
+          DECLARE v_id bigint;
+          BEGIN
+            IF coalesce(current_setting('r152.kind',true),'') NOT IN ('client','staff','owner')
+              THEN RAISE EXCEPTION 'R152_CANCEL_FORBIDDEN' USING ERRCODE='42501'; END IF;
+            UPDATE r152.bookings SET status='cancelled'
+             WHERE id=p_id AND office_id=current_setting('r152.office',true)
+               AND status IN ('requested','confirmed')
+               AND (current_setting('r152.kind',true) IN ('staff','owner')
+                    OR (current_setting('r152.kind',true)='client' AND status='requested'
+                       AND client_id=current_setting('r152.actor',true)))
+             RETURNING id INTO v_id;
+            IF v_id IS NULL THEN
+              RAISE EXCEPTION 'R152_CANCEL_NOT_ALLOWED' USING ERRCODE='42501';
+            END IF;
+            RETURN v_id;
+          END $$;
+          REVOKE ALL ON FUNCTION r152.request_slot(text,text,text,text,text,timestamptz,integer) FROM PUBLIC;
+          REVOKE ALL ON FUNCTION r152.confirm_slot(bigint) FROM PUBLIC;
+          REVOKE ALL ON FUNCTION r152.cancel_slot(bigint) FROM PUBLIC;
+          GRANT EXECUTE ON FUNCTION r152.request_slot(text,text,text,text,text,timestamptz,integer) TO r152_app;
+          GRANT EXECUTE ON FUNCTION r152.confirm_slot(bigint) TO r152_app;
+          GRANT EXECUTE ON FUNCTION r152.cancel_slot(bigint) TO r152_app;
+          R152_DISPOSABLE_SQL
+          cat > "$RUNNER_TEMP/r152_disposable_qa.py" <<'R152_DISPOSABLE_PY'
+          #!/usr/bin/env python3
+          """R152 TEST ONLY: disposable Postgres in GitHub Actions. No Supabase/LINE/Worker network."""
+          from __future__ import annotations
+          from concurrent.futures import ThreadPoolExecutor
+          from datetime import datetime, timedelta, timezone
+          import os
+          import subprocess
+          import sys
+          
+          CONTAINER = os.environ.get('R152_PG_CONTAINER', '')
+          if not CONTAINER or not CONTAINER.isalnum():
+              raise SystemExit('R152_DENIED: disposable service container ID required')
+          OK = 0
+          
+          def quote(value):
+              return "'" + str(value).replace("'", "''") + "'"
+          
+          def sql(query, office=None, kind=None, actor=None, should_pass=True, error=None):
+              prefix = ''
+              if office is not None:
+                  prefix += "SET ROLE r152_app;\n"
+                  prefix += "SELECT set_config('r152.office'," + quote(office) + ",false);\n"
+                  prefix += "SELECT set_config('r152.kind'," + quote(kind) + ",false);\n"
+                  prefix += "SELECT set_config('r152.actor'," + quote(actor or '') + ",false);\n"
+              result = subprocess.run(
+                  ['docker','exec','-i',CONTAINER,'psql','-X','-A','-t',
+                   '-v','ON_ERROR_STOP=1','-U','postgres','-d','postgres'],
+                  input=prefix + query + '\n', text=True, capture_output=True, timeout=65)
+              combined = result.stdout + '\n' + result.stderr
+              if should_pass != (result.returncode == 0):
+                  raise AssertionError('SQL result unexpected: '+combined[-1000:])
+              if error and error not in combined:
+                  raise AssertionError('Missing expected rejection '+error+': '+combined[-600:])
+              return result.stdout.strip().splitlines()[-1] if result.returncode == 0 and result.stdout.strip() else combined
+          
+          def pass_case(name, assertion=True):
+              global OK
+              if not assertion:
+                  raise AssertionError(name)
+              OK += 1
+              print(f'PASS {OK:02d}: {name}', flush=True)
+          
+          def do(office,kind,actor,statement,**kwargs):
+              return sql(statement,office,kind,actor,**kwargs)
+          
+          def book(office,client,staff,key,start,duration=30,hash_value=None,kind='client',actor=None,**kwargs):
+              payload = hash_value or 'v1-' + key
+              text = f"SELECT r152.request_slot({quote(office)},{quote(client)},{quote(staff)},{quote(key)},{quote(payload)},{quote(start.isoformat())}::timestamptz,{duration});"
+              return do(office,kind,actor or client,text,**kwargs)
+          
+          def confirm(office,bid,kind='staff',actor='staff-1',**kwargs):
+              return do(office,kind,actor,f'SELECT r152.confirm_slot({int(bid)});',**kwargs)
+          
+          def cancel(office,bid,kind='staff',actor='staff-1',**kwargs):
+              return do(office,kind,actor,f'SELECT r152.cancel_slot({int(bid)});',**kwargs)
+          
+          def main():
+              t0 = (datetime.now(timezone.utc) + timedelta(days=15)).replace(minute=0,second=0,microsecond=0) + timedelta(hours=1)
+              later = lambda d=0,m=0:t0+timedelta(days=d,minutes=m)
+              # Explicitly use a role without tenant identity: no rows should leak.
+              pass_case('unscoped read sees no rows', sql('SET ROLE r152_app; SELECT count(*) FROM r152.bookings;') == '0')
+              a = book('office-A','client-1','staff-A','request-1',later())
+              pass_case('first request inserted',a.isdigit())
+              pass_case('identical retry returns identical request',book('office-A','client-1','staff-A','request-1',later())==a)
+              book('office-A','client-1','staff-A','request-1',later(),hash_value='different',should_pass=False,error='R152_REPLAY_PAYLOAD_MISMATCH')
+              pass_case('same key with changed payload rejected')
+              book('office-A','client-2','staff-A','request-1',later(),should_pass=False,error='R152_REPLAY_PAYLOAD_MISMATCH')
+              pass_case('same key with different client rejected')
+              book('office-A','client-1','staff-A','off-grid',later(m=15),should_pass=False,error='R152_BAD_SLOT')
+              pass_case('15-minute start rejected')
+              book('office-A','client-1','staff-A','off-length',later(d=1),duration=45,should_pass=False,error='R152_BAD_SLOT')
+              pass_case('45-minute duration rejected')
+              book('office-A','client-1','staff-A','past',t0-timedelta(days=45),should_pass=False,error='R152_BAD_SLOT')
+              pass_case('past appointment rejected')
+              book('office-B','client-1','staff-A','b-impostor',later(),kind='staff',actor='staff-1',should_pass=True)
+              pass_case('separate office can create request in its own scope')
+              pass_case('office B cannot read office A request',do('office-B','staff','staff-1',f'SELECT count(*) FROM r152.bookings WHERE id={a};')=='0')
+              pass_case('different client cannot view same-office row',do('office-A','client','client-2',f'SELECT count(*) FROM r152.bookings WHERE id={a};')=='0')
+              pass_case('own client can view own pending row',do('office-A','client','client-1',f'SELECT count(*) FROM r152.bookings WHERE id={a};')=='1')
+              book('office-A','client-2','staff-A','bad-client',later(),kind='client',actor='client-1',should_pass=False,error='R152_REQUEST_FORBIDDEN')
+              pass_case('client cannot submit as another client')
+              book('office-B','client-1','staff-A','bad-office',later(),kind='staff',actor='staff-1',should_pass=True)
+              pass_case('own office B submission allowed')
+              do('office-B','staff','staff-1',f'UPDATE r152.bookings SET office_id=\'office-C\' WHERE id=(SELECT min(id) FROM r152.bookings);',should_pass=False,error='row-level security')
+              pass_case('tenant reassignment denied by RLS')
+              confirm('office-A',a,kind='client',actor='client-1',should_pass=False,error='R152_CONFIRM_FORBIDDEN')
+              pass_case('client cannot confirm')
+              confirm('office-B',a,should_pass=False,error='R152_CONFIRM_NOT_AVAILABLE')
+              pass_case('other office cannot confirm')
+              pass_case('staff can confirm own office request',confirm('office-A',a)==a)
+              confirm('office-A',a,should_pass=False,error='R152_CONFIRM_NOT_AVAILABLE')
+              pass_case('already confirmed request cannot confirm twice')
+              cancel('office-A',a,kind='client',actor='client-1',should_pass=False,error='R152_CANCEL_NOT_ALLOWED')
+              pass_case('client cannot cancel confirmed appointment')
+              cancel('office-B',a,should_pass=False,error='R152_CANCEL_NOT_ALLOWED')
+              pass_case('other office cannot cancel')
+              pass_case('office staff cancellation works',cancel('office-A',a)==a)
+              cancel('office-A',a,should_pass=False,error='R152_CANCEL_NOT_ALLOWED')
+              pass_case('cancellation not applied twice')
+              # Real PostgreSQL concurrent UPDATE with EXCLUDE USING gist, not SQLite approximation.
+              ids=[book('office-A','client-1','staff-R',f'race-{i}',later(d=3)) for i in range(8)]
+              pass_case('eight independent pending requests saved',len(set(ids))==8)
+              # Race operations produce expected constraint violations for losers.
+              def race(bid):
+                  try:
+                      confirm('office-A',bid)
+                      return 'confirmed'
+                  except AssertionError as ex:
+                      if 'conflicting key value violates exclusion constraint' not in str(ex):
+                          raise
+                      return 'overlap_rejected'
+              with ThreadPoolExecutor(max_workers=8) as ex:
+                  results=list(ex.map(race,ids))
+              pass_case('exactly one of eight concurrent confirms succeeds',results.count('confirmed')==1)
+              pass_case('seven concurrent overlaps rejected by PostgreSQL',results.count('overlap_rejected')==7)
+              pass_case('database holds one confirmed appointment in contested slot',do('office-A','staff','staff-1',"SELECT count(*) FROM r152.bookings WHERE staff_id='staff-R' AND status='confirmed';")=='1')
+              winner=ids[results.index('confirmed')]
+              pass_case('cancelling winner releases occupied slot',cancel('office-A',winner)==winner)
+              another=ids[(results.index('confirmed')+1)%8]
+              pass_case('previously conflicted request can confirm after cancellation',confirm('office-A',another)==another)
+              # Adjacent 60/90-minute slots, overlapping requests, distinct staff and distinct office.
+              longid=book('office-A','client-1','staff-L','long-60',later(d=4),60)
+              pass_case('60-minute request can be confirmed',confirm('office-A',longid)==longid)
+              thirty=book('office-A','client-1','staff-L','overlap-half',later(d=4,m=30))
+              confirm('office-A',thirty,should_pass=False,error='conflicting key value violates exclusion constraint')
+              pass_case('30-minute request overlapping 60-minute confirm denied')
+              adjacent=book('office-A','client-1','staff-L','adjacent-60',later(d=4,m=60))
+              pass_case('adjacent 30-minute slot allowed',confirm('office-A',adjacent)==adjacent)
+              ninety=book('office-A','client-1','staff-N','long-90',later(d=5),90)
+              pass_case('90-minute request can be confirmed',confirm('office-A',ninety)==ninety)
+              o90=book('office-A','client-1','staff-N','overlap-ninety',later(d=5,m=60))
+              confirm('office-A',o90,should_pass=False,error='conflicting key value violates exclusion constraint')
+              pass_case('overlap in final 30 minutes of 90-minute slot denied')
+              a90=book('office-A','client-1','staff-N','adjacent-ninety',later(d=5,m=90))
+              pass_case('at 90-minute end boundary a new slot confirms',confirm('office-A',a90)==a90)
+              other_staff=book('office-A','client-1','staff-OTHER','other-staff-same-slot',later(d=5),90)
+              pass_case('different staff may confirm simultaneous office slot',confirm('office-A',other_staff)==other_staff)
+              other_office=book('office-B','client-1','staff-N','other-office-same-slot',later(d=5),90)
+              pass_case('different office may confirm same staff ID and time',confirm('office-B',other_office)==other_office)
+              # Client's own pending request can be withdrawn, leaving no bookable confirmed slot.
+              pending=book('office-A','client-1','staff-Q','withdraw-pending',later(d=6))
+              pass_case('client may withdraw own pending request',cancel('office-A',pending,kind='client',actor='client-1')==pending)
+              pending_other=book('office-A','client-2','staff-Q','withdraw-other',later(d=6))
+              cancel('office-A',pending_other,kind='client',actor='client-1',should_pass=False,error='R152_CANCEL_NOT_ALLOWED')
+              pass_case('client cannot withdraw another client request')
+              # Guard that no fixture accidentally reaches external services.
+              pass_case('all tests use disposable local PostgreSQL service', bool(CONTAINER))
+              print(f'R152_DISPOSABLE_POSTGRES_QA {OK}/{OK} PASS; no production service accessed',flush=True)
+              if OK<35:
+                  raise AssertionError('insufficient SQL test coverage')
+          
+          if __name__=='__main__':
+              main()
+          R152_DISPOSABLE_PY
+          echo "abaea610ff7a6834511abff0a2e79416ea78dadfef76f4e6304483fe2babd9d9  $RUNNER_TEMP/r152_disposable.sql" | sha256sum -c -
+          echo "9e046277686eaa9fee70c3d826b39bcfda9d19df48ae5557529b64983ad59f00  $RUNNER_TEMP/r152_disposable_qa.py" | sha256sum -c -
+          python3 -m py_compile "$RUNNER_TEMP/r152_disposable_qa.py"
+          export R152_PG_CONTAINER="${{ job.services.pg.id }}"
+          docker exec -i "$R152_PG_CONTAINER" psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < "$RUNNER_TEMP/r152_disposable.sql"
+          python3 "$RUNNER_TEMP/r152_disposable_qa.py"
+          echo R152_DISPOSABLE_PG_GATE_PASS
+      - name: Report PASS as reference only, never production clearance
+        if: success()
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## R152 disposable PostgreSQL reference gate PASS (not production)
+          - Actual PostgreSQL 17 temporary container used; destroyed at job end.
+          - 40 reference checks: RLS actor/office simulation, 8 simultaneous confirmation requests, 30/60/90-minute overlaps, replay/idempotency and cancellation.
+          - No real Supabase credentials, real clients, production Worker, LINE or external customer data.
+          - Claims are set with synthetic test-only GUCs; **NOT JWT/MFA/production RLS verification**.
+          - Only .github/workflows was added; staging app/main were not rewritten.
+          - Real tenant release remains **HOLD** until 18 commercial evidence gates pass.
+          EOF
