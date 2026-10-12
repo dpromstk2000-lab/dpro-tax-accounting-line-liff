@@ -1,0 +1,220 @@
+name: DPRO TAX R164 Public Booking Retry UI Contract Reference (Synthetic Only)
+
+on:
+  push:
+    branches: [tax-r7-staging-20261010]
+    paths:
+      - '.github/workflows/dpro-tax-r164-ui-retry-bridge-contract-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dpro-tax-r164-reference-only-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  synthetic-ui-retry-contract:
+    if: ${{ github.repository == 'dpromstk2000-lab/dpro-tax-accounting-line-liff' && github.ref == 'refs/heads/tax-r7-staging-20261010' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout immutable staging revision without push credentials
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify source SHA pins and disclose real UI gaps
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'dpromstk2000-lab/dpro-tax-accounting-line-liff'
+          test "$GITHUB_REF" = 'refs/heads/tax-r7-staging-20261010'
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}" && test -z "${LINE_CHANNEL_SECRET:-}" || { echo 'R164_UNEXPECTED_PRODUCTION_SECRET'; exit 1; }
+          test "$(git hash-object app.js)" = "4c3475219e5c7fc9203ec5e5143d4f6eb8299423" || { echo "R164_PROTECTED_DRIFT: app.js"; exit 1; }
+          test "$(git hash-object config.js)" = "da1876bae8333a3a10ee13495c0063ded0c2b351" || { echo "R164_PROTECTED_DRIFT: config.js"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r161-disposable-booking-atomicity-qa.yml)" = "7ae80a66d01c45e5bb2a8debfc5d0a4b0be5a838" || { echo "R164_PROTECTED_DRIFT: .github/workflows/dpro-tax-r161-disposable-booking-atomicity-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r162-booking-bridge-contract-qa.yml)" = "ebc86c4e716f79b159cadac3b3b5e115934114f1" || { echo "R164_PROTECTED_DRIFT: .github/workflows/dpro-tax-r162-booking-bridge-contract-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r163-guest-capability-loopback-qa.yml)" = "9a20d807bb0f47f9016e0609f2e04af7e35a2210" || { echo "R164_PROTECTED_DRIFT: .github/workflows/dpro-tax-r163-guest-capability-loopback-qa.yml"; exit 1; }
+          node --check app.js
+          node --check config.js
+          node --check R117_DEMO_engine.js
+          # Real R105 staging UI currently POSTs without an idempotency key; fail if unknown drift is introduced.
+          grep -Fq 'api("/api/public/appointments", { method: "POST", body: values' app.js
+          grep -Fq 'TAX_R105_STAGING_READ_ONLY: true' config.js
+          if grep -Fq 'Idempotency-Key' app.js; then echo 'R164_LEGACY_UI_CHANGED_AUDIT_REQUIRED'; exit 1; fi
+          echo R164_REAL_UI_IDEMPOTENCY_GAP_NOT_INTEGRATED
+      - name: Run isolated retry controller contract without outbound network
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/R164_BOOKING_UI_RETRY_REFERENCE_DO_NOT_DEPLOY.mjs" <<'R164_JS_REFERENCE_EOF'
+          /* R164 OFFLINE REFERENCE ONLY. No browser, network, storage, credentials, or production integration. */
+          export function createSyntheticBookingController({ transport, newKey, syntheticOnly = false } = {}) {
+            if (syntheticOnly !== true) throw new Error('R164_SYNTHETIC_ONLY');
+            if (typeof transport !== 'function' || typeof newKey !== 'function') throw new TypeError('R164_DEPENDENCIES_REQUIRED');
+            let current = null;
+            let inFlight = null;
+            const VALID_FIELDS = new Set(['service_id','requested_start_at','appointment_channel','duration_minutes']);
+            const makeBody = (raw) => {
+              if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new TypeError('BOOKING_BODY_REQUIRED');
+              if (Object.keys(raw).some(k => !VALID_FIELDS.has(k))) throw new Error('UNTRUSTED_FIELD');
+              const { service_id, requested_start_at, appointment_channel, duration_minutes } = raw;
+              if (typeof service_id !== 'string' || !/^[A-Za-z0-9_-]{3,60}$/.test(service_id)) throw new Error('SERVICE_INVALID');
+              if (typeof requested_start_at !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:(?:00|30):00\+09:00$/.test(requested_start_at)) throw new Error('START_FORMAT_INVALID');
+              const d = new Date(requested_start_at);
+              if (!Number.isFinite(d.getTime()) || d.toISOString() !== new Date(d.getTime()).toISOString() ||
+                  new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d).length === 0) throw new Error('START_INVALID');
+              // Round-trip validation rejects JS Date normalization of invalid calendar dates.
+              const [ymd, hm] = requested_start_at.split('T');
+              const dateParts = new Intl.DateTimeFormat('en-US', { timeZone:'Asia/Tokyo', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hourCycle:'h23' }).formatToParts(d);
+              const parts = Object.fromEntries(dateParts.filter(x => x.type !== 'literal').map(x => [x.type,x.value]));
+              if (`${parts.year}-${parts.month}-${parts.day}` !== ymd || `${parts.hour}:${parts.minute}` !== hm.slice(0,5)) throw new Error('START_NONEXISTENT');
+              if (!['online','office','phone'].includes(appointment_channel)) throw new Error('CHANNEL_INVALID');
+              if (![30,60,90].includes(duration_minutes) || typeof duration_minutes !== 'number') throw new Error('DURATION_INVALID');
+              return Object.freeze({ service_id, requested_start_at, appointment_channel, duration_minutes });
+            };
+            function view() { return Object.freeze({ phase: current?.phase || 'idle', hasPendingIntent: !!current, busy: !!inFlight }); }
+            function resetAfterDefinitiveRejection() {
+              if (inFlight) throw new Error('STILL_SENDING');
+              if (!current || current.phase !== 'rejected') throw new Error('RESET_NOT_SAFE');
+              current = null;
+            }
+            async function submit(raw) {
+              // A double click shares the exact in-flight request, without parsing changed UI fields.
+              if (inFlight) return inFlight;
+              const body = makeBody(raw);
+              const fingerprint = JSON.stringify(body); // Memory only; never log/store/transmit fingerprint.
+              if (current && current.fingerprint !== fingerprint) throw new Error('PREVIOUS_INTENT_UNRESOLVED');
+              if (current?.phase === 'acknowledged') return current.response;
+              if (current?.phase === 'rejected') throw new Error('DEFINITIVE_REJECTION_REQUIRES_RESET');
+              if (!current) {
+                const key = newKey();
+                if (typeof key !== 'string' || !/^[A-Za-z0-9_-]{20,128}$/.test(key)) throw new Error('UNSAFE_KEY');
+                current = { key, fingerprint, body, phase:'ready', response:null };
+              }
+              const intent = current;
+              intent.phase = 'submitting';
+              const run = (async () => {
+                try {
+                  // Transport is an injected fake; no real endpoint or Worker access.
+                  const response = await transport(Object.freeze({
+                    url:'/synthetic/r164/appointments',
+                    method:'POST',
+                    headers:Object.freeze({'Idempotency-Key':intent.key}),
+                    body:intent.body,
+                  }));
+                  if (!response || response.ok !== true || response.status !== 202 ||
+                      typeof response.request_id !== 'string' || !/^[A-Za-z0-9_-]{6,128}$/.test(response.request_id) ||
+                      response.booking_status !== 'pending' || response.office_id !== undefined ||
+                      response.client_id !== undefined || response.confirmed_start_at !== undefined) {
+                    throw new Error('RESPONSE_UNVERIFIED');
+                  }
+                  intent.response = Object.freeze({ request_id:response.request_id, booking_status:'pending', message:'面談希望を受け付けました。確定ではありません。' });
+                  intent.phase='acknowledged';
+                  return intent.response;
+                } catch (error) {
+                  // Timeout, failed parsing, and 5xx are ambiguous: server may have committed.
+                  // Never mint a second key for an unknown outcome.
+                  intent.phase = error?.definitive === true ? 'rejected' : 'unknown';
+                  throw error;
+                } finally { if (inFlight === run) inFlight = null; }
+              })();
+              inFlight = run;
+              return run;
+            }
+            return Object.freeze({ submit, view, resetAfterDefinitiveRejection });
+          }
+          R164_JS_REFERENCE_EOF
+          cat > "$RUNNER_TEMP/R164_BOOKING_UI_RETRY_QA.mjs" <<'R164_JS_QA_EOF'
+          import assert from 'node:assert/strict';
+          import { createSyntheticBookingController } from './R164_BOOKING_UI_RETRY_REFERENCE_DO_NOT_DEPLOY.mjs';
+          const BASE = Object.freeze({service_id:'service_001',requested_start_at:'2026-12-15T10:00:00+09:00',appointment_channel:'online',duration_minutes:30});
+          const TESTS=[];
+          function test(name, fn){ TESTS.push({name,fn}); }
+          const good=(id='REQ_000001')=>({ok:true,status:202,request_id:id,booking_status:'pending'});
+          let ctr=0;
+          function factory(transport=async()=>good()){
+           let calls=[], keys=[];
+           const c=createSyntheticBookingController({syntheticOnly:true,transport:async r=>{calls.push(r);return transport(r)},newKey:()=>{const k=`R164SYNTHETIC_${String(++ctr).padStart(16,'0')}`; keys.push(k);return k;}});
+           return {c,calls,keys};
+          }
+          const changed=(key,val)=>({...BASE,[key]:val});
+          const raises=(fn,regex)=>assert.rejects(fn,regex);
+          const bads=[
+           ['missing',null,/BOOKING_BODY_REQUIRED/],['array',[],/BOOKING_BODY_REQUIRED/],
+           ['extraneous office', {...BASE,office_id:'office-b'},/UNTRUSTED_FIELD/],
+           ['extraneous client', {...BASE,client_id:'client-a'},/UNTRUSTED_FIELD/],
+           ['extraneous role', {...BASE,role:'staff'},/UNTRUSTED_FIELD/],
+           ['extraneous status', {...BASE,status:'confirmed'},/UNTRUSTED_FIELD/],
+           ['extraneous phone', {...BASE,phone:'09012345678'},/UNTRUSTED_FIELD/],
+           ['extraneous bearer', {...BASE,token:'sample'},/UNTRUSTED_FIELD/],
+           ['bad service','a'],
+          ];
+          test('synthetic flag is mandatory',async()=>assert.throws(()=>createSyntheticBookingController({transport:()=>{},newKey:()=> 'x'.repeat(24)}),/R164_SYNTHETIC_ONLY/));
+          test('transport required',async()=>assert.throws(()=>createSyntheticBookingController({syntheticOnly:true,newKey:()=> 'x'.repeat(24)}),/R164_DEPENDENCIES_REQUIRED/));
+          test('random key maker required',async()=>assert.throws(()=>createSyntheticBookingController({syntheticOnly:true,transport:()=>{}}),/R164_DEPENDENCIES_REQUIRED/));
+          test('initial idle state',async()=>assert.deepEqual(factory().c.view(),{phase:'idle',hasPendingIntent:false,busy:false}));
+          test('first request creates pending receipt',async()=>{let {c,calls}=factory();let x=await c.submit(BASE);assert.equal(x.booking_status,'pending');assert.equal(calls.length,1)});
+          test('destination only synthetic loopback path',async()=>{let {c,calls}=factory();await c.submit(BASE);assert.equal(calls[0].url,'/synthetic/r164/appointments');assert.equal(calls[0].method,'POST')});
+          test('payload never contains client identity',async()=>{let {c,calls}=factory();await c.submit(BASE);assert.deepEqual(Object.keys(calls[0].body),['service_id','requested_start_at','appointment_channel','duration_minutes']);});
+          test('key sent in header not JSON body',async()=>{let {c,calls,keys}=factory();await c.submit(BASE);assert.equal(calls[0].headers['Idempotency-Key'],keys[0]);assert.equal(calls[0].body.idempotency_key,undefined)});
+          test('receipt never claims confirmed',async()=>{let {c}=factory();let x=await c.submit(BASE);assert.match(x.message,/確定ではありません/)});
+          test('successful retransmit makes no network call',async()=>{let {c,calls}=factory();let a=await c.submit(BASE),b=await c.submit(BASE);assert.strictEqual(a,b);assert.equal(calls.length,1)});
+          test('defensive returned object is frozen',async()=>{let {c}=factory();assert.ok(Object.isFrozen(await c.submit(BASE)));assert.ok(Object.isFrozen(c.view()))});
+          test('form values do not mutate after submission',async()=>{let {c,calls}=factory();let b={...BASE};await c.submit(b);b.service_id='evil';assert.equal(calls[0].body.service_id,'service_001')});
+          test('inflight double submit shares one network call',async()=>{let finish;let pending=new Promise(r=>finish=r);let {c,calls}=factory(async()=>pending);let a=c.submit(BASE),b=c.submit({...BASE});finish(good());let [x,y]=await Promise.all([a,b]);assert.deepEqual(x,y);assert.equal(calls.length,1)});
+          test('pending form edits during flight cannot trigger second submission',async()=>{let finish;let {c,calls}=factory(()=>new Promise(r=>finish=r));let a=c.submit(BASE),b=c.submit(changed('service_id','service_002'));finish(good());await Promise.all([a,b]);assert.equal(calls.length,1)});
+          test('inflight state accurately exposed',async()=>{let finish;let {c}=factory(()=>new Promise(r=>finish=r));let x=c.submit(BASE);assert.equal(c.view().phase,'submitting');assert.equal(c.view().busy,true);finish(good());await x;assert.equal(c.view().busy,false)});
+          test('offline transport error preserves retry intent',async()=>{let n=0;let {c,calls,keys}=factory(async()=>{if(++n===1)throw new Error('offline');return good()});await raises(()=>c.submit(BASE),/offline/);assert.equal(c.view().phase,'unknown');await c.submit({...BASE});assert.equal(calls[0].headers['Idempotency-Key'],calls[1].headers['Idempotency-Key']);assert.equal(keys.length,1)});
+          test('server may have committed after timeout; reuse key',async()=>{let n=0;let {c,calls}=factory(async()=>{if(!n++)throw new Error('timeout');return good()});await raises(()=>c.submit(BASE),/timeout/);await c.submit(BASE);assert.equal(calls.length,2);assert.equal(calls[0].headers['Idempotency-Key'],calls[1].headers['Idempotency-Key'])});
+          test('unknown outcome blocks changed service',async()=>{let {c}=factory(async()=>{throw new Error('timeout')});await raises(()=>c.submit(BASE),/timeout/);await raises(()=>c.submit(changed('service_id','service_002')),/PREVIOUS_INTENT_UNRESOLVED/)});
+          test('unknown outcome blocks changed start',async()=>{let {c}=factory(async()=>{throw new Error('timeout')});await raises(()=>c.submit(BASE),/timeout/);await raises(()=>c.submit(changed('requested_start_at','2026-12-16T10:00:00+09:00')),/PREVIOUS_INTENT_UNRESOLVED/)});
+          test('unknown outcome blocks changed channel',async()=>{let {c}=factory(async()=>{throw new Error('timeout')});await raises(()=>c.submit(BASE),/timeout/);await raises(()=>c.submit(changed('appointment_channel','phone')),/PREVIOUS_INTENT_UNRESOLVED/)});
+          test('unknown outcome blocks changed duration',async()=>{let {c}=factory(async()=>{throw new Error('timeout')});await raises(()=>c.submit(BASE),/timeout/);await raises(()=>c.submit(changed('duration_minutes',60)),/PREVIOUS_INTENT_UNRESOLVED/)});
+          test('unknown cannot silently reset',async()=>{let {c}=factory(async()=>{throw new Error('timeout')});await raises(()=>c.submit(BASE),/timeout/);assert.throws(()=>c.resetAfterDefinitiveRejection(),/RESET_NOT_SAFE/)});
+          test('definitive rejection can only reset explicitly',async()=>{let {c,keys}=factory(async()=>{throw Object.assign(new Error('rejected'),{definitive:true})});await raises(()=>c.submit(BASE),/rejected/);await raises(()=>c.submit(BASE),/DEFINITIVE_REJECTION_REQUIRES_RESET/);c.resetAfterDefinitiveRejection();assert.equal(c.view().phase,'idle');assert.equal(keys.length,1)});
+          test('rejected form can then make new request key',async()=>{let n=0;let {c,keys}=factory(async()=>{if(n++===0)throw Object.assign(new Error('bad'),{definitive:true});return good()});await raises(()=>c.submit(BASE),/bad/);c.resetAfterDefinitiveRejection();await c.submit(changed('service_id','service_002'));assert.equal(keys.length,2);assert.notEqual(keys[0],keys[1])});
+          test('key must be suitably long',async()=>{let c=createSyntheticBookingController({syntheticOnly:true,transport:async()=>good(),newKey:()=> 'abc'});await raises(()=>c.submit(BASE),/UNSAFE_KEY/)});
+          test('key rejects unsafe CRLF',async()=>{let c=createSyntheticBookingController({syntheticOnly:true,transport:async()=>good(),newKey:()=> 'a'.repeat(25)+'\r\n'});await raises(()=>c.submit(BASE),/UNSAFE_KEY/)});
+          test('key rejects non-string',async()=>{let c=createSyntheticBookingController({syntheticOnly:true,transport:async()=>good(),newKey:()=> 123});await raises(()=>c.submit(BASE),/UNSAFE_KEY/)});
+          for(const [name,obj,err] of bads.slice(0,8)) test('reject '+name,async()=>{let {c,calls}=factory();await raises(()=>c.submit(obj),err);assert.equal(calls.length,0)});
+          test('reject bad service',async()=>{let {c,calls}=factory();await raises(()=>c.submit(changed('service_id','a')),/SERVICE_INVALID/);assert.equal(calls.length,0)});
+          const cases=[
+           ['empty start','',/START_FORMAT_INVALID/],['no timezone','2026-12-15T10:00:00',/START_FORMAT_INVALID/],['wrong timezone','2026-12-15T10:00:00Z',/START_FORMAT_INVALID/],
+           ['quarter hour','2026-12-15T10:15:00+09:00',/START_FORMAT_INVALID/],['seconds','2026-12-15T10:00:03+09:00',/START_FORMAT_INVALID/],
+           ['nonexistent date','2026-02-30T10:00:00+09:00',/START_NONEXISTENT/],
+           ];
+          for (const [label,val,err] of cases) test('reject '+label,async()=>{let {c,calls}=factory();await raises(()=>c.submit(changed('requested_start_at',val)),err);assert.equal(calls.length,0)});
+          for (const [label,field,val,error] of [['invalid channel','appointment_channel','offsite',/CHANNEL_INVALID/],['bad duration','duration_minutes',15,/DURATION_INVALID/],['string duration','duration_minutes','30',/DURATION_INVALID/]]) test('reject '+label,async()=>{let {c,calls}=factory();await raises(()=>c.submit(changed(field,val)),error);assert.equal(calls.length,0)});
+          const rejects=[['null',null],['false',false],['wrong status',{...good(),status:200}],['confirmed',{...good(),booking_status:'confirmed'}],['missing id',{ok:true,status:202,booking_status:'pending'}],['leaks office',{...good(),office_id:'office-a'}],['leaks client',{...good(),client_id:'client-a'}],['leaks confirmed time',{...good(),confirmed_start_at:BASE.requested_start_at}],['bad request id',{...good(),request_id:'x'}]];
+          for(const [label,result] of rejects) test('reject malformed response '+label,async()=>{let {c,keys}=factory(async()=>result);await raises(()=>c.submit(BASE),/RESPONSE_UNVERIFIED/);assert.equal(c.view().phase,'unknown');assert.equal(keys.length,1)});
+          test('retry after malformed response keeps original key',async()=>{let n=0;let {c,calls,keys}=factory(async()=> n++?good():null);await raises(()=>c.submit(BASE),/RESPONSE_UNVERIFIED/);await c.submit(BASE);assert.equal(keys.length,1);assert.equal(calls[0].headers['Idempotency-Key'],calls[1].headers['Idempotency-Key'])});
+          test('recovery returns acknowledged state',async()=>{let n=0;let {c}=factory(async()=> n++?good():Promise.reject(new Error('offline')));await raises(()=>c.submit(BASE),/offline/);await c.submit(BASE);assert.equal(c.view().phase,'acknowledged');assert.equal(c.view().busy,false)});
+          test('failed transport does not log PII',async()=>{const old=console.log;let seen=[];console.log=(...args)=>seen.push(args);try{let {c}=factory(async()=>{throw new Error('offline')});await raises(()=>c.submit(BASE),/offline/)}finally{console.log=old}assert.equal(seen.length,0)});
+          test('new controller starts with no previous key (no persistent storage)',async()=>{let a=factory();await a.c.submit(BASE);let b=factory();assert.equal(b.c.view().phase,'idle');assert.equal(b.keys.length,0)});
+          async function main(){let n=0;for (const t of TESTS){try{await t.fn();console.log(`R164_PASS_${String(++n).padStart(2,'0')}: ${t.name}`)}catch(e){console.error(`R164_FAIL_${String(n+1).padStart(2,'0')}: ${t.name}`);throw e}}console.log(`R164_SUMMARY ${n} / ${TESTS.length} PASS`);if(n!==TESTS.length)process.exitCode=1}
+          await main();
+          R164_JS_QA_EOF
+          printf '%s  %s\n' '22867f8510dc97110041f8ee6f246c70caaf684da7a212172b5b6bb436a58827' "$RUNNER_TEMP/R164_BOOKING_UI_RETRY_REFERENCE_DO_NOT_DEPLOY.mjs" | sha256sum --check --status
+          printf '%s  %s\n' '4dbb26ecb426b9df20f1eb586f41b4397164ea99e7ee6effcf460e0f46576a08' "$RUNNER_TEMP/R164_BOOKING_UI_RETRY_QA.mjs" | sha256sum --check --status
+          node --check "$RUNNER_TEMP/R164_BOOKING_UI_RETRY_REFERENCE_DO_NOT_DEPLOY.mjs"
+          node --check "$RUNNER_TEMP/R164_BOOKING_UI_RETRY_QA.mjs"
+          (cd "$RUNNER_TEMP" && node R164_BOOKING_UI_RETRY_QA.mjs) | tee "$RUNNER_TEMP/R164.log"
+          grep -Fx 'R164_SUMMARY 58 / 58 PASS' "$RUNNER_TEMP/R164.log"
+          echo R164_SYNTHETIC_BOOKING_UI_RETRY_CONTRACT_PASS_COMMERCIAL_RELEASE_HOLD
+      - name: Document reference-only outcomes and release blockers
+        if: success()
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'R164_END_SCOPE'
+          ## R164 synthetic booking UI retry contract PASS — RELEASE HOLD
+          - 58 deterministic assertions for single-flight POST, idempotency header, pending-only receipt, no-PHI-memory persistence, timeout/unknown outcome retried with the SAME key, changed intent blocked, malformed receipts rejected.
+          - Self-contained module imported ONLY inside the runner; no production service, network, database, LINE or Cloudflare Worker touched. Does not modify app.js or config.js.
+          - Current actual staging UI still does NOT transmit an idempotency key. Its mutation calls are disabled by the R105 read-only flag.
+          - R163 synthetic verifier is NOT a real SMS/email/LINE identity proof. The UI adapter is NOT integrated with a verified identity provider or R161 atomic DB.
+          - Browser refresh / lost tab cannot recover in-memory key; explicit product UX/server recovery design needed. Browser memory is not sufficient for cross-device deduplication.
+          - Never copy embedded synthetic key material into any real environment. Real-customer 18 release gates are NOT_TESTED (0/18).
+          - Commercial release remains HOLD until owner approval and separate real-stack verification.
+          R164_END_SCOPE
