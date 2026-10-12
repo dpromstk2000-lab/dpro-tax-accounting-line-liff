@@ -1,0 +1,184 @@
+name: DPRO TAX R160 Staging Commercial Gap Source Contract Audit (Read Only)
+
+on:
+  push:
+    branches: [tax-r7-staging-20261010]
+    paths:
+      - '.github/workflows/dpro-tax-r160-staging-commercial-gap-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dpro-tax-r160-read-only-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  source-contract-audit:
+    if: ${{ github.repository == 'dpromstk2000-lab/dpro-tax-accounting-line-liff' && github.ref == 'refs/heads/tax-r7-staging-20261010' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Checkout exact staging commit without credentials
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Enforce staging-only read-only contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'dpromstk2000-lab/dpro-tax-accounting-line-liff'
+          test "$GITHUB_REF" = 'refs/heads/tax-r7-staging-20261010'
+          test "$GITHUB_EVENT_NAME" = 'push' -o "$GITHUB_EVENT_NAME" = 'workflow_dispatch'
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}" || { echo 'STOP: privileged database secret unexpectedly available'; exit 1; }
+          echo R160_STAGE_ONLY_NO_DEPLOY
+      - name: Run JavaScript syntax validation for actual staging files
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in app.js config.js staff-auth-staging.js R117_DEMO_engine.js; do
+            node --check "$f"
+            echo "R160_JAVASCRIPT_PARSE_PASS: $f"
+          done
+      - name: Check real pinned source and commercial blockers
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/r160_source_contract_audit.py" <<'PY_R160_LOCAL_ONLY'
+          #!/usr/bin/env python3
+          """R160: stage-only, read-only real-source contract scanner. Never approves production."""
+          import argparse, hashlib, json, re, sys
+          from pathlib import Path
+          
+          REPO = "dpromstk2000-lab/dpro-tax-accounting-line-liff"
+          BRANCH = "tax-r7-staging-20261010"
+          SOURCE_HASHES = {'.github/workflows/dpro-tax-r151-staging-boundary-qa.yml': 'bd6a075f06f0692ff868067416afb5781faad6c1', '.github/workflows/dpro-tax-r152-disposable-postgres-booking-qa.yml': '8c3ed43f0f1fdc3217382f47b43c5f68763f1f37', '.github/workflows/dpro-tax-r153-disposable-direct-dml-qa.yml': 'd931f63a70a560b7f447fbcef1e6fd25868fb06d', '.github/workflows/dpro-tax-r154-disposable-auth-role-boundary-qa.yml': '3d5964f33675a636bf1f35e90c98d59aaaafd437', '.github/workflows/dpro-tax-r155-synthetic-trust-boundary-qa.yml': 'e21797ce5271a949c337b6bcf85d3d1339ce4ffd', '.github/workflows/dpro-tax-r156-disposable-rls-replay-qa.yml': 'ff6442c6b4d2d0c409b906625a3322cdb16ab47e', '.github/workflows/dpro-tax-r157-loopback-http-gateway-qa.yml': 'c6cf3510194b6f3af3474554966f57905fce7224', '.github/workflows/dpro-tax-r158-public-demo-source-integrity-qa.yml': '7590c8417fa940b73ccaf4e65534176e1d643f32', '.github/workflows/dpro-tax-r159-release-evidence-contract-qa.yml': 'b631da2cf67eb198160a0ffd8b88596b020d51e9', 'app.js': '4c3475219e5c7fc9203ec5e5143d4f6eb8299423', 'config.js': 'da1876bae8333a3a10ee13495c0063ded0c2b351', 'index.html': 'c7f6c0b30d1da913a924a582097d4bfe1570a704', 'member.html': 'fdf2e3ffc3ebba95e7b679b517ebc376215b25fc', 'owner.html': 'a8e7d1e8d83e54e9cbe42d1bd76190a6401c8f66', 'staff-auth-staging.js': '78120236aea54ddf0473ffad14af64ce058bf004', 'system-check.html': '907f17da591f75e28fce670dbfe7f9ba84188cc6', 'R117_DEMO_engine.js': 'ffcf8c50d9675263ecaf7e80c3b4db450d7e57fa'}
+          GATES = "C01 C02 S01 S02 S03 S04 D01 D02 B01 B02 L01 L02 O01 O02 O03 U01 U02 U03".split()
+          BLOCKERS = [
+              ("P1", "S01/S02/S03/S04", "Real-tenant MFA, role binding, PostgreSQL RLS and IDOR evidence missing"),
+              ("P2", "B02", "Real public booking retry/idempotency remains unverified"),
+              ("P3", "B01/B02", "Real transactional booking overlap and concurrency policy remains unverified"),
+              ("P4", "D01/D02/L01/L02", "Private Storage, webhook signature/replay and LINE kill-switch remain unverified"),
+              ("P5", "O01/O02/O03/U01/U02/U03", "Change management, recovery and device acceptance remain unverified"),
+          ]
+          class AuditFailure(Exception): pass
+          
+          def git_blob_sha(data):
+              return hashlib.sha1(b"blob " + str(len(data)).encode("ascii") + b"\0" + data).hexdigest()
+          
+          def config_settings(s):
+              wanted={"API_BASE", "LIFF_ID", "ENABLE_DEMO_UI", "TAX_R9_FORMAL_APPROVAL_ENABLED", "TAX_R9_BATCH_SEND_ENABLED", "TAX_R105_STAGING_READ_ONLY", "TAX_R103_BLOCK_LEGACY_MONTHLY_FORM"}
+              found={}
+              for k in wanted:
+                  m=re.search(r"(?m)^\s*"+re.escape(k)+r"\s*:\s*(\"[^\"]*\"|true|false)\s*[,}]",s)
+                  if not m: raise AuditFailure("MISSING_SETTING:"+k)
+                  found[k]=m.group(1)
+              return found
+          
+          def stage_guard(config, staff, owner, index, member, demo):
+              cfg=config_settings(config)
+              tests=[
+                ("staging-only API origin", cfg["API_BASE"]=='"https://dpro-tax-accounting-line-r7-staging.dpromstk2000.workers.dev"'),
+                ("no production LIFF ID configured", cfg["LIFF_ID"]=='""'),
+                ("normal demo UI disabled",cfg["ENABLE_DEMO_UI"]=="false"),
+                ("formal approval write disabled",cfg["TAX_R9_FORMAL_APPROVAL_ENABLED"]=="false"),
+                ("batch send disabled",cfg["TAX_R9_BATCH_SEND_ENABLED"]=="false"),
+                ("staging is marked read-only",cfg["TAX_R105_STAGING_READ_ONLY"]=="true"),
+                ("legacy monthly form blocked",cfg["TAX_R103_BLOCK_LEGACY_MONTHLY_FORM"]=="true"),
+                ("public config is immutable declaration", "DPRO_TAX_CONFIG = Object.freeze({" in config),
+                ("staff page warns staff permission not yet verified", "スタッフ権限・承認権限はまだ未確認" in staff),
+                ("staff token kept in ephemeral variable", "let token = null" in staff),
+                ("staff auth has no browser localStorage",not re.search(r"\b(?:localStorage|sessionStorage)\b",staff)),
+                ("staff auth has no service role assignment", not re.search(r"(?i)\b(?:service_role|service[_-]?key)\s*[:=]\s*['\"]",staff)),
+                ("owner discloses unconnected production work", "本番化まで未接続" in owner),
+                ("public page loads only staging app entrypoint", 'src="config.js"' in index and 'src="app.js"' in index),
+                ("member page loads same guarded app", 'src="config.js"' in member and 'src="app.js"' in member),
+                ("demo labelled offline synthetic", "OFFLINE MULTISCREEN SESSION DEMO ENGINE" in demo and "No HTTP, DB" in demo),
+                ("demo does not invoke browser fetch",not re.search(r"\b(?:fetch|XMLHttpRequest|WebSocket|sendBeacon)\s*\(",demo)),
+                ("demo denies privileged remote actions", "DEMO_SIDE_EFFECT_BLOCKED" in demo),
+              ]
+              for i,(name,ok) in enumerate(tests,1):
+                  if not ok: raise AuditFailure(f"R160_SOURCE_BLOCK_{i:02d}: {name}")
+                  print(f"R160_SOURCE_PASS_{i:02d}: {name}",flush=True)
+              return len(tests)
+          
+          def verify_git(root):
+              for i,(path,sha) in enumerate(SOURCE_HASHES.items(),1):
+                  p=root/path
+                  if not p.is_file() or p.is_symlink():raise AuditFailure('MISSING_OR_SYMLINK:'+path)
+                  got=git_blob_sha(p.read_bytes())
+                  if got!=sha:raise AuditFailure('SOURCE_DRIFT:'+path+' observed='+got)
+                  print(f"R160_PIN_PASS_{i:02d}: {path}",flush=True)
+              return len(SOURCE_HASHES)
+          
+          def run(root):
+              check_count=verify_git(root)
+              vals={p:(root/p).read_text(encoding="utf-8") for p in ("config.js","staff-auth-staging.js","owner.html","index.html","member.html","R117_DEMO_engine.js")}
+              contract_count=stage_guard(vals["config.js"],vals["staff-auth-staging.js"],vals["owner.html"],vals["index.html"],vals["member.html"],vals["R117_DEMO_engine.js"])
+              if len(GATES)!=18 or len(set(GATES))!=18:raise AuditFailure('BAD_GATE_DEFINITION')
+              if len(BLOCKERS)!=5:raise AuditFailure('BAD_BLOCKER_REGISTER')
+              report={"release":"R160","mode":"real staging source audit; no production access","source_hashes_ok":check_count,"source_guards_ok":contract_count,"real_environment_gates_total":18,"real_environment_gates_tested":0,"real_environment_gates_status":"NOT_TESTED","release_status":"HOLD","real_production_ready":False,"blockers":[{"id":a,"gates":b,"status":"OPEN_NOT_VALIDATED","description":c} for a,b,c in BLOCKERS],"limitations":["Source checks do not validate current remote Worker or customer environment","Read-only frontend flag does not replace server-side authorization","Private R115 Worker is archived evidence, not audited as a deployed runtime","No real user accounts, data, LINE or cloud operations"]}
+              print(f'R160_SOURCE_SUMMARY {check_count} pinned hashes + {contract_count} source guards PASS; 18/18 real release gates NOT_TESTED',flush=True)
+              print('R160_STAGING_SOURCE_CONTRACT_PASS: COMMERCIAL_RELEASE_HOLD',flush=True)
+              return report
+          
+          def mutation_test():
+              config='window.DPRO_TAX_CONFIG = Object.freeze({\n API_BASE: "https://dpro-tax-accounting-line-r7-staging.dpromstk2000.workers.dev",\n LIFF_ID: "",\n ENABLE_DEMO_UI: false,\n TAX_R9_FORMAL_APPROVAL_ENABLED: false,\n TAX_R9_BATCH_SEND_ENABLED: false,\n TAX_R105_STAGING_READ_ONLY: true,\n TAX_R103_BLOCK_LEGACY_MONTHLY_FORM: true,\n});'
+              staff='スタッフ権限・承認権限はまだ未確認です。\nlet token = null;'
+              owner='本番化まで未接続'
+              index=member='<script src="config.js"></script><script src="app.js"></script>'
+              demo='/* OFFLINE MULTISCREEN SESSION DEMO ENGINE. No HTTP, DB */ DEMO_SIDE_EFFECT_BLOCKED'
+              stage_guard(config,staff,owner,index,member,demo)
+              attempts=[
+                ('production URL',config.replace('r7-staging.dpromstk2000','production.dpromstk2000'),staff,owner,index,member,demo),
+                ('LIFF ID early provisioning',config.replace('LIFF_ID: ""','LIFF_ID: "real_id"'),staff,owner,index,member,demo),
+                ('demo toggle enabled',config.replace('ENABLE_DEMO_UI: false','ENABLE_DEMO_UI: true'),staff,owner,index,member,demo),
+                ('formal approval enabled',config.replace('TAX_R9_FORMAL_APPROVAL_ENABLED: false','TAX_R9_FORMAL_APPROVAL_ENABLED: true'),staff,owner,index,member,demo),
+                ('batch send enabled',config.replace('TAX_R9_BATCH_SEND_ENABLED: false','TAX_R9_BATCH_SEND_ENABLED: true'),staff,owner,index,member,demo),
+                ('read only flag removed',config.replace('TAX_R105_STAGING_READ_ONLY: true','TAX_R105_STAGING_READ_ONLY: false'),staff,owner,index,member,demo),
+                ('legacy write unblocked',config.replace('TAX_R103_BLOCK_LEGACY_MONTHLY_FORM: true','TAX_R103_BLOCK_LEGACY_MONTHLY_FORM: false'),staff,owner,index,member,demo),
+                ('permission disclaimer gone',config,staff.replace('スタッフ権限・承認権限はまだ未確認','本人確認とスタッフ権限確認が完了'),owner,index,member,demo),
+                ('local token persistence introduced',config,staff+'\nlocalStorage.setItem("t", token);',owner,index,member,demo),
+                ('unconnected notice removed',config,staff,owner.replace('本番化まで未接続','本番完了'),index,member,demo),
+                ('public entrypoint script removed',config,staff,owner,index.replace('src="app.js"','src="other.js"'),member,demo),
+                ('demo external fetch',config,staff,owner,index,member,demo+';fetch("https://test.invalid");'),
+                ('demo remote guard removed',config,staff,owner,index,member,demo.replace('DEMO_SIDE_EFFECT_BLOCKED','ALLOW_SIDE_EFFECT')),
+              ]
+              for i,(name,*args) in enumerate(attempts,1):
+                  try:stage_guard(*args)
+                  except AuditFailure:print(f'R160_MUTATION_PASS_{i:02d}: {name}',flush=True)
+                  else: raise AuditFailure('MISSED_MUTATION:'+name)
+              assert len(attempts)==13
+              print('R160_MUTATION_SUMMARY 13 / 13 PASS',flush=True)
+              return 13
+          
+          def main():
+              p=argparse.ArgumentParser();p.add_argument('--self-test',action='store_true');p.add_argument('--root',type=Path);p.add_argument('--out',type=Path); a=p.parse_args()
+              if a.self_test:mutation_test()
+              if a.root:
+                  report=run(a.root)
+                  if a.out:a.out.write_text(json.dumps(report,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
+              if not a.self_test and a.root is None: p.error('must pass --self-test and/or --root')
+          if __name__=='__main__':
+              try:main()
+              except (AuditFailure,AssertionError) as exc:
+                  print('R160_QA_FAILURE:'+str(exc),file=sys.stderr);sys.exit(1)
+          PY_R160_LOCAL_ONLY
+          printf '%s  %s\n' '72b1267cef0d5e79dc9d8215f366e2c5b0e9852ff599ee9dc91c1c18d961bda0' "$RUNNER_TEMP/r160_source_contract_audit.py" | sha256sum --check --status
+          python3 -I "$RUNNER_TEMP/r160_source_contract_audit.py" --self-test --root . --out "$RUNNER_TEMP/r160_report.json"
+      - name: Publish truthful gap status with no release approval
+        if: success()
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF_R160_SCOPE'
+          ## R160 Staging source contract PASS; customer deployment remains HOLD
+          - Real staging source `app.js`, `config.js`, staff auth and public/demo entrypoints were checked read-only with pinned blob hashes.
+          - 18 synthetic frontend source contract checks and 13 fault-injection checks prevent accidental removal of known staging guards.
+          - These are **frontend/source guard checks**, NOT proven authorization of server routes or deployed Worker.
+          - Past archived R115 private Worker audit leaves open blockers: real tenant auth/MFA/RLS, public booking idempotency, atomic concurrency, private storage and LINE integration, backup and acceptance.
+          - Real customer security gates: 0/18 confirmed, all NOT_TESTED. Never use mock passes as customer evidence.
+          - No production secrets, no real LINE, no real Supabase, no customer data, no Worker deploy, no SQL changes, no commits or API mutations.
+          - **Commercial production release HOLD, approval required.**
+          EOF_R160_SCOPE
