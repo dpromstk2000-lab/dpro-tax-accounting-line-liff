@@ -1,0 +1,236 @@
+name: DPRO TAX R162 Booking Bridge Fail-Closed Contract QA (Synthetic Only)
+
+on:
+  push:
+    branches: [tax-r7-staging-20261010]
+    paths:
+      - '.github/workflows/dpro-tax-r162-booking-bridge-contract-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dpro-tax-r162-synthetic-only-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  booking-bridge-contract-qa:
+    if: ${{ github.repository == 'dpromstk2000-lab/dpro-tax-accounting-line-liff' && github.ref == 'refs/heads/tax-r7-staging-20261010' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Checkout exact staging revision without write credentials
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Reject main, check immutable upstream booking and source baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'dpromstk2000-lab/dpro-tax-accounting-line-liff'
+          test "$GITHUB_REF" = 'refs/heads/tax-r7-staging-20261010'
+          test "$(git hash-object .github/workflows/dpro-tax-r161-disposable-booking-atomicity-qa.yml)" = "7ae80a66d01c45e5bb2a8debfc5d0a4b0be5a838" || { echo "R162_PROTECTED_SOURCE_DRIFT: .github/workflows/dpro-tax-r161-disposable-booking-atomicity-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r160-staging-commercial-gap-qa.yml)" = "5f359b6ec11b1e119a180302e64c19e68885a637" || { echo "R162_PROTECTED_SOURCE_DRIFT: .github/workflows/dpro-tax-r160-staging-commercial-gap-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r159-release-evidence-contract-qa.yml)" = "b631da2cf67eb198160a0ffd8b88596b020d51e9" || { echo "R162_PROTECTED_SOURCE_DRIFT: .github/workflows/dpro-tax-r159-release-evidence-contract-qa.yml"; exit 1; }
+          test "$(git hash-object app.js)" = "4c3475219e5c7fc9203ec5e5143d4f6eb8299423" || { echo "R162_PROTECTED_SOURCE_DRIFT: app.js"; exit 1; }
+          test "$(git hash-object config.js)" = "da1876bae8333a3a10ee13495c0063ded0c2b351" || { echo "R162_PROTECTED_SOURCE_DRIFT: config.js"; exit 1; }
+          python3 - <<'PY_R162_READ_ONLY'
+          from pathlib import Path
+          app=Path('app.js').read_text()
+          cfg=Path('config.js').read_text()
+          assert '"/api/public/appointments"' in app, 'R162_MISSING_LEGACY_PUBLIC_BOOKING'
+          assert 'idempotency' not in app.lower(), 'R162_LEGACY_UI_CONTRACT_CHANGED_REVIEW_REQUIRED'
+          assert 'TAX_R105_STAGING_READ_ONLY: true' in cfg, 'R162_STAGING_READ_ONLY_FLAG_MISSING'
+          assert 'TAX_R9_BATCH_SEND_ENABLED: false' in cfg, 'R162_BATCH_SEND_GUARD_MISSING'
+          assert 'TAX_R9_FORMAL_APPROVAL_ENABLED: false' in cfg, 'R162_APPROVAL_GUARD_MISSING'
+          print('R162_SOURCE_BASELINE_LOCKED: LEGACY_FRONTEND_IDEMPOTENCY_NOT_CONNECTED')
+          PY_R162_READ_ONLY
+      - name: Execute isolated booking Worker-to-atomic-RPC contract reference
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/R162_BOOKING_GATEWAY_REFERENCE_DO_NOT_DEPLOY.mjs" <<'JS_R162_ADAPTER'
+          /* DPRO TAX R162: NON-DEPLOYABLE contract adapter for a future authenticated booking API.
+           * Not connected to the real Worker, Supabase, LINE or customer data.
+           * verifyCaller MUST verify signatures/tokens at a trusted server boundary. Never replace
+           * this with claims or office IDs supplied by the browser. Guest flow is deliberately blocked
+           * pending an independently approved server-side guest identity and abuse-prevention policy.
+           * atomicRequest MUST be a transaction-backed R161-equivalent operation, not SELECT/INSERT.
+           */
+          const allowed = new Set(['service_id','requested_start_at','appointment_channel']);
+          const error = (status, code) => Object.assign(new Error(code), {status, code});
+          const isObj = x => x !== null && typeof x === 'object' && !Array.isArray(x);
+          const text = (s, max=100) => typeof s === 'string' && s.length <= max && s.length > 0 && s.trim() === s;
+          const failResult = e => ({status:[400,401,403,404,409,422,503].includes(e?.status)?e.status:503,
+            body:{ok:false,code:typeof e?.code==='string' && /^[A-Z0-9_]{2,50}$/.test(e.code)?e.code:'BOOKING_UNAVAILABLE'}});
+          
+          export function createBookingGateway(deps) {
+            const funcs=['verifyCaller','getService','isOpen','atomicRequest'];
+            if(!isObj(deps)||funcs.some(k=>typeof deps[k]!=='function')||typeof deps.now!=='function')
+              throw new TypeError('R162_UNWIRED_GATEWAY');
+            return async function handle(request){
+              try {
+                if (!isObj(request) || request.method !== 'POST') throw error(400,'INVALID_REQUEST');
+                const h=request.headers;
+                const headers = h && typeof h.get==='function' ? h : {get:k=>isObj(h)?h[k]??h[k.toLowerCase()]:undefined};
+                const key=headers.get('idempotency-key');
+                if (!text(key,96) || !/^[A-Za-z0-9_-]{16,96}$/.test(key)) throw error(400,'INVALID_IDEMPOTENCY_KEY');
+                // Credential validation and Turnstile (when required) happen at the upstream edge.
+                const actor=await deps.verifyCaller(request);
+                if (!isObj(actor)||actor.verified !== true) throw error(401,'AUTHENTICATION_REQUIRED');
+                if (actor.kind !== 'client' || !text(actor.office,100) || !text(actor.subject,100))
+                  throw error(403,'CLIENT_SCOPE_REQUIRED');
+                if (actor.antibotVerified !== true) throw error(403,'ABUSE_CONTROL_REQUIRED');
+                const body=request.body;
+                if (!isObj(body)) throw error(400,'INVALID_BODY');
+                if (Object.keys(body).some(k=>!allowed.has(k))) throw error(400,'UNTRUSTED_BOOKING_FIELD');
+                if (!text(body.service_id,100)) throw error(400,'INVALID_SERVICE');
+                const service=await deps.getService(actor.office,body.service_id);
+                if (!isObj(service)||service.office!==actor.office || service.id!==body.service_id ||
+                    service.active!==true || service.public!==true || !text(service.resource,100))
+                  throw error(404,'SERVICE_NOT_AVAILABLE');
+                if (![30,60,90].includes(service.minutes)) throw error(422,'DURATION_NOT_SUPPORTED');
+                if (!Array.isArray(service.channels)||!service.channels.includes(body.appointment_channel))
+                  throw error(400,'INVALID_CHANNEL');
+                const stamp=body.requested_start_at;
+                if (!text(stamp,40)|| !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})$/.test(stamp))
+                  throw error(400,'INVALID_TIMESTAMP');
+                const millis=Date.parse(stamp), now=deps.now();
+                if (!Number.isFinite(millis)||!Number.isFinite(now)|| millis <= now || millis > now+365*86400000)
+                  throw error(422,'BOOKING_OUT_OF_WINDOW');
+                const tokyo = new Date(millis + 9*3600000);
+                if (![0,30].includes(tokyo.getUTCMinutes())||tokyo.getUTCSeconds()!==0||tokyo.getUTCMilliseconds()!==0)
+                  throw error(400,'INVALID_SLOT_GRID');
+                const start=new Date(millis).toISOString();
+                if (await deps.isOpen({office:actor.office,resource:service.resource,start,minutes:service.minutes})!==true)
+                  throw error(422,'SLOT_CLOSED');
+                let receipt;
+                try {
+                  receipt=await deps.atomicRequest({office:actor.office,subject:actor.subject,
+                    resource:service.resource,key,start,minutes:service.minutes});
+                }catch(e){
+                  if(e?.code==='R161_IDEMPOTENCY_PAYLOAD_CONFLICT')throw error(409,'BOOKING_REPLAY_CONFLICT');
+                  if(e?.code==='R161_BOOKING_REQUEST_DENIED')throw error(422,'BOOKING_DENIED');
+                  throw error(503,'BOOKING_UNAVAILABLE');
+                }
+                if (typeof receipt!=='string'|| !/^(new|duplicate):[1-9]\d{0,17}$/.test(receipt))
+                  throw error(503,'BOOKING_UNAVAILABLE');
+                const [kind,requestId]=receipt.split(':');
+                return {status:kind==='new'?201:200,body:{ok:true,status:'pending',
+                  is_confirmed:false,request_id:requestId,replayed:kind==='duplicate',
+                  message:'面談希望を受け付けました。事務所の確定連絡をお待ちください。'}};
+              }catch(e){return failResult(e);}
+            };
+          }
+          JS_R162_ADAPTER
+          cat > "$RUNNER_TEMP/R162_BOOKING_GATEWAY_QA.mjs" <<'JS_R162_QA'
+          /* Node built-in assertions only. No network, no external service, no customer data. */
+          import assert from 'node:assert/strict';
+          import {createBookingGateway} from './R162_BOOKING_GATEWAY_REFERENCE_DO_NOT_DEPLOY.mjs';
+          const fixed=Date.parse('2026-10-12T00:00:00Z');
+          const future='2026-10-13T10:00:00+09:00';
+          const key='R162_QA_1234567890abc';
+          const base={service_id:'consult30',requested_start_at:future,appointment_channel:'online'};
+          let passed=0;
+          async function check(label,fn){await fn();console.log(`R162_PASS_${String(++passed).padStart(2,'0')}: ${label}`);}
+          function fixture(opts={}) {
+           const store=new Map();let calls=[], openCalls=[];
+           const state={actor:{verified:true,kind:'client',office:'A',subject:'A1',antibotVerified:true},
+            services:{consult30:{id:'consult30',office:'A',resource:'room1',minutes:30,active:true,public:true,channels:['online','in_person']},
+              consult60:{id:'consult60',office:'A',resource:'room1',minutes:60,active:true,public:true,channels:['online']},
+              consult90:{id:'consult90',office:'A',resource:'room1',minutes:90,active:true,public:true,channels:['online']},
+              consultB:{id:'consultB',office:'B',resource:'room1',minutes:30,active:true,public:true,channels:['online']}},
+            ...opts};
+           const deps={verifyCaller:async()=>state.actor,getService:async (office,id)=>state.services[id],now:()=>fixed,
+            isOpen:async x=>{openCalls.push(x);return true;},
+            atomicRequest:async p=>{calls.push(p);const k=[p.office,p.subject,p.key].join('|'), prior=store.get(k);
+             if(prior){if(prior.resource!==p.resource||prior.start!==p.start||prior.minutes!==p.minutes)
+                throw Object.assign(new Error('collision'),{code:'R161_IDEMPOTENCY_PAYLOAD_CONFLICT'});
+               return 'duplicate:'+prior.id;}
+             const id=String(store.size+1);store.set(k,{...p,id});return 'new:'+id;
+            },...opts.deps};
+           const handle=createBookingGateway(deps);
+           const send=(body={...base},hdr=key,method='POST')=>handle({method,headers:{'idempotency-key':hdr},body});
+           return {send,handle,deps,state,store,calls,openCalls};
+          }
+          const code=async (p, expectedStatus, expectedCode)=>{const r=await p;assert.equal(r.status,expectedStatus);if(expectedCode)assert.equal(r.body.code,expectedCode);return r};
+          
+          await check('first request accepted as pending only',async()=>{const f=fixture(),r=await code(f.send(),201);assert.equal(r.body.status,'pending');assert.equal(r.body.is_confirmed,false);assert.equal(r.body.replayed,false);});
+          await check('trusted office and subject drive SQL arguments',async()=>{const f=fixture();await f.send();assert.deepEqual(f.calls[0],{office:'A',subject:'A1',resource:'room1',key,start:'2026-10-13T01:00:00.000Z',minutes:30});});
+          await check('retry same request returns same ID',async()=>{const f=fixture(),a=await f.send(),b=await code(f.send(),200);assert.equal(a.body.request_id,b.body.request_id);assert.equal(b.body.replayed,true);});
+          await check('same key changed resource conflicts',async()=>{const f=fixture();await f.send();await code(f.send({...base,service_id:'consult60'}),409,'BOOKING_REPLAY_CONFLICT');});
+          await check('same key separate verified client creates separate record',async()=>{const f=fixture();await f.send();f.state.actor={...f.state.actor,subject:'A2'};await code(f.send(),201);assert.equal(f.store.size,2);});
+          await check('same key separate verified office creates separate record',async()=>{const f=fixture();await f.send();f.state.actor={...f.state.actor,office:'B',subject:'B1'};await code(f.send({...base,service_id:'consultB'}),201);assert.equal(f.store.size,2);});
+          await check('GET rejected',async()=>code(fixture().send(base,key,'GET'),400,'INVALID_REQUEST'));
+          await check('missing idempotency key rejected',async()=>code(fixture().send(base,null),400,'INVALID_IDEMPOTENCY_KEY'));
+          await check('short idempotency key rejected',async()=>code(fixture().send(base,'short'),400,'INVALID_IDEMPOTENCY_KEY'));
+          await check('number idempotency key rejected',async()=>code(fixture().send(base,1234567890123456),400,'INVALID_IDEMPOTENCY_KEY'));
+          await check('key whitespace rejected',async()=>code(fixture().send(base,'Q123456789012345 '),400,'INVALID_IDEMPOTENCY_KEY'));
+          await check('key carriage return rejected',async()=>code(fixture().send(base,'A123456789012345\r'),400,'INVALID_IDEMPOTENCY_KEY'));
+          await check('no upstream authentication rejected',async()=>{const f=fixture({actor:null});await code(f.send(),401,'AUTHENTICATION_REQUIRED')});
+          await check('unverified upstream identity rejected',async()=>{const f=fixture({actor:{verified:false,office:'A',subject:'A1',kind:'client'}});await code(f.send(),401,'AUTHENTICATION_REQUIRED')});
+          await check('staff request rejected',async()=>{const f=fixture({actor:{verified:true,office:'A',subject:'staffA',kind:'staff',antibotVerified:true}});await code(f.send(),403,'CLIENT_SCOPE_REQUIRED')});
+          await check('guest flow refused until server policy approved',async()=>{const f=fixture({actor:{verified:true,office:'A',subject:'guest',kind:'guest',antibotVerified:true}});await code(f.send(),403,'CLIENT_SCOPE_REQUIRED')});
+          await check('abuse control not proven rejected',async()=>{const f=fixture({actor:{verified:true,office:'A',subject:'A1',kind:'client',antibotVerified:false}});await code(f.send(),403,'ABUSE_CONTROL_REQUIRED')});
+          await check('missing verified office rejected',async()=>{const f=fixture({actor:{verified:true,office:'',subject:'A1',kind:'client',antibotVerified:true}});await code(f.send(),403,'CLIENT_SCOPE_REQUIRED')});
+          await check('missing verified subject rejected',async()=>{const f=fixture({actor:{verified:true,office:'A',subject:'',kind:'client',antibotVerified:true}});await code(f.send(),403,'CLIENT_SCOPE_REQUIRED')});
+          await check('office forged by request body rejected',async()=>code(fixture().send({...base,office_id:'B'}),400,'UNTRUSTED_BOOKING_FIELD'));
+          await check('role forged by request body rejected',async()=>code(fixture().send({...base,role:'staff'}),400,'UNTRUSTED_BOOKING_FIELD'));
+          await check('subject forged by request body rejected',async()=>code(fixture().send({...base,client_id:'A2'}),400,'UNTRUSTED_BOOKING_FIELD'));
+          await check('status confirmed forged by body rejected',async()=>code(fixture().send({...base,status:'confirmed'}),400,'UNTRUSTED_BOOKING_FIELD'));
+          await check('caller supplied resource rejected',async()=>code(fixture().send({...base,resource:'room2'}),400,'UNTRUSTED_BOOKING_FIELD'));
+          await check('array body rejected',async()=>code(fixture().send([]),400,'INVALID_BODY'));
+          await check('empty service rejected',async()=>code(fixture().send({...base,service_id:''}),400,'INVALID_SERVICE'));
+          await check('unknown service rejected',async()=>code(fixture().send({...base,service_id:'unknown'}),404,'SERVICE_NOT_AVAILABLE'));
+          await check('cross-office service rejected',async()=>code(fixture().send({...base,service_id:'consultB'}),404,'SERVICE_NOT_AVAILABLE'));
+          await check('inactive service rejected',async()=>{const f=fixture();f.state.services.consult30.active=false;await code(f.send(),404,'SERVICE_NOT_AVAILABLE')});
+          await check('non-public service rejected',async()=>{const f=fixture();f.state.services.consult30.public=false;await code(f.send(),404,'SERVICE_NOT_AVAILABLE')});
+          await check('service without server resource rejected',async()=>{const f=fixture();delete f.state.services.consult30.resource;await code(f.send(),404,'SERVICE_NOT_AVAILABLE')});
+          await check('15-minute duration rejected',async()=>{const f=fixture();f.state.services.consult30.minutes=15;await code(f.send(),422,'DURATION_NOT_SUPPORTED')});
+          await check('60-minute menu accepted',async()=>code(fixture().send({...base,service_id:'consult60'}),201));
+          await check('90-minute menu accepted',async()=>code(fixture().send({...base,service_id:'consult90'}),201));
+          await check('unauthorized channel rejected',async()=>code(fixture().send({...base,appointment_channel:'phone'}),400,'INVALID_CHANNEL'));
+          await check('malformed date rejected',async()=>code(fixture().send({...base,requested_start_at:'whatever'}),400,'INVALID_TIMESTAMP'));
+          await check('missing timezone rejected',async()=>code(fixture().send({...base,requested_start_at:'2026-10-13T10:00:00'}),400,'INVALID_TIMESTAMP'));
+          await check('past slot rejected',async()=>code(fixture().send({...base,requested_start_at:'2025-10-13T10:00:00+09:00'}),422,'BOOKING_OUT_OF_WINDOW'));
+          await check('over one year forward rejected',async()=>code(fixture().send({...base,requested_start_at:'2028-10-13T10:00:00+09:00'}),422,'BOOKING_OUT_OF_WINDOW'));
+          await check('15-minute grid rejected',async()=>code(fixture().send({...base,requested_start_at:'2026-10-13T10:15:00+09:00'}),400,'INVALID_SLOT_GRID'));
+          await check('second-fraction grid rejected',async()=>code(fixture().send({...base,requested_start_at:'2026-10-13T10:00:01+09:00'}),400,'INVALID_SLOT_GRID'));
+          await check('closed service time rejected',async()=>{const f=fixture({deps:{isOpen:async()=>false}});await code(f.send(),422,'SLOT_CLOSED')});
+          await check('RPC transport error fails closed',async()=>{const f=fixture({deps:{atomicRequest:async()=>{throw new Error('db unreachable')}}});await code(f.send(),503,'BOOKING_UNAVAILABLE')});
+          await check('database idempotency error maps to 409',async()=>{const f=fixture({deps:{atomicRequest:async()=>{throw Object.assign(new Error('no'),{code:'R161_IDEMPOTENCY_PAYLOAD_CONFLICT'})}}});await code(f.send(),409,'BOOKING_REPLAY_CONFLICT')});
+          await check('database scope denial maps to 422',async()=>{const f=fixture({deps:{atomicRequest:async()=>{throw Object.assign(new Error('no'),{code:'R161_BOOKING_REQUEST_DENIED'})}}});await code(f.send(),422,'BOOKING_DENIED')});
+          await check('malformed atomic response fails closed',async()=>{const f=fixture({deps:{atomicRequest:async()=>({status:'confirmed'})}});await code(f.send(),503,'BOOKING_UNAVAILABLE')});
+          await check('confirmation marker cannot pass from gateway',async()=>{const f=fixture({deps:{atomicRequest:async()=> 'confirmed:1'}});await code(f.send(),503,'BOOKING_UNAVAILABLE')});
+          await check('bad input never invokes atomic handler',async()=>{const f=fixture();await f.send({...base,office_id:'other'});assert.equal(f.calls.length,0)});
+          await check('response does not leak office subject or service resource',async()=>{const f=fixture(),r=await f.send();const dump=JSON.stringify(r);for(const bad of ['room1','A1','service_id','office_id','Bearer'])assert.equal(dump.includes(bad),false)});
+          await check('unwired gateway initialization denied',async()=>assert.throws(()=>createBookingGateway({}),/UNWIRED_GATEWAY/));
+          await check('missing verifier function denied',async()=>{const f=fixture();assert.throws(()=>createBookingGateway({...f.deps,verifyCaller:null}),/UNWIRED_GATEWAY/)});
+          await check('client custom idempotency_key field rejected',async()=>code(fixture().send({...base,idempotency_key:key}),400,'UNTRUSTED_BOOKING_FIELD'));
+          await check('fixed response maps GMT timestamp and pending status',async()=>{const f=fixture(),r=await f.send();assert.equal(f.calls[0].start,'2026-10-13T01:00:00.000Z');assert.equal(r.body.status,'pending')});
+          if(passed!==53) throw new Error('R162_UNEXPECTED_COUNT_'+passed);
+          console.log(`R162_SUMMARY ${passed} / 53 PASS`);
+          console.log('R162_BOOKING_BRIDGE_CONTRACT_REFERENCE_PASS: COMMERCIAL_RELEASE_HOLD');
+          JS_R162_QA
+          printf '%s  %s\n' 'c2fdc58178f04a316cd5b215de1f40381c745f5747e32767c6aa81e2287151d3' "$RUNNER_TEMP/R162_BOOKING_GATEWAY_REFERENCE_DO_NOT_DEPLOY.mjs" | sha256sum --check --status
+          printf '%s  %s\n' '1d231e0b35e972d7d5072258249dd5f20e0848801d1faff5b5c249c27b2d5608' "$RUNNER_TEMP/R162_BOOKING_GATEWAY_QA.mjs" | sha256sum --check --status
+          node --check "$RUNNER_TEMP/R162_BOOKING_GATEWAY_REFERENCE_DO_NOT_DEPLOY.mjs"
+          node --check "$RUNNER_TEMP/R162_BOOKING_GATEWAY_QA.mjs"
+          env -u SUPABASE_SERVICE_ROLE_KEY -u LINE_CHANNEL_SECRET -u CLOUDFLARE_API_TOKEN node "$RUNNER_TEMP/R162_BOOKING_GATEWAY_QA.mjs" | tee "$RUNNER_TEMP/r162-output.txt"
+          grep -Fqx 'R162_SUMMARY 53 / 53 PASS' "$RUNNER_TEMP/r162-output.txt"
+          grep -Fqx 'R162_BOOKING_BRIDGE_CONTRACT_REFERENCE_PASS: COMMERCIAL_RELEASE_HOLD' "$RUNNER_TEMP/r162-output.txt"
+      - name: Report unconnected integration dependencies and release HOLD
+        if: success()
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF_R162_SCOPE'
+          ## R162 isolated booking bridge reference only — RELEASE HOLD
+          - 53 deterministic tests for future Worker-to-atomic-RPC contract using synthetic in-memory data and Node.js only.
+          - The implementation is a NON-DEPLOYABLE candidate. No actual Worker patch, real JWT verification, real Turnstile service, guest identity approval, Supabase RLS, DB transaction or LINE call is made by R162.
+          - R161 already separately verified PostgreSQL atomic booking in an isolated container, but R162 does NOT connect to that database.
+          - Current public booking UI lacks an idempotency key and R115 private candidate booking handler did not implement idempotent insert. Guest bookings must be explicitly designed rather than silently treated as authenticated clients.
+          - Must decide office-scoped guest policy, verified context, service/resource mapping, data model and API error mapping BEFORE any real integration work.
+          - Production Worker, Supabase, LINE, CENTRAL, main branch, customer data and deployment untouched. 18/18 real customer release gates NOT_TESTED, RELEASE HOLD.
+          EOF_R162_SCOPE
