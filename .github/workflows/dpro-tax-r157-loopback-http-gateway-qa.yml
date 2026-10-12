@@ -1,0 +1,331 @@
+name: DPRO TAX R157 Loopback HTTP Gateway Trust Boundary QA (Synthetic)
+
+on:
+  push:
+    branches: [tax-r7-staging-20261010]
+    paths:
+      - '.github/workflows/dpro-tax-r157-loopback-http-gateway-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dpro-tax-r157-synthetic-only-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  loopback-http-gateway-qa:
+    if: ${{ github.repository == 'dpromstk2000-lab/dpro-tax-accounting-line-liff' && github.ref == 'refs/heads/tax-r7-staging-20261010' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Read only checkout of staging test revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Reject main branch and protected source drift
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'dpromstk2000-lab/dpro-tax-accounting-line-liff'
+          test "$GITHUB_REF" = 'refs/heads/tax-r7-staging-20261010'
+          test "$(git hash-object .github/workflows/dpro-tax-r151-staging-boundary-qa.yml)" = "bd6a075f06f0692ff868067416afb5781faad6c1" || { echo "R157_BASELINE_DRIFT .github/workflows/dpro-tax-r151-staging-boundary-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r152-disposable-postgres-booking-qa.yml)" = "8c3ed43f0f1fdc3217382f47b43c5f68763f1f37" || { echo "R157_BASELINE_DRIFT .github/workflows/dpro-tax-r152-disposable-postgres-booking-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r153-disposable-direct-dml-qa.yml)" = "d931f63a70a560b7f447fbcef1e6fd25868fb06d" || { echo "R157_BASELINE_DRIFT .github/workflows/dpro-tax-r153-disposable-direct-dml-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r154-disposable-auth-role-boundary-qa.yml)" = "3d5964f33675a636bf1f35e90c98d59aaaafd437" || { echo "R157_BASELINE_DRIFT .github/workflows/dpro-tax-r154-disposable-auth-role-boundary-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r155-synthetic-trust-boundary-qa.yml)" = "e21797ce5271a949c337b6bcf85d3d1339ce4ffd" || { echo "R157_BASELINE_DRIFT .github/workflows/dpro-tax-r155-synthetic-trust-boundary-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r156-disposable-rls-replay-qa.yml)" = "ff6442c6b4d2d0c409b906625a3322cdb16ab47e" || { echo "R157_BASELINE_DRIFT .github/workflows/dpro-tax-r156-disposable-rls-replay-qa.yml"; exit 1; }
+          test "$(git hash-object app.js)" = "4c3475219e5c7fc9203ec5e5143d4f6eb8299423" || { echo "R157_BASELINE_DRIFT app.js"; exit 1; }
+          test "$(git hash-object config.js)" = "da1876bae8333a3a10ee13495c0063ded0c2b351" || { echo "R157_BASELINE_DRIFT config.js"; exit 1; }
+          test -z "$(git status --porcelain)"
+          echo R157_PINNED_BASELINE_READONLY_OK
+      - name: Test local synthetic HTTP JWT role booking and LINE-like signatures
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/r157_local_reference.py" <<'PY_R157_SYNTHETIC_HTTP_ONLY'
+          """Disposable R157 HTTP reference: loopback synthetic HMAC JWT, LINE-like HMAC, SQLite.
+          NOT Cloudflare Worker, Supabase/PostgREST/JWKS/RLS or actual LINE. DO NOT DEPLOY.
+          """
+          import base64, hashlib, hmac, json, re, sqlite3, tempfile, threading, time
+          from concurrent.futures import ThreadPoolExecutor
+          from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+          from urllib.request import Request, urlopen
+          from urllib.error import HTTPError
+          from pathlib import Path
+          
+          KEY=b'R157-SYNTHETIC-JWT-KEY-NOT-FOR-REAL-SYSTEMS'
+          CHANNEL={'A':b'R157-SYNTHETIC-CHANNEL-A','B':b'R157-SYNTHETIC-CHANNEL-B'}
+          SUBJECT={'a1':('A','client'),'a2':('A','client'),'as':('A','staff'),'b1':('B','client'),'bs':('B','staff')}
+          CASES=[]
+          
+          def unique(pairs):
+              o={}
+              for k,v in pairs:
+                  if k in o:raise ValueError('duplicate JSON key')
+                  o[k]=v
+              return o
+          
+          def enc(b):return base64.urlsafe_b64encode(b).rstrip(b'=').decode('ascii')
+          def dec(s):
+              if not re.fullmatch('[A-Za-z0-9_-]+',s):raise ValueError('invalid base64url')
+              return base64.urlsafe_b64decode(s+'='*(-len(s)%4))
+          def jwt(subject='a1',**override):
+              now=int(time.time()); p={'sub':subject,'iss':'r157-local','aud':'r157-test','iat':now-1,'nbf':now-1,'exp':now+120}
+              p.update(override)
+              h=enc(b'{"alg":"HS256","typ":"JWT"}');b=enc(json.dumps(p,separators=(',',':')).encode())
+              d=(h+'.'+b).encode()
+              return h+'.'+b+'.'+enc(hmac.new(KEY,d,hashlib.sha256).digest())
+          def principal(value):
+              try:
+                  if not isinstance(value,str) or len(value)>4096:raise ValueError('size')
+                  parts=value.split('.')
+                  if len(parts)!=3:raise ValueError('segments')
+                  h,p,s=parts
+                  if not hmac.compare_digest(dec(s),hmac.new(KEY,(h+'.'+p).encode(),hashlib.sha256).digest()):raise ValueError('bad signature')
+                  head=json.loads(dec(h),object_pairs_hook=unique); claims=json.loads(dec(p),object_pairs_hook=unique)
+                  if not isinstance(head,dict) or head!={'alg':'HS256','typ':'JWT'}:raise ValueError('header')
+                  if not isinstance(claims,dict) or claims.get('iss')!='r157-local' or claims.get('aud')!='r157-test':raise ValueError('issuer/audience')
+                  sub=claims.get('sub')
+                  if not isinstance(sub,str) or sub not in SUBJECT:raise ValueError('unregistered')
+                  if any(type(claims.get(k)) is not int for k in ('iat','nbf','exp')):raise ValueError('type')
+                  now=int(time.time())
+                  if claims['iat']>now+5 or claims['nbf']>now+5 or claims['exp']<=now or claims['exp']-claims['iat']>3600:raise ValueError('time')
+                  office,role=SUBJECT[sub]
+                  if ('office' in claims and claims['office']!=office) or ('role' in claims and claims['role']!=role):raise ValueError('spoof')
+                  return sub,office,role
+              except (ValueError,TypeError,UnicodeDecodeError,OverflowError):return None
+          
+          def setup(dbpath):
+              with sqlite3.connect(dbpath) as db:
+                  db.executescript('''PRAGMA journal_mode=WAL;
+                  CREATE TABLE documents (id TEXT, office TEXT, client TEXT);
+                  INSERT INTO documents VALUES ('A1-doc','A','a1'),('A2-doc','A','a2'),('B1-doc','B','b1');
+                  CREATE TABLE booking (office TEXT, subject TEXT, idem TEXT, bodyhash TEXT, id TEXT, PRIMARY KEY(office,subject,idem));
+                  CREATE TABLE events (channel TEXT, eventid TEXT, bodyhash TEXT, PRIMARY KEY(channel,eventid));''')
+          
+          class H(BaseHTTPRequestHandler):
+              dbpath=''
+              def log_message(self,*args):pass
+              def send(self,status,value):
+                  raw=json.dumps(value,separators=(',',':'),sort_keys=True).encode()
+                  self.send_response(status)
+                  self.send_header('Content-Type','application/json; charset=utf-8')
+                  self.send_header('Cache-Control','no-store')
+                  self.send_header('X-Content-Type-Options','nosniff')
+                  self.send_header('Content-Length',str(len(raw)))
+                  self.end_headers();self.wfile.write(raw)
+              def db(self):
+                  c=sqlite3.connect(self.dbpath,timeout=20,isolation_level=None)
+                  c.execute('PRAGMA busy_timeout=20000')
+                  return c
+              def auth(self):
+                  a=self.headers.get('Authorization','')
+                  return principal(a[7:]) if a.startswith('Bearer ') and a.count(' ')==1 else None
+              def data(self):
+                  length=self.headers.get('Content-Length','')
+                  if not length.isdigit() or not 1<=int(length)<=8192:raise ValueError('size')
+                  if self.headers.get('Content-Type','').split(';')[0]!='application/json':raise ValueError('content type')
+                  raw=self.rfile.read(int(length))
+                  obj=json.loads(raw,object_pairs_hook=unique)
+                  if not isinstance(obj,dict):raise ValueError('must be object')
+                  return raw,obj
+              def do_GET(self):
+                  if self.path=='/health':return self.send(200,{'ok':True,'scope':'synthetic-loopback','release':'HOLD'})
+                  if not self.path.startswith('/documents'):return self.send(404,{'error':'not_found'})
+                  from urllib.parse import urlsplit, parse_qs
+                  url=urlsplit(self.path)
+                  if url.path!='/documents':return self.send(404,{'error':'not_found'})
+                  ident=self.auth()
+                  if not ident:return self.send(401,{'error':'unauthorized'})
+                  sub,office,role=ident
+                  q=parse_qs(url.query,keep_blank_values=True)
+                  if any(k not in ('office','client') for k in q):return self.send(400,{'error':'invalid_request'})
+                  if q.get('office',[office])!=[office] or (role=='client' and q.get('client',[sub])!=[sub]):return self.send(403,{'error':'forbidden'})
+                  with self.db() as db:
+                      if role=='staff':v=db.execute('SELECT id FROM documents WHERE office=? ORDER BY id',(office,)).fetchall()
+                      else:v=db.execute('SELECT id FROM documents WHERE office=? AND client=? ORDER BY id',(office,sub)).fetchall()
+                  return self.send(200,{'ids':[x[0] for x in v]})
+              def do_POST(self):
+                  if self.path=='/bookings':return self.booking()
+                  if self.path.startswith('/line/'):return self.line(self.path[6:])
+                  return self.send(404,{'error':'not_found'})
+              def booking(self):
+                  ident=self.auth()
+                  if not ident:return self.send(401,{'error':'unauthorized'})
+                  sub,office,role=ident
+                  if role!='client' or self.headers.get('X-Office-ID',office)!=office:return self.send(403,{'error':'forbidden'})
+                  idem=self.headers.get('Idempotency-Key','')
+                  if not re.fullmatch('[a-zA-Z0-9_-]{12,64}',idem):return self.send(400,{'error':'invalid_request'})
+                  try:
+                      raw,obj=self.data()
+                      if set(obj)!={'start','duration'} or type(obj['start']) is not int or type(obj['duration']) is not int:raise ValueError('fields')
+                      if obj['duration']!=30 or obj['start']<=int(time.time()) or obj['start']%1800:raise ValueError('slot')
+                  except (ValueError,TypeError):return self.send(400,{'error':'invalid_request'})
+                  digest=hashlib.sha256(json.dumps(obj,sort_keys=True).encode()).hexdigest()
+                  with self.db() as db:
+                      try:
+                          db.execute('BEGIN IMMEDIATE')
+                          before=db.execute('SELECT bodyhash,id FROM booking WHERE office=? AND subject=? AND idem=?',(office,sub,idem)).fetchone()
+                          if before:
+                              if before[0]!=digest:db.rollback();return self.send(409,{'error':'conflict'})
+                              db.commit();return self.send(200,{'id':before[1],'duplicate':True})
+                          booking_id=hashlib.sha256(f'{office}:{sub}:{idem}'.encode()).hexdigest()[:16]
+                          db.execute('INSERT INTO booking VALUES (?,?,?,?,?)',(office,sub,idem,digest,booking_id));db.commit()
+                      except sqlite3.DatabaseError:
+                          db.rollback();return self.send(503,{'error':'temporarily_unavailable'})
+                  return self.send(201,{'id':booking_id,'duplicate':False})
+              def line(self,channel):
+                  if channel not in CHANNEL:return self.send(404,{'error':'not_found'})
+                  try:
+                      raw,obj=self.data()
+                      expected=base64.b64encode(hmac.new(CHANNEL[channel],raw,hashlib.sha256).digest()).decode()
+                      if not hmac.compare_digest(expected,self.headers.get('X-Line-Signature','')):return self.send(401,{'error':'unauthorized'})
+                      events=obj.get('events')
+                      if set(obj)!={'destination','events'} or obj['destination']!=channel or not isinstance(events,list) or len(events)!=1:raise ValueError('events')
+                      if not isinstance(events[0],dict) or set(events[0])!={'webhookEventId'}:raise ValueError('event shape')
+                      eid=events[0]['webhookEventId']
+                      if not isinstance(eid,str) or not re.fullmatch('[A-Za-z0-9_-]{1,100}',eid):raise ValueError('event ID')
+                  except (ValueError,TypeError):return self.send(400,{'error':'invalid_request'})
+                  digest=hashlib.sha256(raw).hexdigest()
+                  with self.db() as db:
+                      try:
+                          db.execute('BEGIN IMMEDIATE')
+                          prior=db.execute('SELECT bodyhash FROM events WHERE channel=? AND eventid=?',(channel,eid)).fetchone()
+                          if prior:
+                              if prior[0]!=digest:db.rollback();return self.send(409,{'error':'conflict'})
+                              db.commit();return self.send(200,{'duplicate':True})
+                          db.execute('INSERT INTO events VALUES (?,?,?)',(channel,eid,digest));db.commit()
+                      except sqlite3.DatabaseError:
+                          db.rollback();return self.send(503,{'error':'temporarily_unavailable'})
+                  return self.send(201,{'duplicate':False})
+              def do_PATCH(self):return self.send(405,{'error':'method_not_allowed'})
+              def do_DELETE(self):return self.send(405,{'error':'method_not_allowed'})
+              def do_OPTIONS(self):return self.send(405,{'error':'method_not_allowed'})
+          
+          class Server(ThreadingHTTPServer):daemon_threads=True
+          
+          def request(root,method,path,headers=None,body=None):
+              data=None if body is None else (body if isinstance(body,bytes) else json.dumps(body).encode())
+              headers=dict(headers or {})
+              if data is not None:headers.setdefault('Content-Type','application/json')
+              req=Request(root+path,data=data,headers=headers,method=method)
+              try:r=urlopen(req,timeout=8)
+              except HTTPError as e:r=e
+              with r:return r.status,json.loads(r.read()),dict(r.headers)
+          def bearer(tok):return {'Authorization':'Bearer '+tok}
+          def linebody(ch='A',eid='event001'):
+              return json.dumps({'destination':ch,'events':[{'webhookEventId':eid}]},separators=(',',':')).encode()
+          def line_req(root,ch,b,signature=None):
+              sig=base64.b64encode(hmac.new(CHANNEL.get(ch,b'WRONG'),b,hashlib.sha256).digest()).decode() if signature is None else signature
+              return request(root,'POST','/line/'+ch,{'X-Line-Signature':sig},b)
+          def check(label,result):
+              if not result:raise AssertionError('R157_FAIL_'+str(len(CASES)+1).zfill(2)+': '+label)
+              CASES.append(label);print('R157_PASS_'+str(len(CASES)).zfill(2)+': '+label,flush=True)
+          
+          def main():
+              with tempfile.TemporaryDirectory(prefix='r157_synthetic_') as temp:
+                  dbfile=str(Path(temp)/'qa.sqlite3');setup(dbfile);H.dbpath=dbfile
+                  server=Server(('127.0.0.1',0),H)
+                  thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+                  root=f'http://127.0.0.1:{server.server_port}'
+                  def status(m,p,h=None,b=None):return request(root,m,p,h,b)[0]
+                  def doc(s,p='/documents'):return request(root,'GET',p,bearer(jwt(s)))
+                  try:
+                      resp,health,hh=request(root,'GET','/health')
+                      check('health explicitly synthetic release HOLD',resp==200 and health['release']=='HOLD' and health['scope']=='synthetic-loopback')
+                      check('unknown endpoint hidden',status('GET','/hidden')==404)
+                      check('no bearer rejected',status('GET','/documents')==401)
+                      check('malformed bearer rejected',status('GET','/documents',bearer('broken'))==401)
+                      for subject,expected in [('a1',['A1-doc']),('a2',['A2-doc']),('as',['A1-doc','A2-doc']),('b1',['B1-doc']),('bs',['B1-doc'])]:
+                          check(f'{subject} sees only authorized document IDs',doc(subject)[1]['ids']==expected)
+                      bad=[('unknown subject',jwt('unknown')),('wrong audience',jwt(aud='bad')),('wrong issuer',jwt(iss='bad')),
+                           ('expired token',jwt(exp=int(time.time())-1)),('future nbf',jwt(nbf=int(time.time())+90)),
+                           ('future iat',jwt(iat=int(time.time())+90)),('lifetime too long',jwt(exp=int(time.time())+7200)),
+                           ('office claim forgery',jwt(office='B')),('role claim forgery',jwt(role='staff')),
+                           ('truncated token',jwt()[:-10]),('alg none segment',jwt().replace('.','..',1))]
+                      for label,tok in bad:check(label+' rejected',status('GET','/documents',bearer(tok))==401)
+                      check('correct signed office passes',status('GET','/documents',bearer(jwt(office='A')))==200)
+                      check('cross office query denied',doc('a1','/documents?office=B')[0]==403)
+                      check('cross client query denied',doc('a1','/documents?client=a2')[0]==403)
+                      check('duplicate office filter denied',doc('a1','/documents?office=A&office=B')[0]==403)
+                      check('unknown query filter rejected',doc('a1','/documents?debug=true')[0]==400)
+                      check('DELETE disabled',status('DELETE','/documents')==405)
+                      check('PATCH disabled',status('PATCH','/documents')==405)
+                      check('OPTIONS disabled',status('OPTIONS','/documents')==405)
+                      check('responses are no-store and nosniff',hh.get('Cache-Control')=='no-store' and hh.get('X-Content-Type-Options')=='nosniff')
+                      check('no wildcard CORS response', 'Access-Control-Allow-Origin' not in hh)
+                      start=(int(time.time())//1800+4)*1800
+                      body={'start':start,'duration':30};key='r157_uniq_key_00001'
+                      ah={**bearer(jwt('a1')),'Idempotency-Key':key}
+                      check('booking unauthorized no token',status('POST','/bookings',{'Idempotency-Key':key},body)==401)
+                      check('staff cannot create client booking',status('POST','/bookings',{**bearer(jwt('as')),'Idempotency-Key':key},body)==403)
+                      check('missing idempotency key rejected',status('POST','/bookings',bearer(jwt()),body)==400)
+                      check('short idempotency key rejected',status('POST','/bookings',{**ah,'Idempotency-Key':'x'},body)==400)
+                      fs,fr,_=request(root,'POST','/bookings',ah,body)
+                      check('first booking stored',fs==201 and fr['duplicate'] is False)
+                      ds,dr,_=request(root,'POST','/bookings',ah,body)
+                      check('identical booking deduplicated',ds==200 and dr['duplicate'] and dr['id']==fr['id'])
+                      check('same key different booking conflicts',status('POST','/bookings',ah,{'start':start+1800,'duration':30})==409)
+                      check('same key second client separate',status('POST','/bookings',{**ah,**bearer(jwt('a2'))},body)==201)
+                      check('same key second office separate',status('POST','/bookings',{**ah,**bearer(jwt('b1'))},body)==201)
+                      check('client supplied forged office denied',status('POST','/bookings',{**ah,'X-Office-ID':'B'},body)==403)
+                      check('office in booking body not accepted',status('POST','/bookings',ah,{**body,'office':'B'})==400)
+                      check('past slot forbidden',status('POST','/bookings',ah,{'start':start-2592000,'duration':30})==400)
+                      check('15 minute slot forbidden',status('POST','/bookings',ah,{'start':start+900,'duration':30})==400)
+                      check('invalid booking duration',status('POST','/bookings',ah,{'start':start,'duration':15})==400)
+                      check('boolean booking time refused',status('POST','/bookings',ah,{'start':True,'duration':30})==400)
+                      check('invalid JSON booking refused',status('POST','/bookings',ah,b'{')==400)
+                      check('duplicate JSON claim refused',status('POST','/bookings',ah,b'{"start":1,"start":2,"duration":30}')==400)
+                      check('booking bad content type refused',status('POST','/bookings',{**ah,'Content-Type':'text/plain'},b'hello')==400)
+                      check('booking PATCH refused',status('PATCH','/bookings',ah,body)==405)
+                      b=linebody('A','event_001')
+                      check('unknown channel denied',line_req(root,'X',b)[0]==404)
+                      check('missing webhook signature denied',line_req(root,'A',b,signature='')[0]==401)
+                      check('wrong webhook signature denied',line_req(root,'A',b,signature='invalid')[0]==401)
+                      check('valid signed webhook inserted',line_req(root,'A',b)[0]==201)
+                      check('same signed event replay deduplicated',line_req(root,'A',b)[1]['duplicate'] is True)
+                      check('altered signed event ID payload conflict',line_req(root,'A',b+b' ')[0]==409)
+                      check('same event ID other channel isolated',line_req(root,'B',linebody('B','event_001'))[0]==201)
+                      check('destination mismatch rejected',line_req(root,'A',linebody('B','eventwrong'))[0]==400)
+                      check('channel B signature invalid for channel A',line_req(root,'A',b,signature=base64.b64encode(hmac.new(CHANNEL['B'],b,hashlib.sha256).digest()).decode())[0]==401)
+                      check('empty events refused',line_req(root,'A',b'{"destination":"A","events":[]}')[0]==400)
+                      check('duplicate JSON keys refused',line_req(root,'A',b'{"destination":"A","destination":"A","events":[]}')[0]==400)
+                      check('path traversal event ID refused',line_req(root,'A',linebody('A','../bad'))[0]==400)
+                      check('oversized webhook rejected',line_req(root,'A',b'x'*8193)[0]==400)
+                      with ThreadPoolExecutor(max_workers=8) as pool:rs=list(pool.map(lambda _:line_req(root,'A',linebody('A','racer')),range(8)))
+                      check('eight concurrent HTTP requests one event insert',sum(s==201 for s,_,_ in rs)==1)
+                      check('seven concurrent duplicates cleanly deduplicated',sum(s==200 and v.get('duplicate') is True for s,v,_ in rs)==7)
+                      check('conflicting payload after concurrency denied',line_req(root,'A',linebody('A','racer')+b' ')[0]==409)
+                      with sqlite3.connect(dbfile) as db:
+                          e=db.execute("SELECT count(*) FROM events WHERE channel='A' AND eventid='racer'").fetchone()[0]
+                          n=db.execute('SELECT count(*) FROM booking').fetchone()[0]
+                      check('event durable SQLite unique constraint',e==1)
+                      check('three office/client isolated bookings durable',n==3)
+                      assert len(CASES)==67, f'EXPECTED_67_TESTS_GOT_{len(CASES)}'
+                      print(f'R157_SUMMARY {len(CASES)} / 67 PASS',flush=True)
+                      print('R157_LOOPBACK_HTTP_GATEWAY_SYNTHETIC_PASS: PRODUCTION_HOLD',flush=True)
+                  finally:
+                      server.shutdown();server.server_close();thread.join(timeout=3)
+                  with sqlite3.connect(dbfile) as db:
+                      assert db.execute("SELECT count(*) FROM events WHERE channel='A' AND eventid='racer'").fetchone()[0]==1
+          
+          if __name__=='__main__':main()
+          PY_R157_SYNTHETIC_HTTP_ONLY
+          printf '%s  %s\n' 'fa6013815ac568ac66c42d1afec32b37e41b03ace394ee41ae4f92e437bc0cd8' "$RUNNER_TEMP/r157_local_reference.py" | sha256sum --check --status
+          env -u SUPABASE_URL -u SUPABASE_SERVICE_ROLE_KEY -u LINE_CHANNEL_ACCESS_TOKEN -u LINE_CHANNEL_SECRET -u CLOUDFLARE_API_TOKEN python3 -I "$RUNNER_TEMP/r157_local_reference.py"
+      - name: Record limitations and preserve production HOLD
+        if: success()
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## R157 loopback HTTP synthetic API boundary reference — release HOLD
+          - Tests 67 HTTP requests/claims using Python stdlib, loopback 127.0.0.1 and disposable SQLite files.
+          - Synthetic HS256 issuer/key, synthetic roles/offices, signed LINE-like fake channels, persisted booking and event deduplication including eight concurrent HTTP requests.
+          - Strictly reference code; NOT a deployed Cloudflare Worker, actual Supabase Auth/JWKS/PostgREST/RLS/Storage or LINE webhook integration.
+          - This workflow never accesses real customer information, sends LINE messages or modifies real DB/Worker/CONTROL CENTER.
+          - R151–R156 GitHub workflows and app.js/config.js are pinned read-only, with no branch/production writes.
+          - Customer release remains HOLD until all real-environment evidence gates and explicit approval.
+          EOF
