@@ -277,6 +277,23 @@ jobs:
           export R154_PG_CONTAINER="${{ job.services.pg.id }}"
           test -n "$R154_PG_CONTAINER"
           docker exec -i "$R154_PG_CONTAINER" psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres < "$RUNNER_TEMP/r154_disposable.sql"
+          # R154.1: postgres:17-alpine initdb permits localhost TCP trust by default.
+          # Force SCRAM authentication for every synthetic role login BEFORE testing passwords.
+          # Changes apply ONLY to this ephemeral GitHub Actions service container.
+          docker exec -i -u postgres "$R154_PG_CONTAINER" sh -eu -c '
+            HBA="$(psql -XAt -U postgres -d postgres -c "SHOW hba_file")"
+            test -n "$HBA" && test -f "$HBA"
+            {
+              printf "%s\n" "host all all 127.0.0.1/32 scram-sha-256"
+              printf "%s\n" "host all all ::1/128 scram-sha-256"
+              cat "$HBA"
+            } > /tmp/r154_pg_hba_hardened.conf
+            cat /tmp/r154_pg_hba_hardened.conf > "$HBA"
+            psql -XAt -U postgres -d postgres -c "SELECT pg_reload_conf()" | grep -qx t
+            test "$(psql -XAt -U postgres -d postgres -c "SELECT count(*) FROM pg_hba_file_rules WHERE error IS NOT NULL")" = 0
+          '
+          sleep 1
+          echo R154_LOCAL_TCP_SCRAM_REQUIRED
           python3 "$RUNNER_TEMP/r154_qa.py"
           echo 'R154_ROLE_BOUNDARY_DISPOSABLE_QA_PASS: REAL_TENANT_DEPLOYMENT_HOLD'
       - name: Report isolation scope without approving production
