@@ -1,0 +1,485 @@
+name: DPRO TAX R167 Real Staging Booking UI Candidate Isolation QA (No Deploy)
+
+on:
+  push:
+    branches: [tax-r7-staging-20261010]
+    paths:
+      - '.github/workflows/dpro-tax-r167-real-ui-candidate-isolation-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dpro-tax-r167-readonly-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  source-candidate-only:
+    if: ${{ github.repository == 'dpromstk2000-lab/dpro-tax-accounting-line-liff' && github.ref == 'refs/heads/tax-r7-staging-20261010' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact staging revision without write credentials
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Enforce staging only and 18 immutable source pins
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'dpromstk2000-lab/dpro-tax-accounting-line-liff'
+          test "$GITHUB_REF" = 'refs/heads/tax-r7-staging-20261010'
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}" && test -z "${LINE_CHANNEL_SECRET:-}" && test -z "${CLOUDFLARE_API_TOKEN:-}"
+            test "$(git hash-object .github/workflows/dpro-tax-r151-staging-boundary-qa.yml)" = "bd6a075f06f0692ff868067416afb5781faad6c1" || { echo "R167_PIN_DRIFT: .github/workflows/dpro-tax-r151-staging-boundary-qa.yml"; exit 1; }
+            test "$(git hash-object .github/workflows/dpro-tax-r152-disposable-postgres-booking-qa.yml)" = "8c3ed43f0f1fdc3217382f47b43c5f68763f1f37" || { echo "R167_PIN_DRIFT: .github/workflows/dpro-tax-r152-disposable-postgres-booking-qa.yml"; exit 1; }
+            test "$(git hash-object .github/workflows/dpro-tax-r153-disposable-direct-dml-qa.yml)" = "d931f63a70a560b7f447fbcef1e6fd25868fb06d" || { echo "R167_PIN_DRIFT: .github/workflows/dpro-tax-r153-disposable-direct-dml-qa.yml"; exit 1; }
+            test "$(git hash-object .github/workflows/dpro-tax-r154-disposable-auth-role-boundary-qa.yml)" = "3d5964f33675a636bf1f35e90c98d59aaaafd437" || { echo "R167_PIN_DRIFT: .github/workflows/dpro-tax-r154-disposable-auth-role-boundary-qa.yml"; exit 1; }
+            test "$(git hash-object .github/workflows/dpro-tax-r155-synthetic-trust-boundary-qa.yml)" = "e21797ce5271a949c337b6bcf85d3d1339ce4ffd" || { echo "R167_PIN_DRIFT: .github/workflows/dpro-tax-r155-synthetic-trust-boundary-qa.yml"; exit 1; }
+            test "$(git hash-object .github/workflows/dpro-tax-r156-disposable-rls-replay-qa.yml)" = "ff6442c6b4d2d0c409b906625a3322cdb16ab47e" || { echo "R167_PIN_DRIFT: .github/workflows/dpro-tax-r156-disposable-rls-replay-qa.yml"; exit 1; }
+            test "$(git hash-object .github/workflows/dpro-tax-r157-loopback-http-gateway-qa.yml)" = "c6cf3510194b6f3af3474554966f57905fce7224" || { echo "R167_PIN_DRIFT: .github/workflows/dpro-tax-r157-loopback-http-gateway-qa.yml"; exit 1; }
+            test "$(git hash-object .github/workflows/dpro-tax-r158-public-demo-source-integrity-qa.yml)" = "7590c8417fa940b73ccaf4e65534176e1d643f32" || { echo "R167_PIN_DRIFT: .github/workflows/dpro-tax-r158-public-demo-source-integrity-qa.yml"; exit 1; }
+            test "$(git hash-object .github/workflows/dpro-tax-r159-release-evidence-contract-qa.yml)" = "b631da2cf67eb198160a0ffd8b88596b020d51e9" || { echo "R167_PIN_DRIFT: .github/workflows/dpro-tax-r159-release-evidence-contract-qa.yml"; exit 1; }
+            test "$(git hash-object .github/workflows/dpro-tax-r160-staging-commercial-gap-qa.yml)" = "5f359b6ec11b1e119a180302e64c19e68885a637" || { echo "R167_PIN_DRIFT: .github/workflows/dpro-tax-r160-staging-commercial-gap-qa.yml"; exit 1; }
+            test "$(git hash-object .github/workflows/dpro-tax-r161-disposable-booking-atomicity-qa.yml)" = "7ae80a66d01c45e5bb2a8debfc5d0a4b0be5a838" || { echo "R167_PIN_DRIFT: .github/workflows/dpro-tax-r161-disposable-booking-atomicity-qa.yml"; exit 1; }
+            test "$(git hash-object .github/workflows/dpro-tax-r162-booking-bridge-contract-qa.yml)" = "ebc86c4e716f79b159cadac3b3b5e115934114f1" || { echo "R167_PIN_DRIFT: .github/workflows/dpro-tax-r162-booking-bridge-contract-qa.yml"; exit 1; }
+            test "$(git hash-object .github/workflows/dpro-tax-r163-guest-capability-loopback-qa.yml)" = "9a20d807bb0f47f9016e0609f2e04af7e35a2210" || { echo "R167_PIN_DRIFT: .github/workflows/dpro-tax-r163-guest-capability-loopback-qa.yml"; exit 1; }
+            test "$(git hash-object .github/workflows/dpro-tax-r164-ui-retry-bridge-contract-qa.yml)" = "292100ad0c5fdfa933c1cf3ad252658b6482a50f" || { echo "R167_PIN_DRIFT: .github/workflows/dpro-tax-r164-ui-retry-bridge-contract-qa.yml"; exit 1; }
+            test "$(git hash-object .github/workflows/dpro-tax-r165-disposable-recovery-http-qa.yml)" = "1ae15008458d07531fe8b784b6de17fa9ae6261f" || { echo "R167_PIN_DRIFT: .github/workflows/dpro-tax-r165-disposable-recovery-http-qa.yml"; exit 1; }
+            test "$(git hash-object .github/workflows/dpro-tax-r166-offline-booking-ui-contract-qa.yml)" = "a0313ee52c2924ac66ec776a789d10608546c111" || { echo "R167_PIN_DRIFT: .github/workflows/dpro-tax-r166-offline-booking-ui-contract-qa.yml"; exit 1; }
+            test "$(git hash-object app.js)" = "4c3475219e5c7fc9203ec5e5143d4f6eb8299423" || { echo "R167_PIN_DRIFT: app.js"; exit 1; }
+            test "$(git hash-object config.js)" = "da1876bae8333a3a10ee13495c0063ded0c2b351" || { echo "R167_PIN_DRIFT: config.js"; exit 1; }
+            echo R167_PIN_SUMMARY 18 / 18 PASS
+      - name: Apply reversible UI integration patch to runner temp only
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/R167_STAGING_APP_CANDIDATE.patch" <<'R167_PATCH_EOF'
+          --- R105_STAGING_app.js
+          +++ R167_STAGING_APP_CANDIDATE_DO_NOT_DEPLOY.js
+          @@ -127,11 +127,11 @@
+               if (!token) throw new Error("LINE本人認証が取得できません。LINEログインをやり直してください。");
+               lineIdToken = token;
+               return true;
+             }
+           
+          -  async function api(path, { method = "GET", body, adminKey, lineId, formData } = {}) {
+          +  async function api(path, { method = "GET", body, adminKey, lineId, formData, idempotencyKey } = {}) {
+               // R10.5 review-only GitHub staging: fail closed for EVERY mutation method at one network boundary.
+               // This protects the staging UI only; direct API access still requires an independent server/DB gate.
+               if (CONFIG.TAX_R105_STAGING_READ_ONLY === true
+                   && !["GET", "HEAD"].includes(String(method).toUpperCase())) {
+                 const error = new Error("検証用の管理画面では登録・変更・削除できません。安全な本番連携は未実施です。");
+          @@ -142,10 +142,17 @@
+               const headers = { Accept: "application/json" };
+               if (adminKey) headers["X-Admin-Key"] = adminKey;
+               if (lineIdToken) headers["X-Line-Id-Token"] = lineIdToken;
+               else if (isDemo && lineId) headers["X-Line-User-Id"] = lineId;
+               if (!formData && body !== undefined) headers["Content-Type"] = "application/json";
+          +    if (idempotencyKey !== undefined) {
+          +      if (path !== "/api/public/appointments" || String(method).toUpperCase() !== "POST" ||
+          +          !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(idempotencyKey)) {
+          +        throw new Error("無効な予約再送キーです。");
+          +      }
+          +      headers["Idempotency-Key"] = idempotencyKey;
+          +    }
+               const response = await fetch(`${apiBase}${path}`, {
+                 method,
+                 headers,
+                 body: formData || (body !== undefined ? JSON.stringify(body) : undefined),
+               });
+          @@ -196,10 +203,71 @@
+               });
+             }
+           
+             function todayJst() {
+               return new Intl.DateTimeFormat("en-CA", { timeZone: CONFIG.TIMEZONE, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+          +  }
+          +
+          +  // R167 CANDIDATE ONLY / NOT DEPLOYED. Ephemeral, no persistent identifiers or PII storage.
+          +  // Actual server authentication, atomic SQL, response contract and support UX are NOT wired.
+          +  function createR167BookingController(send, makeKey) {
+          +    let attempt = null;
+          +    let inflight = null;
+          +    function error(code, message) { const e = new Error(message); e.code = code; return e; }
+          +    function stableIntent(payload) {
+          +      if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw error("R167_INVALID_BODY", "予約内容が不正です。");
+          +      const sorted = Object.keys(payload).sort().reduce((out, k) => { out[k] = payload[k]; return out; }, {});
+          +      return JSON.stringify(sorted); // RAM only, never log, persist or send the canonical string.
+          +    }
+          +    function validKey(v) { return typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v); }
+          +    function validReceipt(v) { return v && v.ok === true && v.status === "pending" && typeof v.request_id === "string" && /^[0-9A-Za-z_-]{8,64}$/.test(v.request_id) && !Object.prototype.hasOwnProperty.call(v, "confirmed_start_at"); }
+          +    return Object.freeze({
+          +      async submit(payload) {
+          +        const intent = stableIntent(payload);
+          +        if (inflight) {
+          +          if (!attempt || attempt.intent !== intent) throw error("R167_INFLIGHT_LOCK", "送信中の予約を変更できません。");
+          +          return inflight;
+          +        }
+          +        if (attempt && attempt.phase === "unknown" && attempt.intent !== intent) throw error("R167_UNKNOWN_LOCK", "受付結果を確認できるまで予約内容を変更できません。事務所へ確認してください。");
+          +        if (attempt && attempt.phase === "acknowledged" && attempt.intent === intent) return attempt.receipt;
+          +        if (!attempt || attempt.phase === "rejected" || attempt.phase === "acknowledged") {
+          +          const key = makeKey();
+          +          if (!validKey(key)) throw error("R167_UNSAFE_RANDOM_KEY", "安全な送信キーを生成できません。");
+          +          attempt = { key, intent, phase: "sending", receipt: null };
+          +        } else attempt.phase = "sending";
+          +        const current = attempt;
+          +        const work = (async () => {
+          +          try {
+          +            const response = await send({ ...payload }, current.key);
+          +            if (!validReceipt(response)) throw error("R167_UNVERIFIED_RECEIPT", "受付結果を確認できません。再送前に事務所へご確認ください。");
+          +            current.phase = "acknowledged";
+          +            current.receipt = Object.freeze({ status: "pending", request_id: response.request_id, message: "予約希望を受け付けました（まだ確定ではありません）。" });
+          +            return current.receipt;
+          +          } catch (e) {
+          +            // A transport error, 5xx or malformed success is ambiguous. Never generate a different key.
+          +            if (e && (e.code === "R105_STAGING_READ_ONLY" || [400,401,403,404,422].includes(e.status))) {
+          +              current.phase = "rejected";
+          +              if (attempt === current) attempt = null;
+          +            } else current.phase = "unknown";
+          +            throw e;
+          +          } finally { if (inflight === work) inflight = null; }
+          +        })();
+          +        inflight = work;
+          +        return work;
+          +      },
+          +      state() { return attempt ? attempt.phase : "idle"; },
+          +      resetAfterConfirmedResolution() {
+          +        if (inflight || (attempt && attempt.phase === "unknown")) throw error("R167_UNKNOWN_LOCK", "受付結果が未確認です。リセットできません。");
+          +        attempt = null;
+          +      },
+          +    });
+          +  }
+          +  // END R167 candidate booking controller
+          +
+          +  function r167SecureRequestKey() {
+          +    if (!globalThis.crypto || typeof globalThis.crypto.randomUUID !== "function") throw new Error("安全な送信キーを生成できません。");
+          +    return globalThis.crypto.randomUUID();
+             }
+           
+             async function initPublic() {
+               // Anonymous consultations remain available; linked actions require verified LINE identity.
+               if (CONFIG.LIFF_ID && window.liff) await initializeLineIdentity({ required: false });
+          @@ -242,26 +310,42 @@
+                 if (!button) return;
+                 $$(".slot-button", $("#slot-grid")).forEach((node) => node.classList.toggle("selected", node === button));
+                 $("#booking-start").value = button.dataset.slot;
+               });
+           
+          +    // R167 CANDIDATE: disabled by default; R105 read-only remains enforced inside api().
+          +    const r167Booking = createR167BookingController(
+          +      (body, idempotencyKey) => api("/api/public/appointments", { method: "POST", body, lineId: lineUserId, idempotencyKey }),
+          +      r167SecureRequestKey,
+          +    );
+          +    let r167FormBusy = false;
+               $("#booking-form").addEventListener("submit", async (event) => {
+                 event.preventDefault();
+                 const form = event.currentTarget;
+                 const submit = $("button[type=submit]", form);
+          +      if (r167FormBusy) return;
+          +      // The existing production API does NOT implement this contract. It MUST NOT be enabled.
+          +      if (CONFIG.TAX_R167_BOOKING_BRIDGE_ENABLED !== true) {
+          +        $("#public-alert").innerHTML = alertBox("安全な予約受付機能は準備中です。事務所へ直接お問い合わせください。");
+          +        return;
+          +      }
+                 const values = formObject(form);
+                 if (!values.requested_start_at) { $("#public-alert").innerHTML = alertBox("希望時間を選択してください。"); return; }
+                 delete values.booking_date;
+                 if (lineUserId) values.line_user_id = lineUserId;
+                 try {
+          -        setButtonBusy(submit, true, "送信中...");
+          -        const data = await api("/api/public/appointments", { method: "POST", body: values, lineId: lineUserId });
+          -        $("#public-alert").innerHTML = alertBox(data.message, "success");
+          -        form.reset(); $("#slot-grid").innerHTML = ""; $("#slot-message").textContent = "相談内容と希望日を選択してください。";
+          +        r167FormBusy = true;
+          +        setButtonBusy(submit, true, "希望を送信中...");
+          +        const receipt = await r167Booking.submit(values);
+          +        $("#public-alert").innerHTML = alertBox(receipt.message, "success");
+          +        // Show a pending receipt only, never a confirmed booking.
+          +        // Re-authenticated server-side recovery is NOT implemented in this candidate.
+                   scrollTo({ top: $("#booking").offsetTop - 90, behavior: "smooth" });
+          -      } catch (error) { $("#public-alert").innerHTML = alertBox(error.message); }
+          -      finally { setButtonBusy(submit, false); }
+          +      } catch (error) {
+          +        const suffix = r167Booking.state() === "unknown" ? " 結果不明のため同じ内容で再送するか、事務所へお問い合わせください。" : "";
+          +        $("#public-alert").innerHTML = alertBox(String(error.message || "通信エラー") + suffix);
+          +      } finally { r167FormBusy = false; setButtonBusy(submit, false); }
+               });
+           
+               $("#inquiry-form").addEventListener("submit", async (event) => {
+                 event.preventDefault();
+                 const form = event.currentTarget; const submit = $("button[type=submit]", form); const values = formObject(form);
+          R167_PATCH_EOF
+          cp "$GITHUB_WORKSPACE/app.js" "$RUNNER_TEMP/R105_STAGING_app.js"
+          cd "$RUNNER_TEMP"
+          patch -p0 --batch --forward < R167_STAGING_APP_CANDIDATE.patch
+          mv R105_STAGING_app.js R167_STAGING_APP_CANDIDATE_DO_NOT_DEPLOY.js
+          node --check R167_STAGING_APP_CANDIDATE_DO_NOT_DEPLOY.js
+          printf "%s  %s\n" "f30b748efdf6e88ccf1b2e6803029afaa18377734b30cc798ca18ae77e8ae685" "$RUNNER_TEMP/R167_STAGING_APP_CANDIDATE.patch" | sha256sum -c --status
+          printf "%s  %s\n" "7210fe5857299b3b1d8dc5e006a005e066fad2f490f46caf57adbe966307f0e1" "$RUNNER_TEMP/R167_STAGING_APP_CANDIDATE_DO_NOT_DEPLOY.js" | sha256sum -c --status
+          echo R167_PATCH_APPLIED_ONLY_IN_RUNNER_TEMP
+      - name: Audit actual staging source and detect 12 malicious mutations
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/R167_SOURCE_AUDIT.py" <<'R167_SOURCE_AUDIT_EOF'
+          #!/usr/bin/env python3
+          """Read-only candidate source contract + deliberate negative mutations. No real network."""
+          import sys,re,hashlib,json,subprocess
+          from pathlib import Path
+          root=Path(sys.argv[1]); original=(root/'R167_ORIGINAL_STAGING_APP_SNAPSHOT.js').read_text(); candidate=(root/'R167_STAGING_APP_CANDIDATE_DO_NOT_DEPLOY.js').read_text(); patch=(root/'R167_STAGING_APP_CANDIDATE.patch').read_text(); meta=json.loads((root/'R167_PATCH_META.json').read_text()); log=[]
+          def ck(n,cond):
+           if not cond:raise AssertionError('R167_SOURCE_FAIL: '+n)
+           log.append(n);print(f'R167_SOURCE_PASS_{len(log):02d}: {n}',flush=True)
+          def blob(s):
+           b=s.encode();return hashlib.sha1(('blob %d\0'%len(b)).encode()+b).hexdigest()
+          ck('original file Git blob pinned',blob(original)=='4c3475219e5c7fc9203ec5e5143d4f6eb8299423')
+          ck('candidate SHA256 pinned',hashlib.sha256(candidate.encode()).hexdigest()==meta['candidate_sha256'])
+          ck('candidate and original are not identical',candidate!=original)
+          ck('explicit DO NOT DEPLOY flag in metadata',meta['do_not_deploy'] is True)
+          ck('feature flag default OFF / unconfigured',meta['feature_enabled_by_default'] is False)
+          ck('current real read-only API boundary present in candidate', 'CONFIG.TAX_R105_STAGING_READ_ONLY === true' in candidate)
+          ck('real read-only API boundary appears once',candidate.count('CONFIG.TAX_R105_STAGING_READ_ONLY === true')==1)
+          ck('normal existing app still has one public init',candidate.count('async function initPublic()')==1)
+          ck('normal app boot still calls bindModals',candidate.count('  bindModals();')==1)
+          ck('existing public office GET retained',candidate.count('api("/api/public/office")')==2)
+          ck('existing slot GET retained',candidate.count('/api/public/slots?date=')==1)
+          ck('inquiry submit preserved',candidate.count('api("/api/public/inquiries"')==2)
+          ck('register submit preserved',candidate.count('api("/api/public/register"')==1)
+          ck('booking handler not duplicated',candidate.count('$("#booking-form").addEventListener("submit"')==1)
+          ck('feature requires EXACT true',candidate.count('CONFIG.TAX_R167_BOOKING_BRIDGE_ENABLED !== true')==1)
+          ck('no feature flag in unchanged original', 'TAX_R167_BOOKING_BRIDGE_ENABLED' not in original)
+          ck('Idempotency-Key not in original legacy UI', 'Idempotency-Key' not in original)
+          ck('idempotency header applied to POST appointment only','path !== "/api/public/appointments" || String(method).toUpperCase() !== "POST"' in candidate)
+          ck('idempotency header only assigned once',candidate.count('headers["Idempotency-Key"] = idempotencyKey;')==1)
+          ck('controller handles uncertain result with lock','attempt.phase === "unknown" && attempt.intent !== intent' in candidate)
+          ck('controller blocks editing during inflight','throw error("R167_INFLIGHT_LOCK"' in candidate)
+          ck('server receipt must say pending','v.status === "pending"' in candidate)
+          ck('server response must be verified as ok', 'v.ok === true' in candidate)
+          ck('server confirmed time forbidden', '!Object.prototype.hasOwnProperty.call(v, "confirmed_start_at")' in candidate)
+          ck('UI text distinguishes request from confirmation','まだ確定ではありません' in candidate)
+          ck('unknown state never auto-reset','attempt && attempt.phase === "unknown"' in candidate)
+          ck('no new local storage dependency',candidate.count('localStorage')==original.count('localStorage'))
+          ck('no new session storage dependency',candidate.count('sessionStorage')==original.count('sessionStorage'))
+          ck('no new cookie access',candidate.count('document.cookie')==original.count('document.cookie'))
+          ck('old LIFF verification code preserved','const token = window.liff.getIDToken();' in candidate)
+          ck('old config base origin preserved','const apiBase = location.hostname === "terminal.local" ? "/tax-api" : CONFIG.API_BASE;' in candidate)
+          ck('no destructive auto reset in new booking block','form.reset()' not in candidate.split('const r167Booking =',1)[1].split('$("#inquiry-form")',1)[0])
+          ck('feature guard precedes public booking POST',candidate.index('TAX_R167_BOOKING_BRIDGE_ENABLED !== true') < candidate.index('const receipt = await r167Booking.submit(values);'))
+          ck('R105 read-only is evaluated BEFORE fetch',candidate.index('CONFIG.TAX_R105_STAGING_READ_ONLY === true') < candidate.index('const response = await fetch(`${apiBase}${path}`'))
+          ck('candidate uses secure CSPRNG UUID','globalThis.crypto.randomUUID()' in candidate)
+          ck('candidate never uses weak Math.random for request key','Math.random()' not in candidate.split('function r167SecureRequestKey()',1)[1].split('async function initPublic()',1)[0])
+          # Negative mutation tests: each expected guard must reject a controlled mutation.
+          def security_guard(s):
+           return all([
+            'CONFIG.TAX_R105_STAGING_READ_ONLY === true' in s,
+            'CONFIG.TAX_R167_BOOKING_BRIDGE_ENABLED !== true' in s,
+            'headers["Idempotency-Key"] = idempotencyKey;' in s,
+            'path !== "/api/public/appointments" || String(method).toUpperCase() !== "POST"' in s,
+            'attempt.phase === "unknown" && attempt.intent !== intent' in s,
+            'throw error("R167_INFLIGHT_LOCK"' in s,
+            'v.status === "pending"' in s,
+            'v.ok === true' in s,
+            '!Object.prototype.hasOwnProperty.call(v, "confirmed_start_at")' in s,
+            'globalThis.crypto.randomUUID()' in s,
+            'r167FormBusy = true' in s,
+            'R167_UNSAFE_RANDOM_KEY' in s,
+           ])
+          ck('complete security guard present',security_guard(candidate))
+          mutations=[
+           ('remove R105 guard','CONFIG.TAX_R105_STAGING_READ_ONLY === true'),
+           ('remove opt-in guard','CONFIG.TAX_R167_BOOKING_BRIDGE_ENABLED !== true'),
+           ('remove idempotency header','headers["Idempotency-Key"] = idempotencyKey;'),
+           ('allow header on unrelated routes','path !== "/api/public/appointments" || String(method).toUpperCase() !== "POST"'),
+           ('unlock uncertain edits','attempt.phase === "unknown" && attempt.intent !== intent'),
+           ('unlock inflight edits','throw error("R167_INFLIGHT_LOCK"'),
+           ('allow confirmed receipt','v.status === "pending"'),
+           ('ignore receipt ok','v.ok === true'),
+           ('accept confirmed timestamp','!Object.prototype.hasOwnProperty.call(v, "confirmed_start_at")'),
+           ('remove CSPRNG','globalThis.crypto.randomUUID()'),
+           ('remove submit busy guard','r167FormBusy = true'),
+           ('allow weak key','R167_UNSAFE_RANDOM_KEY'),
+          ]
+          for i,(name,part) in enumerate(mutations,1):
+           if candidate.count(part)!=1:raise AssertionError('R167_MUTATION_NONUNIQUE '+name)
+           altered=candidate.replace(part,'R167_MUTATED_'+str(i))
+           if security_guard(altered):raise AssertionError('R167_MUTATION_NOT_CAUGHT '+name)
+           print(f'R167_MUTATION_PASS_{i:02d}: {name}',flush=True)
+          assert len(log)==37,(len(log),log)
+          print('R167_SOURCE_SUMMARY 37 / 37 PASS',flush=True)
+          print('R167_MUTATION_SUMMARY 12 / 12 PASS',flush=True)
+          R167_SOURCE_AUDIT_EOF
+          cat > "$RUNNER_TEMP/R167_PATCH_META.json" <<'R167_META_EOF'
+          {
+            "original_blob_sha": "4c3475219e5c7fc9203ec5e5143d4f6eb8299423",
+            "candidate_sha256": "7210fe5857299b3b1d8dc5e006a005e066fad2f490f46caf57adbe966307f0e1",
+            "original_bytes": 99015,
+            "candidate_bytes": 104216,
+            "patch_bytes": 9254,
+            "do_not_deploy": true,
+            "feature_flag": "TAX_R167_BOOKING_BRIDGE_ENABLED",
+            "feature_enabled_by_default": false
+          }
+          R167_META_EOF
+          
+          cp "$GITHUB_WORKSPACE/app.js" "$RUNNER_TEMP/R167_ORIGINAL_STAGING_APP_SNAPSHOT.js"
+          python3 -I "$RUNNER_TEMP/R167_SOURCE_AUDIT.py" "$RUNNER_TEMP"
+      - name: Run controller and real-app mock DOM integration assertions
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/R167_CONTROLLER_QA.cjs" <<'R167_CONTROLLER_EOF'
+          'use strict';
+          const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+          const source=fs.readFileSync(process.argv[2],'utf8');
+          const start=source.indexOf('  function createR167BookingController('),end=source.indexOf('  // END R167 candidate booking controller');
+          assert(start>0 && end>start, 'extract actual app candidate helper');
+          const helper=source.slice(start,end);
+          const make=vm.runInNewContext(`(()=>{${helper}\n return createR167BookingController;})()`, {});
+          const KEY1='12345678-1234-4234-9234-123456789abc',KEY2='12345678-1234-4234-9234-123456789abd',KEY3='12345678-1234-4234-9234-123456789abe';
+          const VALID={ok:true,status:'pending',request_id:'reference0000000000000000001'};
+          const intent={service_id:'svcA',requested_start_at:'2026-11-12T10:00:00+09:00',channel:'online'};
+          let passed=0;function check(name,fn){return Promise.resolve().then(fn).then(()=>{console.log('R167_PASS_'+String(++passed).padStart(2,'0')+': '+name)})}
+          const err=(status,code)=>Object.assign(new Error('synthetic failure'),{status,code});
+          (async()=>{
+           let n=0,calls=[];let c=make(async(p,k)=>{calls.push({p,k});return VALID},()=>[KEY1,KEY2,KEY3][n++]);
+           await check('idle starts without storage',()=>assert.equal(c.state(),'idle'));
+           await check('first request accepted pending',async()=>{const v=await c.submit(intent);assert.equal(v.status,'pending')});
+           await check('idempotency key header source exactly UUID',()=>assert.equal(calls[0].k,KEY1));
+           await check('pending receipt never claims confirmed',async()=>assert.doesNotMatch((await c.submit(intent)).message,/確定しました/));
+           await check('receipt publicly contains only three fields',async()=>assert.deepEqual(Object.keys(await c.submit(intent)).sort(),['message','request_id','status']));
+           await check('same intent never invokes send again',()=>assert.equal(calls.length,1));
+           await check('receipt is immutable',async()=>assert.equal(Object.isFrozen(await c.submit(intent)),true));
+           await check('acknowledged state explicit',()=>assert.equal(c.state(),'acknowledged'));
+           await check('key not exposed via state()',()=>assert.equal(typeof c.state(),'string'));
+           await check('inert stable key with sorted payload keys',async()=>{let x=await c.submit({channel:'online',requested_start_at:intent.requested_start_at,service_id:'svcA'});assert.equal(x.request_id,VALID.request_id);assert.equal(calls.length,1)});
+           await check('new submitted intent after acknowledged creates new key',async()=>{await c.submit({...intent,channel:'phone'});assert.equal(calls.at(-1).k,KEY2)});
+           await check('no duplicate request for repeat newly acknowledged intent',async()=>{await c.submit({...intent,channel:'phone'});assert.equal(calls.length,2)});
+           await check('explicit reset after acknowledged allowed',()=>{c.resetAfterConfirmedResolution();assert.equal(c.state(),'idle')});
+           await check('reset issues fresh key',async()=>{await c.submit({...intent,channel:'phone'});assert.equal(calls.at(-1).k,KEY3)});
+           await check('null payload rejected',async()=>{await assert.rejects(c.submit(null),e=>e.code==='R167_INVALID_BODY')});
+           await check('array payload rejected',async()=>{await assert.rejects(c.submit([]),e=>e.code==='R167_INVALID_BODY')});
+           await check('string payload rejected',async()=>{await assert.rejects(c.submit('x'),e=>e.code==='R167_INVALID_BODY')});
+           await check('weak UUID rejected without network',async()=>{let x=make(async()=>{throw Error('unexpected')},()=> 'weak');await assert.rejects(x.submit(intent),e=>e.code==='R167_UNSAFE_RANDOM_KEY')});
+           await check('CRLF in key rejected',async()=>{let x=make(async()=>null,()=>KEY1+'\r\n');await assert.rejects(x.submit(intent),e=>e.code==='R167_UNSAFE_RANDOM_KEY')});
+           await check('UUID wrong version rejected',async()=>{let x=make(async()=>null,()=> '12345678-1234-1234-9234-123456789abc');await assert.rejects(x.submit(intent),e=>e.code==='R167_UNSAFE_RANDOM_KEY')});
+           await check('UUID wrong variant rejected',async()=>{let x=make(async()=>null,()=> '12345678-1234-4234-1234-123456789abc');await assert.rejects(x.submit(intent),e=>e.code==='R167_UNSAFE_RANDOM_KEY')});
+           // Inflight tests keep promise unresolved until both calls were scheduled.
+           let unblock, cnt=0;let pending=make(async()=>{cnt++;return await new Promise(r=>{unblock=r})},()=>KEY1);
+           const one=pending.submit(intent);
+           await check('double submit reuses one in-flight operation',async()=>{let two=pending.submit({...intent});unblock(VALID);let out=await Promise.all([one,two]);assert.equal(cnt,1);assert.equal(out[0].request_id,out[1].request_id)});
+           let unlock, cnt2=0;let changed=make(async()=>{cnt2++;return new Promise(r=>{unlock=r})},()=>KEY1);
+           const initial=changed.submit(intent);
+           await check('changed intent while pending rejected',async()=>{await assert.rejects(changed.submit({...intent,service_id:'new'}),e=>e.code==='R167_INFLIGHT_LOCK');assert.equal(cnt2,1)});
+           unlock(VALID);await initial;
+           let invocations=[], n3=0;let unknown=make(async(payload,key)=>{invocations.push(key);if(invocations.length===1)throw Error('network timeout');return VALID},()=>[KEY1,KEY2][n3++]);
+           await check('transport timeout makes state unknown',async()=>{await assert.rejects(unknown.submit(intent));assert.equal(unknown.state(),'unknown')});
+           await check('unknown cannot reset',()=>assert.throws(()=>unknown.resetAfterConfirmedResolution(),e=>e.code==='R167_UNKNOWN_LOCK'));
+           await check('unknown changed time rejected',async()=>assert.rejects(unknown.submit({...intent,requested_start_at:'2026-11-12T10:30:00+09:00'}),e=>e.code==='R167_UNKNOWN_LOCK'));
+           await check('unknown changed service rejected',async()=>assert.rejects(unknown.submit({...intent,service_id:'svcB'}),e=>e.code==='R167_UNKNOWN_LOCK'));
+           await check('unknown changed phone rejected',async()=>assert.rejects(unknown.submit({...intent,requester_phone:'09011112222'}),e=>e.code==='R167_UNKNOWN_LOCK'));
+           await check('unknown reuse original key after retry',async()=>{await unknown.submit(intent);assert.deepEqual(invocations,[KEY1,KEY1])});
+           await check('unknown retry returns same receipt and acknowledged',()=>assert.equal(unknown.state(),'acknowledged'));
+           for(const st of [400,401,403,404,422]){
+            let attempt=0,controller=make(async()=>{attempt++;if(attempt===1)throw err(st);return VALID},()=>attempt<=1?KEY1:KEY2);
+            await check('definitive '+st+' rejection clears attempt',async()=>{await assert.rejects(controller.submit(intent));assert.equal(controller.state(),'idle')});
+            await check('definitive '+st+' permits new intent',async()=>{await controller.submit({...intent,service_id:'new'});assert.equal(controller.state(),'acknowledged')});
+           }
+           let readOnly=make(async()=>{throw err(403,'R105_STAGING_READ_ONLY')},()=>KEY1);
+           await check('read-only guard clears retry state',async()=>{await assert.rejects(readOnly.submit(intent));assert.equal(readOnly.state(),'idle')});
+           for (const kind of ['empty','confirmed','falseok','missingid','badid','confirmedfield','tooLongId']){
+             let body=({empty:null,confirmed:{...VALID,status:'confirmed'},falseok:{...VALID,ok:false},missingid:{ok:true,status:'pending'},badid:{...VALID,request_id:'x'},confirmedfield:{...VALID,confirmed_start_at:'2026-11-12'},tooLongId:{...VALID,request_id:'x'.repeat(100)}})[kind];
+             let ctrl=make(async()=>body,()=>KEY1);
+             await check('invalid receipt '+kind+' fails closed',async()=>{await assert.rejects(ctrl.submit(intent),e=>e.code==='R167_UNVERIFIED_RECEIPT');assert.equal(ctrl.state(),'unknown')});
+           }
+           for (const st of [500,502,503,504]){
+            let ctrl=make(async()=>{throw err(st)},()=>KEY1);
+            await check('HTTP '+st+' remains ambiguous',async()=>{await assert.rejects(ctrl.submit(intent));assert.equal(ctrl.state(),'unknown')});
+           }
+           await check('frozen public API surface',()=>assert.equal(Object.isFrozen(c),true));
+           await check('no explicit persistent storage primitives added to controller',()=>assert(!/localStorage|sessionStorage|indexedDB|document.cookie/.test(helper)));
+           await check('no HTTP/network primitives used by controller directly',()=>assert(!/\bfetch\(|XMLHttpRequest|WebSocket/.test(helper)));
+           await check('synthetic testing never contacted external services',()=>assert(!/https:\/\//.test(helper)));
+           if(passed!==56)throw Error('expected 56 got '+passed);
+           console.log('R167_SUMMARY '+passed+' / 56 PASS');
+          })().catch(e=>{console.error(e);process.exitCode=1});
+          R167_CONTROLLER_EOF
+          cat > "$RUNNER_TEMP/R167_FULL_APP_VM_QA.cjs" <<'R167_FULL_VM_EOF'
+          'use strict';
+          const fs=require('node:fs'), vm=require('node:vm'), assert=require('node:assert/strict');
+          const source=fs.readFileSync(process.argv[2],'utf8');
+          let passed=0;
+          const check=(name,fn)=>Promise.resolve().then(fn).then(()=>console.log('R167_BROWSER_VM_PASS_'+String(++passed).padStart(2,'0')+': '+name));
+          const valid={ok:true,status:'pending',request_id:'uniqueRequest_12345678'};
+          const intent0={requested_start_at:'2026-11-12T10:00:00+09:00',service_id:'menuA',requester_name:'架空太郎',channel:'online'};
+          const KEY='12345678-1234-4234-9234-123456789abc';
+          const fresh=(opts={})=>{
+            const listeners={}, els={}, requests=[], errs=[];
+            function el(id){if(!els[id])els[id]={id,innerHTML:'',textContent:'',value:'',dataset:{},disabled:false,style:{},children:[],selectedOptions:[{dataset:{channels:'online,phone'}}],addEventListener(type,fn){listeners[id+':'+type]=fn},querySelector(sel){return el(id+':'+sel)},querySelectorAll(){return []},append(){},reset(){},scrollIntoView(){},focus(){},classList:{toggle(){},contains(){return false}},offsetTop:110};return els[id]}
+            const document={body:{dataset:{page:'public'},style:{}},querySelector(selector){return el(selector)},querySelectorAll(){return []},getElementById(id){return el('#'+id)},addEventListener() {},createElement:()=>el('_created')};
+            const form=el('#booking-form');form.formValue={...intent0};
+            class MockFormData{constructor(f){this.f=f}*entries(){for(const e of Object.entries(this.f.formValue))yield e}}
+            const CONFIG={LIFF_ID:'',ENABLE_DEMO_UI:false,OFFICE_CODE:'synthetic',TIMEZONE:'Asia/Tokyo',API_BASE:'https://invalid.example',TAX_R105_STAGING_READ_ONLY:opts.readOnly??true,TAX_R167_BOOKING_BRIDGE_ENABLED:opts.enabled??false};
+            const fakeFetch=async (url,init={})=>{requests.push({url,init});if(url.endsWith('/api/public/office'))return {ok:true,status:200,text:async()=>JSON.stringify({ok:true,office:{security_notice:'fictional',booking_open_days:30},services:[]})};if(url.endsWith('/api/public/appointments')){const n=requests.filter(x=>x.url.endsWith('/api/public/appointments')).length;if(opts.failFirst&&n===1)throw Error('network timeout');const body=opts.response??valid;return {ok:true,status:200,text:async()=>JSON.stringify(body)}}throw Error('UNEXPECTED_REMOTE_URL '+url)};
+            let uu=0;
+            const context={window:{DPRO_TAX_CONFIG:CONFIG},document,location:{search:'',hostname:'local.test'},URLSearchParams,FormData:MockFormData,URL,Date,Intl,fetch:fakeFetch,console:{error:e=>errs.push(String(e))},setTimeout(){},clearTimeout(){},scrollTo(){},globalThis:null,crypto:{randomUUID:()=>[KEY,'12345678-1234-4234-9234-123456789abd'][uu++]}};
+            context.globalThis=context;
+            vm.runInNewContext(source,context,{filename:'r167_candidate.js',timeout:1000});
+            const tick=()=>new Promise(resolve=>setImmediate(resolve));
+            const submit=async()=>{await tick();let fn=listeners['#booking-form:submit'];assert(fn,'must register booking handler');await fn({preventDefault(){},currentTarget:form})};
+            return {els,form,requests,errs,submit,tick,CONFIG};
+          };
+          (async()=>{
+           let c=fresh();await c.tick();
+           await check('real app boot loads office read-only',()=>assert.equal(c.requests.filter(q=>q.url.endsWith('/api/public/office')).length,1));
+           await check('bridge feature absent blocks POST even with valid form',async()=>{await c.submit();assert.equal(c.requests.filter(q=>q.url.endsWith('/api/public/appointments')).length,0)});
+           await check('disabled bridge gives safe preparation notice',()=>assert.match(c.els['#public-alert'].innerHTML,/準備中/));
+           let r=fresh({enabled:true,readOnly:true});await r.tick();
+           await check('R105 denies POST even when bridge flag is enabled',async()=>{await r.submit();assert.equal(r.requests.filter(q=>q.url.endsWith('/api/public/appointments')).length,0)});
+           await check('R105 denial does not claim booking confirmed',()=>assert.doesNotMatch(r.els['#public-alert'].innerHTML,/確定しました/));
+           let x=fresh({enabled:true,readOnly:false});await x.tick();
+           await check('isolated future bridge makes one mocked POST',async()=>{await x.submit();assert.equal(x.requests.filter(q=>q.url.endsWith('/api/public/appointments')).length,1)});
+           await check('request sends version 4 UUID Idempotency-Key',()=>assert.equal(x.requests.at(-1).init.headers['Idempotency-Key'],KEY));
+           await check('request sends legacy body unchanged',()=>assert.equal(JSON.parse(x.requests.at(-1).init.body).requester_name,'架空太郎'));
+           await check('pending-only message displayed',()=>assert.match(x.els['#public-alert'].innerHTML,/まだ確定ではありません/));
+           await check('repeating identical form emits no second POST',async()=>{await x.submit();assert.equal(x.requests.filter(q=>q.url.endsWith('/api/public/appointments')).length,1)});
+           let y=fresh({enabled:true,readOnly:false,failFirst:true});await y.tick();
+           await check('timeout records ambiguous state and advice',async()=>{await y.submit();assert.match(y.els['#public-alert'].innerHTML,/結果不明/)});
+           const beforeKey=y.requests.filter(q=>q.url.endsWith('/api/public/appointments'))[0].init.headers['Idempotency-Key'];
+           await check('changed booking rejected while first result is unknown',async()=>{y.form.formValue.service_id='menuB';await y.submit();assert.equal(y.requests.filter(q=>q.url.endsWith('/api/public/appointments')).length,1)});
+           await check('changed booking shows rejection message',()=>assert.match(y.els['#public-alert'].innerHTML,/変更できません/));
+           y.form.formValue.service_id='menuA';
+           await check('retry from unknown uses same key',async()=>{await y.submit();assert.equal(y.requests.filter(q=>q.url.endsWith('/api/public/appointments')).length,2);assert.equal(y.requests.at(-1).init.headers['Idempotency-Key'],beforeKey)});
+           await check('resolved retry stays pending',()=>assert.match(y.els['#public-alert'].innerHTML,/まだ確定ではありません/));
+           let z=fresh({enabled:true,readOnly:false,response:{ok:true,status:'confirmed',request_id:'uniqueRequest_12345678'}});await z.tick();
+           await check('malformed confirmed receipt refused',async()=>{await z.submit();assert.match(z.els['#public-alert'].innerHTML,/受付結果を確認できません/)});
+           await check('mock fetch never reaches production origin',()=>assert([c,r,x,y,z].every(t=>t.requests.every(q=>q.url.startsWith('https://invalid.example/')))));
+           if(passed!==17) throw Error('expected 17 got '+passed);
+           console.log('R167_BROWSER_VM_SUMMARY 17 / 17 PASS');
+          })().catch(e=>{console.error(e);process.exitCode=1});
+          R167_FULL_VM_EOF
+          
+          node --check "$RUNNER_TEMP/R167_CONTROLLER_QA.cjs"
+          node --check "$RUNNER_TEMP/R167_FULL_APP_VM_QA.cjs"
+          node "$RUNNER_TEMP/R167_CONTROLLER_QA.cjs" "$RUNNER_TEMP/R167_STAGING_APP_CANDIDATE_DO_NOT_DEPLOY.js" | tee "$RUNNER_TEMP/R167_controller.log"
+          node "$RUNNER_TEMP/R167_FULL_APP_VM_QA.cjs" "$RUNNER_TEMP/R167_STAGING_APP_CANDIDATE_DO_NOT_DEPLOY.js" | tee "$RUNNER_TEMP/R167_app_vm.log"
+          grep -Fx 'R167_SUMMARY 56 / 56 PASS' "$RUNNER_TEMP/R167_controller.log"
+          grep -Fx 'R167_BROWSER_VM_SUMMARY 17 / 17 PASS' "$RUNNER_TEMP/R167_app_vm.log"
+          echo R167_REFERENCE_STAGING_INTEGRATION_QA_PASS_RELEASE_HOLD
+      - name: Declare scope and preserve production release HOLD
+        if: success()
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'R167_SCOPE_END'
+          ## DPRO TAX R167 actual staging app.js candidate integration QA — COMMERCIAL HOLD
+          - Read-only R105 staging `app.js` and `config.js` plus R151–R166 QA files pinned at known SHA-1 Git blob hashes.
+          - Applies one controlled patch to a **temporary copy** of the actual staging `app.js`; never commits, uploads or deploys the modified `app.js`.
+          - 37 static source assertions and 12 negative guard-mutation tests, 56 isolated controller assertions and 17 complete-app Node VM event integration assertions.
+          - The mock booking UI sends a UUID Idempotency-Key header ONLY when `TAX_R167_BOOKING_BRIDGE_ENABLED === true`. This flag is NOT defined in real `config.js`; safely OFF by default.
+          - Existing `TAX_R105_STAGING_READ_ONLY` mutation block is preserved. Test harness can simulate false only in memory, never in the real source.
+          - HTTP activity is intercepted entirely by an in-memory fake fetch pointing to `https://invalid.example`; NO external traffic.
+          - There is NO genuine verification of guest identity, production LINE, Supabase Auth/PostgREST/RLS, DB transactions, Worker booking adapter or real guest receipt/recovery.
+          - The patch and synthetic source keys MUST NOT be deployed. Real-customer release evidence remains 0/18 NOT_TESTED.
+          - No database, Worker, LINE, CONTROL CENTER, main branch or production source changes. COMMERCIAL RELEASE HOLD.
+          R167_SCOPE_END
