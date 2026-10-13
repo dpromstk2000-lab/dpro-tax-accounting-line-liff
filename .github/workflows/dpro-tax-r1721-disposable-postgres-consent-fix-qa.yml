@@ -1,0 +1,146 @@
+name: DPRO TAX R172.1 Disposable PostgreSQL Consent FOR SHARE Permission Repair QA
+
+on:
+  push:
+    branches: [tax-r7-staging-20261010]
+    paths:
+      - '.github/workflows/dpro-tax-r1721-disposable-postgres-consent-fix-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dpro-tax-r1721-disposable-pg-only-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  postgres-consent-grant-repair-qa:
+    if: ${{ github.repository == 'dpromstk2000-lab/dpro-tax-accounting-line-liff' && github.ref == 'refs/heads/tax-r7-staging-20261010' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      pg:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: r1721-disposable-only-nonprod-no-customer-data
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    steps:
+      - name: Checkout exact staging revision with no persisted write credentials
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Pin both R172 baselines and reject any production access
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'dpromstk2000-lab/dpro-tax-accounting-line-liff'
+          test "$GITHUB_REF" = 'refs/heads/tax-r7-staging-20261010'
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}" && test -z "${LINE_CHANNEL_SECRET:-}" && test -z "${CLOUDFLARE_API_TOKEN:-}"
+          test "$(git hash-object .github/workflows/dpro-tax-r172-disposable-postgres-consent-evidence-qa.yml)" = '9ca7587b32f57807a6126389791759177290419d'
+          test "$(git hash-object .github/workflows/dpro-tax-r172-disposable-consent-evidence-contract-qa.yml)" = 'f3f66ba265ec89069e6a343e3d33a78a31d65e8a'
+          echo 'R1721_TWO_R172_WORKFLOW_BLOBS_PINNED; RELEASE_HOLD'
+      - name: Extract original disposable fixtures and apply two column-scoped grants to runner temp only
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/r1721_extract.py" <<'R1721_EXTRACT_CODE_END'
+          from pathlib import Path
+          import hashlib, os, re, subprocess, textwrap
+          source=Path('.github/workflows/dpro-tax-r172-disposable-postgres-consent-evidence-qa.yml').read_text(encoding='utf-8')
+          # Extract ONLY known synthetic fixture heredocs, never arbitrary shell from the older workflow.
+          def extract(delimiter):
+              anchor=f"<<'{delimiter}'\n"
+              assert source.count(anchor)==1, f'R1721_MISSING_OR_REPEATED_FIXTURE_START:{delimiter}'
+              end=f'\n          {delimiter}'
+              section=source.split(anchor,1)[1]
+              assert section.count(end)>=1, f'R1721_MISSING_FIXTURE_END:{delimiter}'
+              body=textwrap.dedent(section.split(end,1)[0]).lstrip('\n')+'\n'
+              assert '\x00' not in body and len(body)>500, f'R1721_INVALID_FIXTURE:{delimiter}'
+              return body
+          
+          r161=extract('R172_R161_SQL_EOF')
+          consent=extract('R172_CONSENT_SQL_EOF')
+          test=extract('R172_TEST_PY_EOF')
+          assert r161.count('CREATE FUNCTION r161.request_booking(')==1
+          assert consent.count('CREATE FUNCTION r172.request_with_consent(')==1
+          assert consent.count('idempotency_key=p_key FOR SHARE;')==2 and consent.count('FOR SHARE;')==3
+          assert 'CREATE TRIGGER consent_append_only BEFORE UPDATE OR DELETE' in consent
+          assert 'r172_gateway receives NO SELECT/INSERT/UPDATE/DELETE' in consent
+          assert 'R172_SUMMARY' in test and 'R172_PASS_' in test
+          assert 'postgres' in test.lower()
+          # Extract exactly 24 historical Git blob protection pins and re-validate in this runner.
+          rows=re.findall(r'test "\$\(git hash-object ([^\s)]+)\)" = "([0-9a-f]{40})"',source)
+          assert len(rows)==24 and len(set(x[0] for x in rows))==24, 'R1721_PROTECTED_PIN_COUNT_MISMATCH'
+          for path,expected in rows:
+              observed=subprocess.check_output(['git','hash-object',path],text=True).strip()
+              assert observed==expected, f'R1721_PROTECTED_SOURCE_CHANGED:{path}'
+          print('R1721_PIN_SUMMARY 24 / 24 PASS',flush=True)
+          
+          # Repair PostgreSQL SELECT FOR SHARE permission using only column-level privilege.
+          # Row locks protect policy rotation. They are deliberately NOT removed.
+          marker='GRANT SELECT ON r172.policies,r172.consent_events TO r172_owner;'
+          assert consent.count(marker)==1 and 'GRANT UPDATE' not in consent, 'R1721_UNEXPECTED_GRANT_BASELINE'
+          patch="""GRANT UPDATE (active) ON r172.policies TO r172_owner;
+          GRANT UPDATE (affirmative) ON r172.consent_events TO r172_owner;"""
+          consent=consent.replace(marker,marker+'\n'+patch)
+          assert consent.count('FOR SHARE;')==3, 'R1721_ROW_LOCK_DRIFT'
+          assert consent.count('GRANT UPDATE (active) ON r172.policies TO r172_owner;')==1
+          assert consent.count('GRANT UPDATE (affirmative) ON r172.consent_events TO r172_owner;')==1
+          assert not re.search(r'GRANT\s+UPDATE\s+ON\s+r172\.consent_events',consent), 'R1721_BROAD_EVENT_UPDATE_DENIED'
+          
+          out=Path(os.environ['RUNNER_TEMP'])
+          for file,src in [('r1721_r161.sql',r161),('r1721_consent.sql',consent),('r1721_test.py',test)]:
+              (out/file).write_text(src,encoding='utf-8')
+          subprocess.run(['python3','-m','py_compile',str(out/'r1721_test.py')],check=True)
+          print('R1721_MINIMAL_COLUMN_GRANT_PATCH_PASS; ORIGINAL_WORKFLOW_UNCHANGED',flush=True)
+          R1721_EXTRACT_CODE_END
+          python3 -I "$RUNNER_TEMP/r1721_extract.py"
+      - name: Execute original 75 integration checks on disposable PostgreSQL with minimally repaired grants
+        shell: bash
+        run: |
+          set -euo pipefail
+          R172_PG_CONTAINER="$(docker ps --filter ancestor=postgres:17-alpine --format '{{.ID}}' | head -n 1)"
+          test -n "$R172_PG_CONTAINER" || { echo 'R1721_DISPOSABLE_PG_MISSING'; exit 1; }
+          docker exec -i -u postgres "$R172_PG_CONTAINER" psql -XAt -v ON_ERROR_STOP=1 -U postgres -d postgres < "$RUNNER_TEMP/r1721_r161.sql"
+          docker exec -i -u postgres "$R172_PG_CONTAINER" psql -XAt -v ON_ERROR_STOP=1 -U postgres -d postgres < "$RUNNER_TEMP/r1721_consent.sql"
+          # No broad grants. Protected row locks are retained, gateway gets no DML permissions.
+          permission_result="$(docker exec -i -u postgres "$R172_PG_CONTAINER" psql -XAt -v ON_ERROR_STOP=1 -U postgres -d postgres <<'R1721_SECURITY_SQL'
+          SELECT 'R1721_GRANTS_CHECKED' WHERE
+              has_column_privilege('r172_owner','r172.policies','active','UPDATE')
+              AND has_column_privilege('r172_owner','r172.consent_events','affirmative','UPDATE')
+              AND NOT has_column_privilege('r172_gateway','r172.consent_events','affirmative','UPDATE')
+              AND NOT has_table_privilege('r172_gateway','r172.consent_events','INSERT')
+              AND NOT has_table_privilege('r172_gateway','r172.consent_events','SELECT')
+              AND NOT has_table_privilege('r172_owner','r172.consent_events','DELETE');
+          R1721_SECURITY_SQL
+          )"
+          test "$permission_result" = "R1721_GRANTS_CHECKED" || { echo "R1721_PERMISSION_CHECK_FAILED"; exit 1; }
+          echo "R1721_MINIMAL_COLUMN_PRIVILEGES_CONFIRMED"
+          R172_PG_CONTAINER="$R172_PG_CONTAINER" python3 -I "$RUNNER_TEMP/r1721_test.py" | tee "$RUNNER_TEMP/r1721_results.log"
+          grep -Fx 'R172_SUMMARY 75 / 75 PASS' "$RUNNER_TEMP/r1721_results.log"
+          grep -F 'R172_DISPOSABLE_POSTGRES_CONSENT_JOURNAL_PASS' "$RUNNER_TEMP/r1721_results.log"
+          count="$(grep -Ec '^R172_PASS_[0-9]{2}:' "$RUNNER_TEMP/r1721_results.log")"
+          test "$count" = '75'
+          echo 'R1721_REAL_DISPOSABLE_POSTGRES_75_OF_75_PASS_RELEASE_HOLD'
+      - name: Truthful scope release hold and outstanding primary failure
+        if: success()
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'R1721_SCOPE_END'
+          ## R172.1 PostgreSQL consent fixture permission repair — COMMERCIAL RELEASE HOLD
+          - Fixes previously failing R172 PostgreSQL fixture on isolated runner only: row-lock SELECT ... FOR SHARE requires column UPDATE permission.
+          - Adds exactly two **column-limited grants** to NOLOGIN security-definer owner in runner temporary SQL; keeps policy locks and append-only audit trigger. Never grants table mutations to gateway.
+          - R172 baseline original still exists and its old Actions run remains failed; **no original workflow or app code is overwritten**. The new PASS applies only to this corrected isolated fixture.
+          - Runs 75 original R172 PostgreSQL 17 tests + audit role permissions on a disposable container. Also pins and protects 24 historical source blobs.
+          - Fake test subjects/policy, no real verification, consent, legal text, tenant RLS, production data, Worker, Supabase, LINE, CONTROL CENTER, production deploy or main.
+          - 18 real-customer release gates remain NOT_TESTED, commercial production release HOLD.
+          R1721_SCOPE_END
