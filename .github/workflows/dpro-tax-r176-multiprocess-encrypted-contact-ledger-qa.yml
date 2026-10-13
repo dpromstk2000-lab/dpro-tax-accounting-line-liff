@@ -1,0 +1,302 @@
+name: DPRO TAX R176 Eight-Process SQLite AES Contact Ledger Contract QA (Synthetic Only)
+
+on:
+  push:
+    branches: [tax-r7-staging-20261010]
+    paths:
+      - '.github/workflows/dpro-tax-r176-multiprocess-encrypted-contact-ledger-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dpro-tax-r176-disposable-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  isolated-eight-process-contact-ledger:
+    if: ${{ github.repository == 'dpromstk2000-lab/dpro-tax-accounting-line-liff' && github.ref == 'refs/heads/tax-r7-staging-20261010' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact staging without write credentials
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Protect actual staging sources and run disposable AES-256-GCM multi-process SQLite contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'dpromstk2000-lab/dpro-tax-accounting-line-liff'
+          test "$GITHUB_REF" = 'refs/heads/tax-r7-staging-20261010'
+          test "$GITHUB_EVENT_NAME" = 'push' -o "$GITHUB_EVENT_NAME" = 'workflow_dispatch'
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}" && test -z "${LINE_CHANNEL_SECRET:-}" && test -z "${CLOUDFLARE_API_TOKEN:-}"
+          test "$(git hash-object app.js)" = '4c3475219e5c7fc9203ec5e5143d4f6eb8299423' || { echo R176_SOURCE_DRIFT; exit 1; }
+          test "$(git hash-object index.html)" = 'c7f6c0b30d1da913a924a582097d4bfe1570a704' || { echo R176_SOURCE_DRIFT; exit 1; }
+          test "$(git hash-object config.js)" = 'da1876bae8333a3a10ee13495c0063ded0c2b351' || { echo R176_SOURCE_DRIFT; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r173-least-privilege-advisory-consent-qa.yml)" = 'defb4ca2266d80f0d2874dc54188613ca61ba421' || { echo R176_SOURCE_DRIFT; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r174-real-booking-schema-bridge-qa.yml)" = 'a33493ba77047fae69015ddfd1600208b9e6cde8' || { echo R176_SOURCE_DRIFT; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r175-encrypted-contact-vault-isolation-qa.yml)" = '7597dd4f298a624a62cfcc867296a054f57d6ecb' || { echo R176_SOURCE_DRIFT; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r1751-encrypted-contact-heredoc-fix-qa.yml)" = '5938e7dce6629508f17898b019849b52e07ed736' || { echo R176_SOURCE_DRIFT; exit 1; }
+          echo R176_SOURCE_PIN_SUMMARY_7_OF_7_PASS
+          node -e "if(Number(process.versions.node.split('.')[0])<22)process.exit(19)"
+          work="$RUNNER_TEMP/r176-test"
+          mkdir -p "$work"
+          export NODE_NO_WARNINGS=1
+          f1="$work/R176_SQLITE_ENCRYPTED_CONTACT_REFERENCE_DO_NOT_DEPLOY.cjs"
+          f2="$work/R176_MULTIPROCESS_SQLITE_VAULT_QA.cjs"
+          cat > "$f1" <<'R176_SOURCE_EOF'
+          'use strict';
+          // DPRO TAX R176 — disposable, test-only SQLite + AES-256-GCM contact vault.
+          // NOT a production Worker, Supabase migration, authentication provider, or KMS.
+          const crypto=require('node:crypto');
+          const fs=require('node:fs');
+          const path=require('node:path');
+          const {DatabaseSync}=require('node:sqlite');
+          const RELEASE_ALLOWED=false;
+          const STATUS='R176_DISPOSABLE_MULTI_PROCESS_REFERENCE_ONLY';
+          const TENANTS=new Map([['officeA',{policy:'r176-fixture-a-v1',digest:crypto.createHash('sha256').update('FICTIONAL OFFICE A NOTICE').digest('hex')}],['officeB',{policy:'r176-fixture-b-v1',digest:crypto.createHash('sha256').update('FICTIONAL OFFICE B NOTICE').digest('hex')}]]);
+          const SECRET=Symbol('trusted-in-test-only');
+          const issued=new WeakSet();
+          function fail(code){const e=new Error(code);e.code=code;throw e;}
+          function uuid(s){return typeof s==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s);}
+          function issue({office,subject,role='client',contactAccess=false}){
+            if(!TENANTS.has(office)||!/^client[A-Za-z0-9]{1,25}$/.test(subject)||!['client','owner','receptionist','viewer'].includes(role))fail('FIXTURE_IDENTITY_DENIED');
+            const x=Object.freeze({office,subject,role,contactAccess:contactAccess===true,[SECRET]:true});issued.add(x);return x;
+          }
+          function authorized(p){return p&&issued.has(p)&&p[SECRET]===true;}
+          function clean(v){
+            if(!v||typeof v!=='object'||Array.isArray(v)||Object.keys(v).sort().join('|')!=='message|requester_email|requester_name|requester_phone')fail('CONTACT_FIELDS_INVALID');
+            const n=v.requester_name,mail=v.requester_email,msg=v.message;
+            if(typeof n!=='string'||!n.trim()||n.trim().length>80)fail('NAME_INVALID');
+            if(typeof v.requester_phone!=='string')fail('PHONE_INVALID');
+            let phone=v.requester_phone.normalize('NFKC').replace(/[^+0-9]/g,'');if(phone.startsWith('+81'))phone='0'+phone.slice(3);
+            if(!/^0\d{9,10}$/.test(phone))fail('PHONE_INVALID');
+            if(typeof mail!=='string'||mail.length>254||(mail&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)))fail('EMAIL_INVALID');
+            if(typeof msg!=='string'||msg.length>2000||/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(msg))fail('MESSAGE_INVALID');
+            return {requester_name:n.trim(),requester_phone:phone,requester_email:mail,message:msg};
+          }
+          function derive(master,office,purpose){return Buffer.from(crypto.hkdfSync('sha256',master,Buffer.from(office),Buffer.from('r176-test-only:'+purpose),32));}
+          function sha(master,x){return crypto.createHmac('sha256',master).update(JSON.stringify(x)).digest('hex');}
+          function ctEq(a,b){return typeof a==='string'&&typeof b==='string'&&a.length===b.length&&crypto.timingSafeEqual(Buffer.from(a),Buffer.from(b));}
+          function pack(row){return JSON.stringify([row.office,row.subject,row.booking_id,row.consent_id,row.policy_version,row.policy_hash,row.key_id,'pending']);}
+          function seal(key,row,payload){const nonce=crypto.randomBytes(12),a=crypto.createCipheriv('aes-256-gcm',key,nonce);a.setAAD(Buffer.from(pack(row)));const sealed=Buffer.concat([a.update(Buffer.from(JSON.stringify(payload))),a.final()]);return {nonce,tag:a.getAuthTag(),sealed};}
+          function openSeal(key,row){try{const nonce=Buffer.from(row.nonce),tag=Buffer.from(row.tag),sealed=Buffer.from(row.sealed);if(nonce.length!==12||tag.length!==16||sealed.length<16)fail('CONTACT_TAMPER');let d=crypto.createDecipheriv('aes-256-gcm',key,nonce);d.setAAD(Buffer.from(pack(row)));d.setAuthTag(tag);return JSON.parse(Buffer.concat([d.update(sealed),d.final()]).toString('utf8'));}catch{fail('CONTACT_TAMPER');}}
+          function open({file,master,readonly=false,clock=()=>Date.now(),ttlDays=30,initialize=false}={}){
+            if(RELEASE_ALLOWED||typeof file!=='string'||!path.isAbsolute(file)||!Buffer.isBuffer(master)||master.length!==32||typeof clock!=='function'||!Number.isInteger(ttlDays)||ttlDays<1||ttlDays>365)fail('FIXTURE_CONFIG_REJECTED');
+            process.umask(0o077);
+            if(initialize){fs.mkdirSync(path.dirname(file),{recursive:true,mode:0o700});}
+            const db=new DatabaseSync(file,{timeout:20000});
+            db.exec('PRAGMA busy_timeout=20000;PRAGMA foreign_keys=ON;');
+            if(initialize){db.exec(`PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL;
+              CREATE TABLE IF NOT EXISTS contacts (
+                id TEXT PRIMARY KEY,office TEXT NOT NULL,subject TEXT NOT NULL,request_key TEXT NOT NULL,booking_id TEXT NOT NULL,consent_id TEXT NOT NULL,
+                policy_version TEXT NOT NULL,policy_hash TEXT NOT NULL,key_id TEXT NOT NULL,fingerprint TEXT NOT NULL,
+                nonce BLOB NOT NULL,tag BLOB NOT NULL,sealed BLOB NOT NULL,created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,
+                status TEXT NOT NULL CHECK(status='pending'),UNIQUE(office,subject,request_key),UNIQUE(office,booking_id));
+                CREATE INDEX IF NOT EXISTS contacts_expiry ON contacts(office,expires_at);`);
+                fs.chmodSync(file,0o600);
+            }
+            const all='id,office,subject,request_key,booking_id,consent_id,policy_version,policy_hash,key_id,fingerprint,nonce,tag,sealed,created_at,expires_at,status';
+            function put({principal,consent,bookingId,requestKey,contact}){
+              if(readonly)fail('READ_ONLY_ROLLBACK');
+              if(!authorized(principal)||principal.role!=='client')fail('IDENTITY_UNVERIFIED');
+              if(!consent||consent.attested!==true||consent.office!==principal.office||consent.subject!==principal.subject||!uuid(consent.id))fail('CONSENT_UNVERIFIED');
+              const pol=TENANTS.get(principal.office);if(!pol||pol.policy!==consent.version||pol.digest!==consent.digest)fail('POLICY_NOT_CURRENT');
+              if(!uuid(bookingId)||typeof requestKey!=='string'||!/^[A-Za-z0-9_-]{16,96}$/.test(requestKey))fail('BOOKING_KEY_INVALID');
+              const v=clean(contact),office=principal.office,sub=principal.subject;
+              const fp=sha(derive(master,office,'fingerprint'),[office,sub,requestKey,bookingId,consent.id,consent.version,consent.digest,v]);
+              const row={id:crypto.randomUUID(),office,subject:sub,request_key:requestKey,booking_id:bookingId,consent_id:consent.id,policy_version:consent.version,policy_hash:consent.digest,key_id:'key-version-1',fingerprint:fp,created_at:clock(),expires_at:clock()+ttlDays*86400000,status:'pending'};
+              db.exec('BEGIN IMMEDIATE');
+              try{
+                let old=db.prepare(`SELECT ${all} FROM contacts WHERE office=? AND subject=? AND request_key=?`).get(office,sub,requestKey);
+                if(old){if(old.booking_id!==bookingId||!ctEq(old.fingerprint,fp))fail('REPLAY_CHANGED'); db.exec('COMMIT');return {id:old.id,status:'pending',duplicate:true};}
+                if(db.prepare('SELECT 1 AS present FROM contacts WHERE office=? AND booking_id=?').get(office,bookingId))fail('BOOKING_ALREADY_LINKED');
+                const box=seal(derive(master,office,'aes-gcm-v1'),row,v);
+                db.prepare(`INSERT INTO contacts(${all}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(row.id,row.office,row.subject,row.request_key,row.booking_id,row.consent_id,row.policy_version,row.policy_hash,row.key_id,row.fingerprint,box.nonce,box.tag,box.sealed,row.created_at,row.expires_at,row.status);
+                db.exec('COMMIT');return {id:row.id,status:'pending',duplicate:false};
+              }catch(e){db.exec('ROLLBACK');throw e;}
+            }
+            function get({principal,id}){
+              if(!authorized(principal)||!principal.contactAccess||!['owner','receptionist'].includes(principal.role))fail('CONTACT_ACCESS_DENIED');
+              if(!uuid(id))fail('CONTACT_NOT_FOUND');
+              const row=db.prepare(`SELECT ${all} FROM contacts WHERE id=? AND office=?`).get(id,principal.office);
+              if(!row)fail('CONTACT_NOT_FOUND');if(clock()>=row.expires_at)fail('CONTACT_EXPIRED');
+              return {...openSeal(derive(master,row.office,'aes-gcm-v1'),row),bookingId:row.booking_id,status:row.status};
+            }
+            function purge({principal}){
+              if(readonly)fail('READ_ONLY_ROLLBACK');
+              if(!authorized(principal)||principal.role!=='owner'||!principal.contactAccess)fail('PURGE_DENIED');
+              return db.prepare('DELETE FROM contacts WHERE office=? AND expires_at<=?').run(principal.office,clock()).changes;
+            }
+            const count=()=>db.prepare('SELECT COUNT(*) AS n FROM contacts').get().n;
+            const raw=()=>fs.readFileSync(file);
+            const close=()=>db.close();
+            return {put,get,purge,count,raw,close,db};
+          }
+          function consentFor(p,id=crypto.randomUUID()) {const x=TENANTS.get(p.office);if(!x)fail('POLICY_NOT_CURRENT');return {id,office:p.office,subject:p.subject,version:x.policy,digest:x.digest,attested:true};}
+          module.exports={open,issue,consentFor,clean,TENANTS,STATUS,RELEASE_ALLOWED};
+          R176_SOURCE_EOF
+          cat > "$f2" <<'R176_TEST_EOF'
+          'use strict';
+          const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),crypto=require('node:crypto'),cp=require('node:child_process');
+          const {open,issue,consentFor,TENANTS,STATUS,RELEASE_ALLOWED}=require('./R176_SQLITE_ENCRYPTED_CONTACT_REFERENCE_DO_NOT_DEPLOY.cjs');
+          const checks=[];
+          function check(title,ok){if(!ok)throw Error(`R176_FAIL_${String(checks.length+1).padStart(2,'0')}: ${title}`);checks.push(title);console.log(`R176_PASS_${String(checks.length).padStart(2,'0')}: ${title}`);}
+          function err(f,code){try{f();return false}catch(e){return e.code===code}}
+          const c={requester_name:'架空 山田',requester_phone:'+81-90-1234-5678',requester_email:'synthetic@example.invalid',message:'FICTIONAL CONTACT BODY ONLY'};
+          const key=crypto.randomBytes(32),keyWrong=crypto.randomBytes(32);
+          const baseTime=Date.now();const now=()=>baseTime;
+          const d=fs.mkdtempSync(path.join(os.tmpdir(),'r176-disposable-'));const file=path.join(d,'fake_contact.sqlite');
+          const ownerA=issue({office:'officeA',subject:'clientOwnerA',role:'owner',contactAccess:true}), ownerB=issue({office:'officeB',subject:'clientOwnerB',role:'owner',contactAccess:true});
+          const clientA=issue({office:'officeA',subject:'clientAlice'}),clientB=issue({office:'officeB',subject:'clientBob'});
+          const clerkA=issue({office:'officeA',subject:'clientClerkA',role:'receptionist',contactAccess:true});
+          const viewer=issue({office:'officeA',subject:'clientViewer',role:'viewer',contactAccess:true});
+          const consent=consentFor(clientA),booking=crypto.randomUUID(),reqKey='r176_aaaaaaaaaaaaaaaaaaaa';
+          const x={principal:clientA,consent,bookingId:booking,requestKey:reqKey,contact:c};
+          async function worker(){
+            let db;try{db=open({file:process.env.R176_DB,master:Buffer.from(process.env.R176_MASTER,'hex'),initialize:false});const p=issue({office:'officeA',subject:'clientConcurrent'});const entry={principal:p,consent:consentFor(p,process.env.R176_CONSENT),bookingId:process.env.R176_BOOKING,requestKey:'r176_simultaneous_key_00001',contact:c};const result=db.put(entry);console.log(JSON.stringify(result));db.close();}catch(e){console.error(e.code||e.message);process.exit(2);}
+          }
+          if(process.argv.includes('--child')){worker();}else{
+          (async()=>{let db,db2;try{
+            check('reference is never production approved',RELEASE_ALLOWED===false&&STATUS.includes('DISPOSABLE'));
+            check('only two fictional tenants defined',TENANTS.size===2);
+            check('sample policy digest fixed SHA256',TENANTS.get('officeA').digest.length===64);
+            check('unverified identity objects rejected',err(()=>issue({office:'invalid',subject:'clientBad'}),'FIXTURE_IDENTITY_DENIED'));
+            check('unverified short subject rejected',err(()=>issue({office:'officeA',subject:'x'}),'FIXTURE_IDENTITY_DENIED'));
+            check('database path must be absolute',err(()=>open({file:'rel.db',master:key}),'FIXTURE_CONFIG_REJECTED'));
+            check('encryption master key length strictly 32',err(()=>open({file,master:key.subarray(0,15)}),'FIXTURE_CONFIG_REJECTED'));
+            check('retention max 365 days',err(()=>open({file,master:key,ttlDays:366}),'FIXTURE_CONFIG_REJECTED'));
+            check('retention min 1 day',err(()=>open({file,master:key,ttlDays:0}),'FIXTURE_CONFIG_REJECTED'));
+            db=open({file,master:key,initialize:true,clock:now});
+            check('disposable SQLite initializes',fs.existsSync(file));
+            check('SQLite file mode is private',(fs.statSync(file).mode&0o077)===0);
+            check('initial database empty',db.count()===0);
+            check('no anonymous principal',err(()=>db.put({...x,principal:null}),'IDENTITY_UNVERIFIED'));
+            check('no user-supplied object substitution',err(()=>db.put({...x,principal:{...clientA}}),'IDENTITY_UNVERIFIED'));
+            check('staff cannot submit as client',err(()=>db.put({...x,principal:ownerA}),'IDENTITY_UNVERIFIED'));
+            check('missing consent denied',err(()=>db.put({...x,consent:null}),'CONSENT_UNVERIFIED'));
+            check('consent false denied',err(()=>db.put({...x,consent:{...consent,attested:false}}),'CONSENT_UNVERIFIED'));
+            check('other tenant consent denied',err(()=>db.put({...x,consent:consentFor(clientB)}),'CONSENT_UNVERIFIED'));
+            check('other subject consent denied',err(()=>db.put({...x,consent:{...consent,subject:'clientOther'}}),'CONSENT_UNVERIFIED'));
+            check('incorrect consent policy version denied',err(()=>db.put({...x,consent:{...consent,version:'old'}}),'POLICY_NOT_CURRENT'));
+            check('incorrect policy digest denied',err(()=>db.put({...x,consent:{...consent,digest:'0'.repeat(64)}}),'POLICY_NOT_CURRENT'));
+            check('request header key length validated',err(()=>db.put({...x,requestKey:'too-short'}),'BOOKING_KEY_INVALID'));
+            check('request CRLF rejected',err(()=>db.put({...x,requestKey:'r176_aaaaa\r\nxxxxxx'}),'BOOKING_KEY_INVALID'));
+            check('invalid booking id rejected',err(()=>db.put({...x,bookingId:'not_uuid'}),'BOOKING_KEY_INVALID'));
+            check('missing name rejected',err(()=>db.put({...x,contact:{...c,requester_name:''}}),'NAME_INVALID'));
+            check('non-string phone rejected',err(()=>db.put({...x,contact:{...c,requester_phone:123}}),'PHONE_INVALID'));
+            check('incorrect phone rejected',err(()=>db.put({...x,contact:{...c,requester_phone:'123'}}),'PHONE_INVALID'));
+            check('incorrect email rejected',err(()=>db.put({...x,contact:{...c,requester_email:'bad@'}}),'EMAIL_INVALID'));
+            check('oversized message rejected',err(()=>db.put({...x,contact:{...c,message:'x'.repeat(2100)}}),'MESSAGE_INVALID'));
+            check('unknown body field rejected',err(()=>db.put({...x,contact:{...c,office:'officeB'}}),'CONTACT_FIELDS_INVALID'));
+            check('invalid contact null rejected',err(()=>db.put({...x,contact:null}),'CONTACT_FIELDS_INVALID'));
+            check('invalid contact array rejected',err(()=>db.put({...x,contact:[] }),'CONTACT_FIELDS_INVALID'));
+            check('invalid message control chars rejected',err(()=>db.put({...x,contact:{...c,message:'hey\x00'}}),'MESSAGE_INVALID'));
+            check('no rejected input is persisted',db.count()===0);
+            const first=db.put(x);
+            check('valid first contact creates pending row',first.status==='pending'&&first.duplicate===false);
+            check('first receipt uses UUID',/^[a-f0-9-]{36}$/.test(first.id));
+            check('exactly one row persisted',db.count()===1);
+            check('replay returns same receipt',db.put(x).id===first.id);
+            check('replay flagged duplicate',db.put(x).duplicate===true);
+            check('replay does not add row',db.count()===1);
+            check('altered phone replay rejected',err(()=>db.put({...x,contact:{...c,requester_phone:'09011112222'}}),'REPLAY_CHANGED'));
+            check('altered email replay rejected',err(()=>db.put({...x,contact:{...c,requester_email:'other@example.invalid'}}),'REPLAY_CHANGED'));
+            check('altered message replay rejected',err(()=>db.put({...x,contact:{...c,message:'changed'}}),'REPLAY_CHANGED'));
+            check('altered consent identity replay rejected',err(()=>db.put({...x,consent:consentFor(clientA)}),'REPLAY_CHANGED'));
+            check('altered booking id replay rejected',err(()=>db.put({...x,bookingId:crypto.randomUUID()}),'REPLAY_CHANGED'));
+            check('one booking cannot attach to second key',err(()=>db.put({...x,requestKey:'r176_bbbbbbbbbbbbbbbbbbbb'}),'BOOKING_ALREADY_LINKED'));
+            check('anonymous client cannot read',err(()=>db.get({principal:clientA,id:first.id}),'CONTACT_ACCESS_DENIED'));
+            check('viewer cannot read',err(()=>db.get({principal:viewer,id:first.id}),'CONTACT_ACCESS_DENIED'));
+            check('unverified reader object denied',err(()=>db.get({principal:{...ownerA},id:first.id}),'CONTACT_ACCESS_DENIED'));
+            check('cross-tenant owner cannot read',err(()=>db.get({principal:ownerB,id:first.id}),'CONTACT_NOT_FOUND'));
+            check('tenant-A owner can read decrypted contact',db.get({principal:ownerA,id:first.id}).requester_name==='架空 山田');
+            check('tenant-A receptionist can read same contact',db.get({principal:clerkA,id:first.id}).message===c.message);
+            check('phone normalized +81->0 after read',db.get({principal:ownerA,id:first.id}).requester_phone==='09012345678');
+            check('missing id denied',err(()=>db.get({principal:ownerA,id:'fake'}),'CONTACT_NOT_FOUND'));
+            let bytes=db.raw().toString('utf8');
+            check('database file omits raw name',!bytes.includes(c.requester_name));
+            check('database file omits raw email',!bytes.includes(c.requester_email));
+            check('database file omits raw phone',!bytes.includes('09012345678'));
+            check('database file omits raw message',!bytes.includes(c.message));
+            check('raw SQLite bytes do not contain encryption master key',!db.raw().includes(key));
+            check('only ciphertext sealed in DB',db.db.prepare('select length(nonce) n,length(tag) t,length(sealed) s from contacts where id=?').get(first.id).n===12);
+            check('AES GCM authentication tag 16 bytes',db.db.prepare('select length(tag) v from contacts where id=?').get(first.id).v===16);
+            check('AES GCM data nonempty',db.db.prepare('select length(sealed) v from contacts where id=?').get(first.id).v>30);
+            db2=open({file,master:key,initialize:false,clock:now});
+            check('second independent DB connection sees same row',db2.count()===1);
+            check('second connection decrypts same contact',db2.get({principal:ownerA,id:first.id}).requester_email===c.requester_email);
+            check('second connection recovers same replay id',db2.put(x).id===first.id);
+            db2.close();db2=undefined;
+            const wrong=open({file,master:keyWrong,initialize:false,clock:now});
+            check('wrong master key cannot decrypt existing contact',err(()=>wrong.get({principal:ownerA,id:first.id}),'CONTACT_TAMPER'));
+            check('wrong master key cannot silently accept replay',err(()=>wrong.put(x),'REPLAY_CHANGED'));
+            wrong.close();
+            check('purge forbidden to viewer',err(()=>db.purge({principal:viewer}),'PURGE_DENIED'));
+            check('purge forbidden to other tenant client',err(()=>db.purge({principal:clientB}),'PURGE_DENIED'));
+            check('no deletion before expiry',db.purge({principal:ownerA})===0);
+            const readonly=open({file,master:key,readonly:true,clock:now});
+            check('read-only rollback rejects every write',err(()=>readonly.put(x),'READ_ONLY_ROLLBACK'));
+            check('read-only rollback rejects deletion',err(()=>readonly.purge({principal:ownerA}),'READ_ONLY_ROLLBACK'));
+            check('read-only rollback preserves original row',readonly.get({principal:ownerA,id:first.id}).bookingId===booking);
+            readonly.close();
+            const raceP=issue({office:'officeA',subject:'clientConcurrent'});
+            const raceBooking=crypto.randomUUID(),raceConsent=crypto.randomUUID();
+            const childEnv={...process.env,R176_DB:file,R176_MASTER:key.toString('hex'),R176_BOOKING:raceBooking,R176_CONSENT:raceConsent};
+            const children=Array.from({length:8},()=>new Promise((resolve,reject)=>{const p=cp.spawn(process.execPath,[__filename,'--child'],{env:childEnv,stdio:['ignore','pipe','pipe']});let out='',stderr='';p.stdout.on('data',d=>out+=d);p.stderr.on('data',d=>stderr+=d);p.once('error',reject);p.once('close',code=>code?reject(new Error('R176_PROCESS_FAILED:'+code+':'+stderr.slice(-200))):resolve(JSON.parse(out.trim().split('\n').at(-1))))}));
+            const receipts=await Promise.all(children);
+            check('eight independent Node processes succeeded',receipts.length===8);
+            check('all eight processes received pending receipts',receipts.every(t=>t.status==='pending'));
+            check('all eight processes recovered same row id',new Set(receipts.map(t=>t.id)).size===1);
+            check('exactly one of eight processes inserted first',receipts.filter(t=>!t.duplicate).length===1);
+            check('exactly seven of eight processes got duplicate',receipts.filter(t=>t.duplicate).length===7);
+            check('concurrent writer inserted exactly one extra row',db.count()===2);
+            check('concurrent row is decryptable for owner',db.get({principal:ownerA,id:receipts[0].id}).requester_email===c.requester_email);
+            const anotherKey='r176_otheroffice_request____0001',otherBooking=crypto.randomUUID();
+            const bEntry={principal:clientB,consent:consentFor(clientB),bookingId:otherBooking,requestKey:anotherKey,contact:c};
+            const b=db.put(bEntry);
+            check('tenant B writes separate encrypted row',db.count()===3&&b.status==='pending');
+            check('tenant A cannot read B encrypted row',err(()=>db.get({principal:ownerA,id:b.id}),'CONTACT_NOT_FOUND'));
+            check('tenant B can retrieve own row',db.get({principal:ownerB,id:b.id}).requester_name===c.requester_name);
+            check('tenant B cannot read tenant A row',err(()=>db.get({principal:ownerB,id:first.id}),'CONTACT_NOT_FOUND'));
+            const tampered=db.db.prepare('select sealed from contacts where id=?').get(first.id),broken=Buffer.from(tampered.sealed);broken[0]^=0xff;
+            db.db.prepare('update contacts set sealed=? where id=?').run(broken,first.id);
+            check('encrypted content tampering always fails on read',err(()=>db.get({principal:ownerA,id:first.id}),'CONTACT_TAMPER'));
+            check('tampering never returns plaintext',err(()=>db.get({principal:clerkA,id:first.id}),'CONTACT_TAMPER'));
+            const expired=open({file,master:key,clock:()=>baseTime+31*86400000});
+            check('expired contacts cannot be read',err(()=>expired.get({principal:ownerB,id:b.id}),'CONTACT_EXPIRED'));
+            check('tenant B expiry purge deletes its own row',expired.purge({principal:ownerB})===1);
+            check('tenant B purge preserves tenant A',expired.count()===2);
+            check('tenant A expiry purge removes both rows',expired.purge({principal:ownerA})===2);
+            check('all expired rows removed',expired.count()===0);
+            expired.close();db.close();db=undefined;
+            check('reference never changes production storage',RELEASE_ALLOWED===false);
+            console.log(`R176_SUMMARY ${checks.length} / ${checks.length} PASS: SQLITE_MULTIPROCESS_REFERENCE_RELEASE_HOLD`);
+           }finally{if(db2)db2.close();if(db)db.close();fs.rmSync(d,{force:true,recursive:true});}}
+          )().catch(e=>{console.error(e.stack);process.exitCode=1});}
+          R176_TEST_EOF
+          echo '2980bfe9da892a8f608e86de5897dfaade8e645b70f14d54bea6e2ce7e8bf068  '"$f1" | sha256sum -c -
+          echo '93f06c46429dd286caf3af3e3ca567869e07410091018b163dfd518b91a740c8  '"$f2" | sha256sum -c -
+          node --check "$f1"
+          node --check "$f2"
+          (cd "$work" && node R176_MULTIPROCESS_SQLITE_VAULT_QA.cjs) | tee "$RUNNER_TEMP/r176-results.log"
+          grep -Fx 'R176_SUMMARY 92 / 92 PASS: SQLITE_MULTIPROCESS_REFERENCE_RELEASE_HOLD' "$RUNNER_TEMP/r176-results.log"
+          test "$(grep -Ec '^R176_PASS_[0-9]{2}:' "$RUNNER_TEMP/r176-results.log")" = '92'
+          echo R176_MULTIPROCESS_SQLITE_92_OF_92_PASS_RELEASE_HOLD
+      - name: Keep business deployment blocked and state exact limitations
+        if: success()
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'R176_SCOPE'
+          ## DPRO TAX R176 Eight-process AES-256-GCM disposable SQLite reference — COMMERCIAL RELEASE HOLD
+          - 92 checks include real independent Node.js 22 processes (8) contending on one disposable SQLite DB with BEGIN IMMEDIATE and UNIQUE office+subject+request-key, not merely promises in one process.
+          - AES-256-GCM encrypts fictional name, phone, email and message before disk write; separate fake office-derived encryption and HMAC keys, AAD protects booking/office/consent identity, test-only random master key passed to child workers at runtime (NOT a KMS).
+          - Checks tenant-specific access, contact normalization, changed replay rejection, expected 7 duplicate receipts, no plaintext in DB snapshot, wrong key rejection, ciphertext modification rejection, expiration purge, and read-only rollback.
+          - SQLite rollback journal was selected instead of WAL after a local fixture I/O-close failure; this is a disposable SQLite contract test, NOT a PostgreSQL/Supabase concurrency or disaster recovery guarantee.
+          - No real verified identity provider, no actual approved privacy notices or evidence of end-user consent, no staff MFA, production KMS, retention agreement, audited access logs, privacy review, migration, backups, production tenant/RLS or actual end-to-end booking to contact system.
+          - Current real index.html/app.js retain source hashes and staging R105 read-only. No real Worker, Supabase, LINE, CONTROL CENTER, real customer data, production secrets, main branch edits, migrations or deployment.
+          - Real-customer acceptance gates 0/18 NOT_TESTED. This fixture remains NONDEPLOYABLE; COMMERCIAL RELEASE HOLD.
+          R176_SCOPE
