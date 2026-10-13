@@ -1,0 +1,318 @@
+name: DPRO TAX R174 Actual Booking UI to Synthetic Server Compatibility Gap QA (Read Only)
+
+on:
+  push:
+    branches: [tax-r7-staging-20261010]
+    paths:
+      - '.github/workflows/dpro-tax-r174-real-booking-schema-bridge-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dpro-tax-r174-fixture-only-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  real-ui-contract-reference:
+    if: ${{ github.repository == 'dpromstk2000-lab/dpro-tax-accounting-line-liff' && github.ref == 'refs/heads/tax-r7-staging-20261010' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout staging snapshot without write credentials
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify actual public booking sources and run synthetic adapter QA
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'dpromstk2000-lab/dpro-tax-accounting-line-liff'
+          test "$GITHUB_REF" = 'refs/heads/tax-r7-staging-20261010'
+          test "$GITHUB_EVENT_NAME" = 'push' -o "$GITHUB_EVENT_NAME" = 'workflow_dispatch'
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}" && test -z "${LINE_CHANNEL_SECRET:-}" && test -z "${CLOUDFLARE_API_TOKEN:-}"
+          test "$(git hash-object app.js)" = '4c3475219e5c7fc9203ec5e5143d4f6eb8299423' || { echo 'R174_FAIL_APP_SOURCE_DRIFT'; exit 1; }
+          test "$(git hash-object index.html)" = 'c7f6c0b30d1da913a924a582097d4bfe1570a704' || { echo 'R174_FAIL_REAL_HTML_DRIFT'; exit 1; }
+          test "$(git hash-object config.js)" = 'da1876bae8333a3a10ee13495c0063ded0c2b351' || { echo 'R174_FAIL_CONFIG_DRIFT'; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r173-least-privilege-advisory-consent-qa.yml)" = 'defb4ca2266d80f0d2874dc54188613ca61ba421' || { echo 'R174_FAIL_R173_DRIFT'; exit 1; }
+          echo 'R174_GITHUB_4_PROTECTED_SOURCE_PINS_PASS'
+          cp app.js index.html config.js "$RUNNER_TEMP/"
+          cat > "$RUNNER_TEMP/R174_NONDEPLOY_BRIDGE_REFERENCE.py" <<'R174_BRIDGE_PY_END'
+          #!/usr/bin/env python3
+          """DPRO TAX R174 -- fully synthetic no-network, no-real-identity bridge, NEVER DEPLOY.
+          This module can never dispatch into a real booking system. Explicit fixture-only admission.
+          """
+          from __future__ import annotations
+          from dataclasses import dataclass
+          from datetime import datetime, timedelta, timezone
+          import hashlib, hmac, json, re, secrets, threading, uuid
+
+          JST=timezone(timedelta(hours=9))
+          FAKE_NOW=datetime(2026,10,13,10,25,tzinfo=JST)
+          REAL_BOOKING_ENABLED=False  # permanent; this file is NEVER a deployed service
+          RELEASE_GATES_VERIFIED=0
+          RELEASE_GATES_REQUIRED=18
+
+          class Denied(Exception):
+              def __init__(self, status:int, code:str):
+                  self.status=status; self.code=code
+                  super().__init__(code)
+
+          @dataclass(frozen=True)
+          class SyntheticIdentity:
+              office:str
+              subject:str
+              fixture_attested:bool=False
+
+          SYNTHETIC_SERVICES={
+              '6f8e8cc0-2222-4222-9222-000000000001': ('A','consult_a',30,('in_person','online')),
+              '6f8e8cc0-2222-4222-9222-000000000002': ('B','consult_b',30,('in_person',)),
+          }
+          NOTICES={
+              'A':('r174-fake-A-v1','Fictional demonstration policy notice, not legally approved.'),
+              'B':('r174-fake-B-v1','Fictional office B policy, not legally approved.'),
+          }
+          ALLOWED_UI_FIELDS=frozenset({'service_id','requested_start_at','requester_name','requester_phone','requester_email','appointment_channel','message','privacy_consent','privacy_notice_version'})
+          SERVER_ONLY_FIELDS=frozenset({'privacy_notice_sha256','service_code','office','subject','line_user_id','status','confirmed_start_at','consent_at','idempotency_key'})
+
+          class FakeLedger:
+              """Only test requests; never retains raw contact fields or real PII."""
+              def __init__(self):
+                  self.rows={};self.lock=threading.Lock()
+                  self.test_hmac_key=secrets.token_bytes(32)
+              def put(self,identity,key,wire,pii):
+                  # Fake integrity fingerprint with ephemeral HMAC: not a production durable design.
+                  b=json.dumps([wire,pii],sort_keys=True,ensure_ascii=False,separators=(',',':')).encode()
+                  stamp=hmac.new(self.test_hmac_key,b,hashlib.sha256).hexdigest()
+                  k=(identity.office,identity.subject,key)
+                  with self.lock:
+                      if k in self.rows:
+                          receipt,old_stamp=self.rows[k]
+                          if not hmac.compare_digest(old_stamp,stamp):raise Denied(409,'REPLAY_CONFLICT')
+                          return {'ok':True,'status':'pending','request_id':receipt,'duplicate':True,'fixture':True}
+                      receipt='fake-'+str(uuid.uuid4())
+                      self.rows[k]=(receipt,stamp)
+                      return {'ok':True,'status':'pending','request_id':receipt,'duplicate':False,'fixture':True}
+
+          class FixtureBridge:
+              def __init__(self, ledger=None, *, isolated=False):
+                  self.ledger=ledger or FakeLedger()
+                  self.isolated=isolated
+              def submit(self,body,identity,key):
+                  # There is NO configuration that authorizes production traffic.
+                  if REAL_BOOKING_ENABLED or RELEASE_GATES_VERIFIED!=0 or RELEASE_GATES_REQUIRED!=18:
+                      raise Denied(503,'REFERENCE_CONFIGURATION_TAMPERED')
+                  if self.isolated is not True:raise Denied(503,'REAL_BOOKING_DISABLED')
+                  if not isinstance(identity,SyntheticIdentity) or not identity.fixture_attested:
+                      raise Denied(401,'SYNTHETIC_IDENTITY_REQUIRED')
+                  if identity.office not in NOTICES or not re.fullmatch(r'client[A-Za-z0-9]{1,24}',identity.subject):
+                      raise Denied(403,'UNTRUSTED_OFFICE_OR_SUBJECT')
+                  if not isinstance(key,str) or not re.fullmatch(r'[A-Za-z0-9_-]{16,96}',key):
+                      raise Denied(422,'INVALID_REQUEST_KEY')
+                  if not isinstance(body,dict) or set(body)!=ALLOWED_UI_FIELDS:
+                      raise Denied(422,'UI_CONTRACT_MISMATCH')
+                  if body['privacy_consent'] is not True:
+                      raise Denied(422,'EXPLICIT_CONSENT_REQUIRED')
+                  version,notice=NOTICES[identity.office]
+                  if body['privacy_notice_version']!=version:raise Denied(422,'POLICY_VERSION_NOT_CURRENT')
+                  service=SYNTHETIC_SERVICES.get(body['service_id']) if isinstance(body['service_id'],str) else None
+                  if not service or service[0]!=identity.office:raise Denied(403,'SERVICE_TENANT_SCOPE_DENIED')
+                  if body['appointment_channel'] not in service[3]:raise Denied(422,'INVALID_APPOINTMENT_CHANNEL')
+                  if not isinstance(body['requested_start_at'],str):raise Denied(422,'INVALID_START')
+                  try:when=datetime.fromisoformat(body['requested_start_at'])
+                  except ValueError:raise Denied(422,'INVALID_START')
+                  if when.utcoffset()!=timedelta(hours=9) or when<=FAKE_NOW or when.minute not in (0,30) or when.second or when.microsecond:
+                      raise Denied(422,'INVALID_JST_HALF_HOUR')
+                  if when>FAKE_NOW+timedelta(days=180):raise Denied(422,'OUTSIDE_BOOKING_WINDOW')
+                  name=body['requester_name']
+                  if not isinstance(name,str) or not (1<=len(name.strip())<=80):raise Denied(422,'INVALID_NAME')
+                  phone=body['requester_phone']
+                  if not isinstance(phone,str):raise Denied(422,'INVALID_PHONE')
+                  phone=''.join(c for c in phone.translate(str.maketrans('０１２３４５６７８９','0123456789')) if c.isdigit() or c=='+')
+                  if phone.startswith('+81'):phone='0'+phone[3:]
+                  if not phone.isdigit() or not (10<=len(phone)<=11) or phone[0]!='0':raise Denied(422,'INVALID_PHONE')
+                  email=body['requester_email']
+                  if not isinstance(email,str) or len(email)>254 or (email and not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+',email)):
+                      raise Denied(422,'INVALID_EMAIL')
+                  message=body['message']
+                  if not isinstance(message,str) or len(message)>2000:raise Denied(422,'INVALID_MESSAGE')
+                  if any(ord(c)<32 and c not in '\n\r\t' for c in message):raise Denied(422,'INVALID_MESSAGE')
+                  # Data is checked but never persisted or forwarded in the reference booking journal.
+                  # A real PII/contact vault, purposes, lawful basis, retention and access policy are NOT designed.
+                  pii={'name':name.strip(),'phone':phone,'email':email,'message':message}
+                  contract={'service_code':service[1], 'requested_start_at':when.isoformat(timespec='seconds'),
+                            'privacy_consent':True,'privacy_notice_version':version,
+                            'privacy_notice_sha256':hashlib.sha256(notice.encode()).hexdigest()}
+                  return self.ledger.put(identity,key,contract,pii)
+
+          # Negative business-release check is intentionally invariant.
+          def commercial_release_allowed():return False
+          R174_BRIDGE_PY_END
+          cat > "$RUNNER_TEMP/R174_BRIDGE_COMPATIBILITY_QA.py" <<'R174_QA_PY_END'
+          #!/usr/bin/env python3
+          """R174 isolated nonproduction real-UI-to-synthetic-server contract checks. DO NOT DEPLOY."""
+          from __future__ import annotations
+          from concurrent.futures import ThreadPoolExecutor
+          from html.parser import HTMLParser
+          from pathlib import Path
+          import hashlib, importlib.util, os, re, sys, uuid
+
+          HERE=Path(__file__).resolve().parent
+          spec=importlib.util.spec_from_file_location('r174bridge',HERE/'R174_NONDEPLOY_BRIDGE_REFERENCE.py')
+          r174=importlib.util.module_from_spec(spec)
+          sys.modules[spec.name]=r174
+          spec.loader.exec_module(r174)
+          CHECKS=[]
+          def check(title,truth):
+              n=len(CHECKS)+1
+              if not truth:raise AssertionError(f'R174_FAIL_{n:02d}: {title}')
+              CHECKS.append(title)
+              print(f'R174_PASS_{n:02d}: {title}',flush=True)
+
+          def rejects(title,action,status,code):
+              try:action()
+              except r174.Denied as e:
+                  check(title,e.status==status and e.code==code)
+              else:check(title,False)
+
+          class FormVisitor(HTMLParser):
+              def __init__(self):super().__init__();self.inside=0;self.names=set();self.attrs=[]
+              def handle_starttag(self,tag,attrs):
+                  a=dict(attrs)
+                  if tag=='form' and a.get('id')=='booking-form':self.inside+=1
+                  elif self.inside and tag in ('input','select','textarea') and a.get('name'):
+                      self.names.add(a['name']);self.attrs.append((tag,a))
+              def handle_endtag(self,tag):
+                  if tag=='form' and self.inside:self.inside-=1
+
+          def body(**kw):
+              b={
+               'service_id':'6f8e8cc0-2222-4222-9222-000000000001',
+               'requested_start_at':'2026-10-20T10:00:00+09:00',
+               'requester_name':'架空 テスト',
+               'requester_phone':'090-1234-5678',
+               'requester_email':'sample@example.invalid',
+               'appointment_channel':'in_person',
+               'message':'TEST DATA ONLY',
+               'privacy_consent':True,
+               'privacy_notice_version':'r174-fake-A-v1',
+              }
+              b.update(kw)
+              return b
+
+          def main():
+              original=(HERE/'app.js').read_text()
+              html=(HERE/'index.html').read_text()
+              config=(HERE/'config.js').read_text()
+              ui=FormVisitor();ui.feed(html)
+              expected_fields={'service_id','booking_date','requested_start_at','requester_name','requester_phone','requester_email','appointment_channel','message'}
+              check('actual historical staging app.js Git blob SHA pinned',__gitblob(original.encode())=='4c3475219e5c7fc9203ec5e5143d4f6eb8299423')
+              check('actual staging app has R105 fail-closed gate','CONFIG.TAX_R105_STAGING_READ_ONLY === true' in original)
+              check('actual staging app POST booking endpoint present','api("/api/public/appointments", { method: "POST"' in original)
+              check('actual staging app has no Idempotency-Key header','Idempotency-Key' not in original)
+              check('actual app sends form data without server-side consent proof','const values = formObject(form)' in original)
+              check('actual app has no integrated R171 consent version','privacy_notice_version' not in original)
+              check('actual app has no R167 booking enable flag','TAX_R167_BOOKING_BRIDGE_ENABLED' not in original)
+              check('actual config has no R167 enable opt-in','TAX_R167_BOOKING_BRIDGE_ENABLED' not in config)
+              check('actual config has no R171 consent opt-in','TAX_R171_PRIVACY_GATE_ENABLED' not in config)
+              check('actual app can reset booking form after POST acknowledgement','form.reset(); $("#slot-grid")' in original)
+              check('actual HTML contains all eight existing booking names',expected_fields.issubset(ui.names))
+              check('actual form has required human name field',any(a.get('name')=='requester_name' and 'required' in a for _,a in ui.attrs))
+              check('actual form has required phone field',any(a.get('name')=='requester_phone' and 'required' in a for _,a in ui.attrs))
+              check('actual HTML booking form has no approved consent checkbox','privacy_consent' not in ui.names)
+              check('real form service_id differs from synthetic service_code','service_id' in ui.names and 'service_code' not in ui.names)
+              check('real form contains contact PII not in R173 reference',{'requester_name','requester_phone','requester_email','message'}.issubset(ui.names))
+              check('real index.html has no R174 synthetic marker','R174_BRIDGE_ADAPTER' not in html)
+              check('no real booking integration enabled',r174.REAL_BOOKING_ENABLED is False)
+              check('real-customer release gates are zero',r174.RELEASE_GATES_VERIFIED==0)
+              check('release gates require 18 verified',r174.RELEASE_GATES_REQUIRED==18)
+              check('commercial release check always false',r174.commercial_release_allowed() is False)
+              check('synthetic adapter refuses all traffic without fixture mode',r174.FixtureBridge(isolated=False).isolated is False)
+
+              a=r174.SyntheticIdentity('A','clientA1',True)
+              b=r174.SyntheticIdentity('B','clientB1',True)
+              key=str(uuid.uuid4())
+              bridge=r174.FixtureBridge()
+              rejects('normal mode no booking',lambda:bridge.submit(body(),a,key),503,'REAL_BOOKING_DISABLED')
+              bridge=r174.FixtureBridge(isolated=True)
+              rejects('no identity refused',lambda:bridge.submit(body(),None,key),401,'SYNTHETIC_IDENTITY_REQUIRED')
+              rejects('unattested fake identity refused',lambda:bridge.submit(body(),r174.SyntheticIdentity('A','clientA1'),key),401,'SYNTHETIC_IDENTITY_REQUIRED')
+              rejects('wrong fake office refused',lambda:bridge.submit(body(),r174.SyntheticIdentity('C','clientC1',True),key),403,'UNTRUSTED_OFFICE_OR_SUBJECT')
+              rejects('malformed fake subject refused',lambda:bridge.submit(body(),r174.SyntheticIdentity('A','../A',True),key),403,'UNTRUSTED_OFFICE_OR_SUBJECT')
+              rejects('short request key refused',lambda:bridge.submit(body(),a,'short'),422,'INVALID_REQUEST_KEY')
+              rejects('request CRLF refused',lambda:bridge.submit(body(),a,'x'*20+'\r\n'),422,'INVALID_REQUEST_KEY')
+              rejects('extra office identity claim forbidden',lambda:bridge.submit(body(office='B'),a,key),422,'UI_CONTRACT_MISMATCH')
+              rejects('client provided policy hash forbidden',lambda:bridge.submit(body(privacy_notice_sha256='0'*64),a,key),422,'UI_CONTRACT_MISMATCH')
+              rejects('client provided confirmed status forbidden',lambda:bridge.submit(body(status='confirmed'),a,key),422,'UI_CONTRACT_MISMATCH')
+              rejects('missing requester_name denied',lambda:bridge.submit({k:v for k,v in body().items() if k!='requester_name'},a,key),422,'UI_CONTRACT_MISMATCH')
+              rejects('explicit consent is required',lambda:bridge.submit(body(privacy_consent=False),a,key),422,'EXPLICIT_CONSENT_REQUIRED')
+              rejects('string consent cannot replace boolean',lambda:bridge.submit(body(privacy_consent='true'),a,key),422,'EXPLICIT_CONSENT_REQUIRED')
+              rejects('unapproved policy version refused',lambda:bridge.submit(body(privacy_notice_version='fake-old'),a,key),422,'POLICY_VERSION_NOT_CURRENT')
+              rejects('wrong office service refused',lambda:bridge.submit(body(service_id='6f8e8cc0-2222-4222-9222-000000000002'),a,key),403,'SERVICE_TENANT_SCOPE_DENIED')
+              rejects('unknown service refused',lambda:bridge.submit(body(service_id='11111111-1111-4111-8111-111111111111'),a,key),403,'SERVICE_TENANT_SCOPE_DENIED')
+              rejects('unauthorized channel refused',lambda:bridge.submit(body(appointment_channel='phone'),a,key),422,'INVALID_APPOINTMENT_CHANNEL')
+              rejects('past date refused',lambda:bridge.submit(body(requested_start_at='2025-10-20T10:00:00+09:00'),a,key),422,'INVALID_JST_HALF_HOUR')
+              rejects('quarter-hour refused',lambda:bridge.submit(body(requested_start_at='2026-10-20T10:15:00+09:00'),a,key),422,'INVALID_JST_HALF_HOUR')
+              rejects('seconds refused',lambda:bridge.submit(body(requested_start_at='2026-10-20T10:00:01+09:00'),a,key),422,'INVALID_JST_HALF_HOUR')
+              rejects('missing JST offset refused',lambda:bridge.submit(body(requested_start_at='2026-10-20T10:00:00'),a,key),422,'INVALID_JST_HALF_HOUR')
+              rejects('beyond 180-day planning window refused',lambda:bridge.submit(body(requested_start_at='2027-11-20T10:00:00+09:00'),a,key),422,'OUTSIDE_BOOKING_WINDOW')
+              rejects('invalid date refused',lambda:bridge.submit(body(requested_start_at='2026-02-30T10:00:00+09:00'),a,key),422,'INVALID_START')
+              rejects('empty name refused',lambda:bridge.submit(body(requester_name=' '),a,key),422,'INVALID_NAME')
+              rejects('short telephone refused',lambda:bridge.submit(body(requester_phone='123'),a,key),422,'INVALID_PHONE')
+              rejects('invalid mail refused',lambda:bridge.submit(body(requester_email='not-email'),a,key),422,'INVALID_EMAIL')
+              rejects('oversize message refused',lambda:bridge.submit(body(message='x'*2001),a,key),422,'INVALID_MESSAGE')
+              rejects('binary control in message refused',lambda:bridge.submit(body(message='bad\x00data'),a,key),422,'INVALID_MESSAGE')
+
+              first=bridge.submit(body(),a,key)
+              check('synthetic first request returns pending only',first['status']=='pending' and first['ok'] is True)
+              check('synthetic receipt is visibly fake',first['request_id'].startswith('fake-') and first['fixture'] is True)
+              check('synthetic initial reply is not duplicate',first['duplicate'] is False)
+              twice=bridge.submit(body(),a,key)
+              check('same payload retry returns duplicate receipt',twice['duplicate'] is True)
+              check('same payload retry keeps original receipt',twice['request_id']==first['request_id'])
+              check('same payload retry keeps one journal row',len(bridge.ledger.rows)==1)
+              rejects('same key changed contact cannot silently replace',lambda:bridge.submit(body(requester_phone='090-8888-8888'),a,key),409,'REPLAY_CONFLICT')
+              rejects('same key changed time refused',lambda:bridge.submit(body(requested_start_at='2026-10-20T10:30:00+09:00'),a,key),409,'REPLAY_CONFLICT')
+              keys=[str(uuid.uuid4()) for _ in range(8)]
+              racekey=str(uuid.uuid4())
+              with ThreadPoolExecutor(max_workers=8) as executor:ret=list(executor.map(lambda _:bridge.submit(body(requester_phone='+81-90-1234-5678'),a,racekey),range(8)))
+              check('eight simultaneous replays keep all responses pending',all(x['status']=='pending' for x in ret))
+              check('eight simultaneous replays keep one receipt',len({x['request_id'] for x in ret})==1)
+              check('eight simultaneous replays add only one journal row',len(bridge.ledger.rows)==2)
+              check('all fake ledger keys exclude raw PII',all(len(k)==3 and '090' not in ''.join(k) for k in bridge.ledger.rows))
+              check('all fake ledger values contain no raw name phone email',all('架空' not in str(v) and 'sample@' not in str(v) and '090-' not in str(v) for v in bridge.ledger.rows.values()))
+              check('mock retains no raw contact fields even after concurrent attempt',all(isinstance(v[1],str) and len(v[1])==64 for v in bridge.ledger.rows.values()))
+              check('mock persists only pending receipts',all(v[0].startswith('fake-') for v in bridge.ledger.rows.values()))
+              check('server policy hash never obtained from browser body', 'privacy_notice_sha256' not in r174.ALLOWED_UI_FIELDS)
+              check('server-only client identity and status fields forbidden',r174.SERVER_ONLY_FIELDS.isdisjoint(r174.ALLOWED_UI_FIELDS))
+              check('real production dispatch remains impossible',r174.REAL_BOOKING_ENABLED is False and not r174.commercial_release_allowed())
+              print(f'R174_SUMMARY {len(CHECKS)} / {len(CHECKS)} PASS: NO_REAL_IDENTITY_NO_CONTACT_VAULT_RELEASE_HOLD',flush=True)
+
+          def __gitblob(data):
+              return hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+
+          if __name__=='__main__':main()
+          R174_QA_PY_END
+          python3 -I -m py_compile "$RUNNER_TEMP/R174_NONDEPLOY_BRIDGE_REFERENCE.py" "$RUNNER_TEMP/R174_BRIDGE_COMPATIBILITY_QA.py"
+          python3 -I "$RUNNER_TEMP/R174_BRIDGE_COMPATIBILITY_QA.py" | tee "$RUNNER_TEMP/r174_qa.log"
+          grep -Fx 'R174_SUMMARY 68 / 68 PASS: NO_REAL_IDENTITY_NO_CONTACT_VAULT_RELEASE_HOLD' "$RUNNER_TEMP/r174_qa.log"
+          test "$(grep -Ec '^R174_PASS_[0-9]{2}:' "$RUNNER_TEMP/r174_qa.log")" = '68'
+          echo 'R174_PUBLIC_UI_TO_CONSENT_SERVER_BRIDGE_REFERENCE_68_OF_68_PASS_RELEASE_HOLD'
+      - name: Publish explicit integration blockers and release hold
+        if: success()
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'R174_SCOPE_END'
+          ## R174 actual staging UI schema vs synthetic booking reference — Commercial HOLD
+          - 68 deterministic tests inspect real staging `app.js`, `index.html`, `config.js`, and the R173 workflow SHA; all source access read-only.
+          - Current form collects requester_name/phone/email/message and sends `service_id`; R173 reference uses service_code and excludes all contact PII.
+          - R171 candidate adds privacy assertion and version but does not itself provide a real identity service, privacy hash validation, contact vault or Server-side consent evidence.
+          - R174 fixture-only server derives fake service code, fake tenant and fictional notice digest from injected fake identity and a fake registry; never authorizes real bookings.
+          - No actual identity provider, live contract approval, tenant consent, PII vault/retention/purpose, real Worker, real DB migration, monitoring or rollback integration.
+          - 8 synthetic parallel replays produce a single fake row, no PII stored except an ephemeral HMAC fingerprint; NOT production idempotency durability.
+          - Both R167/R171 new flags absent from current config, real R105 staging read-only guard retained, no production backend or deployed candidate.
+          - Real customer deployment release evidence 0/18 NOT_TESTED; commercial release HOLD. Never copy fixture secrets/identity/notice to production.
+          - Staging branch only, no database, Worker, LINE, main, CONTROL CENTER, real contact data, migrations or deployment touched.
+          R174_SCOPE_END
