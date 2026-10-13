@@ -1,0 +1,308 @@
+name: DPRO TAX R173 Actual Staging Booking Integration Gap & Fail-Closed Adapter QA (No Deploy)
+
+on:
+  push:
+    branches: [tax-r7-staging-20261010]
+    paths:
+      - '.github/workflows/dpro-tax-r173-real-ui-booking-integration-gap-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dpro-tax-r173-readonly-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  integration-gap-qa:
+    if: ${{ github.repository == 'dpromstk2000-lab/dpro-tax-accounting-line-liff' && github.ref == 'refs/heads/tax-r7-staging-20261010' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Exact staging checkout with no write credentials
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Confirm staging and immutable source pins
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'dpromstk2000-lab/dpro-tax-accounting-line-liff' 
+          test "$GITHUB_REF" = 'refs/heads/tax-r7-staging-20261010' 
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}" && test -z "${LINE_CHANNEL_SECRET:-}" && test -z "${CLOUDFLARE_API_TOKEN:-}"
+          test "$(git hash-object app.js)" = '4c3475219e5c7fc9203ec5e5143d4f6eb8299423' || { echo 'R173_SOURCE_DRIFT app.js'; exit 1; }
+          test "$(git hash-object index.html)" = 'c7f6c0b30d1da913a924a582097d4bfe1570a704' || { echo 'R173_SOURCE_DRIFT index.html'; exit 1; }
+          test "$(git hash-object config.js)" = 'da1876bae8333a3a10ee13495c0063ded0c2b351' || { echo 'R173_SOURCE_DRIFT config.js'; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r171-privacy-consent-bridge-qa.yml)" = '63d78f54d56b72846c0dd071089d79d37716960d' || { echo 'R173_SOURCE_DRIFT .github/workflows/dpro-tax-r171-privacy-consent-bridge-qa.yml'; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r172-disposable-consent-evidence-contract-qa.yml)" = 'f3f66ba265ec89069e6a343e3d33a78a31d65e8a' || { echo 'R173_SOURCE_DRIFT .github/workflows/dpro-tax-r172-disposable-consent-evidence-contract-qa.yml'; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r172-disposable-postgres-consent-evidence-qa.yml)" = '9ca7587b32f57807a6126389791759177290419d' || { echo 'R173_SOURCE_DRIFT .github/workflows/dpro-tax-r172-disposable-postgres-consent-evidence-qa.yml'; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r1721-disposable-postgres-consent-fix-qa.yml)" = '0557f15dd13de9da148792e28b47cc88137dd301' || { echo 'R173_SOURCE_DRIFT .github/workflows/dpro-tax-r1721-disposable-postgres-consent-fix-qa.yml'; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r1722-postgres-consent-error-mapping-qa.yml)" = '896e5e161e09c8779154bf75c764764275f8a2b7' || { echo 'R173_SOURCE_DRIFT .github/workflows/dpro-tax-r1722-postgres-consent-error-mapping-qa.yml'; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r1722-consent-replay-error-mapping-qa.yml)" = '7472a44c3dd964c4e70fce1ad44694dab1942b9c' || { echo 'R173_SOURCE_DRIFT .github/workflows/dpro-tax-r1722-consent-replay-error-mapping-qa.yml'; exit 1; }
+          echo 'R173_PROTECTED_PIN_SUMMARY 9 / 9 PASS'
+      - name: Read actual booking UI and report missing production integration fields
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/R173_BOOKING_GATE_ADAPTER_DO_NOT_DEPLOY.py" <<'R173_R173_BOOKING_GATE_ADAPTER_DO_NOT_DEPLOY.py_END'
+          """R173: NOT DEPLOYABLE. In-process demo of *missing* server trust and privacy gates.
+          No real user identity, policy, database, Worker, Supabase or LINE is contacted.
+          """
+          from __future__ import annotations
+          from dataclasses import dataclass
+          from datetime import datetime, timedelta, timezone
+          import re
+          import uuid
+          
+          JST=timezone(timedelta(hours=9))
+          ALLOWED={"service_id","requested_start_at","appointment_channel","privacy_consent","privacy_notice_version","privacy_notice_sha256","privacy_challenge","requester_name","requester_phone","requester_email","message"}
+          PII=("requester_name","requester_phone","requester_email","message")
+          VALID_CHANNELS={"in_person","online","phone"}
+          
+          class Denied(Exception):
+              def __init__(self,status,code):
+                  super().__init__(code);self.status=status;self.code=code
+          
+          @dataclass(frozen=True)
+          class VerifiedContext:
+              office:str
+              subject:str
+              trust_source:str  # TEST server-injected only. Not a genuine authenticator.
+          
+          @dataclass(frozen=True)
+          class Notice:
+              version:str
+              digest:str
+              challenge:str
+              office:str
+              subject:str
+          
+          class FakeAtomicGateway:
+              def __init__(self): self.rows={}
+              def accept(self,req):
+                  scope=(req['office'],req['subject'],req['key']);fp=(req['service_code'],req['start'],req['channel'],req['notice_version'],req['notice_digest'],req['challenge'])
+                  if scope in self.rows:
+                      old=self.rows[scope]
+                      if old['fingerprint']!=fp: raise Denied(409,"IDEMPOTENCY_PAYLOAD_CONFLICT")
+                      return {"ok":True,"status":"pending","request_id":old['request_id'],"duplicate":True}
+                  r={"request_id":"synthetic-"+str(len(self.rows)+1),"fingerprint":fp}
+                  self.rows[scope]=r
+                  return {"ok":True,"status":"pending","request_id":r['request_id'],"duplicate":False}
+          
+          class Candidate:
+              def __init__(self,*,feature_enabled=False,read_only=True,pii_storage_approved=False,identity_provider_configured=False,consent_journal_configured=False,notices=None,services=None):
+                  self.feature_enabled=feature_enabled;self.read_only=read_only
+                  self.pii_storage_approved=pii_storage_approved;self.identity_provider_configured=identity_provider_configured
+                  self.consent_journal_configured=consent_journal_configured
+                  self.notices=notices or {}
+                  self.services=services or {}
+                  self.gateway=FakeAtomicGateway()
+              def book(self,body,headers,context):
+                  # These are all deployment prerequisites; the provided defaults shut every request down.
+                  if self.read_only: raise Denied(403,"STAGING_READ_ONLY")
+                  if not self.feature_enabled: raise Denied(503,"BRIDGE_DISABLED")
+                  if not self.identity_provider_configured: raise Denied(503,"REAL_IDENTITY_PROVIDER_UNAVAILABLE")
+                  if not self.consent_journal_configured: raise Denied(503,"CONSENT_JOURNAL_UNAVAILABLE")
+                  if not isinstance(context,VerifiedContext) or context.trust_source!="server_verified": raise Denied(401,"UNVERIFIED_SUBJECT")
+                  if not context.office or not context.subject: raise Denied(401,"UNVERIFIED_SUBJECT")
+                  if not isinstance(body,dict) or any(k not in ALLOWED for k in body): raise Denied(422,"FORBIDDEN_CLIENT_FIELD")
+                  if not isinstance(headers,dict): raise Denied(422,"MISSING_IDEMPOTENCY_KEY")
+                  key=headers.get("Idempotency-Key", "")
+                  if not isinstance(key,str) or not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}',key):
+                      raise Denied(422,"INVALID_IDEMPOTENCY_KEY")
+                  if body.get("privacy_consent") is not True: raise Denied(422,"EXPLICIT_CONSENT_REQUIRED")
+                  policy=self.notices.get(context.office)
+                  if not isinstance(policy,Notice) or policy.office!=context.office or policy.subject!=context.subject:
+                      raise Denied(403,"BOUND_NOTICE_MISSING")
+                  if any(body.get(k)!=v for k,v in (("privacy_notice_version",policy.version),("privacy_notice_sha256",policy.digest),("privacy_challenge",policy.challenge))):
+                      raise Denied(422,"NOTICE_VERSION_DIGEST_CHALLENGE_REQUIRED")
+                  if any(body.get(k) for k in PII):
+                      # Never discard real contact fields silently: this fixture has NO safe PII mapper.
+                      if not self.pii_storage_approved: raise Denied(503,"PII_PROCESSING_UNAPPROVED")
+                      raise Denied(503,"PII_MAPPING_NOT_IMPLEMENTED")
+                  # Real mapping, retention, contacts, encryption, consent withdrawal are NOT implemented.
+                  service_id=body.get("service_id")
+                  svc=self.services.get(service_id)
+                  if not svc or svc['office']!=context.office:raise Denied(422,"SERVICE_SCOPE_DENIED")
+                  channel=body.get("appointment_channel")
+                  if channel not in VALID_CHANNELS or channel not in svc['channels']:raise Denied(422,"CHANNEL_DENIED")
+                  raw=body.get("requested_start_at")
+                  if not isinstance(raw,str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:(?:00|30):00\+09:00',raw):
+                      raise Denied(422,"INVALID_APPOINTMENT_SLOT")
+                  try: date=datetime.fromisoformat(raw)
+                  except ValueError:raise Denied(422,"INVALID_APPOINTMENT_SLOT")
+                  if not (datetime.now(JST)<date<datetime.now(JST)+timedelta(days=180)):
+                      raise Denied(422,"INVALID_APPOINTMENT_SLOT")
+                  payload={"office":context.office,"subject":context.subject,"service_code":svc['code'],"start":raw,"channel":channel,"notice_version":policy.version,"notice_digest":policy.digest,"challenge":policy.challenge,"key":key}
+                  receipt=self.gateway.accept(payload)
+                  # Never show true booking confirmation. This does not send anything to a real database.
+                  return receipt
+          R173_R173_BOOKING_GATE_ADAPTER_DO_NOT_DEPLOY.py_END
+          cat > "$RUNNER_TEMP/R173_BOOKING_GATE_QA.py" <<'R173_R173_BOOKING_GATE_QA.py_END'
+          """Only fake contexts and in-memory persistence: not actual authentication or database evidence."""
+          import copy,uuid,sys
+          from pathlib import Path
+          sys.path.insert(0,str(Path(__file__).resolve().parent))
+          from datetime import datetime,timezone,timedelta
+          from R173_BOOKING_GATE_ADAPTER_DO_NOT_DEPLOY import Candidate,Denied,Notice,VerifiedContext,JST
+          n=0
+          def check(name,good):
+           global n
+           n+=1
+           if not good: raise AssertionError(f"R173_FAIL_{n:02d}: {name}")
+           print(f"R173_PASS_{n:02d}: {name}")
+          def rejects(name,call,status,code):
+           try: call()
+           except Denied as e: check(name,e.status==status and e.code==code);return
+           check(name,False)
+          noticeA=Notice('policy-v1','a'*64,'challenge-only-fixture-a','OFFICE_A','client-A')
+          noticeB=Notice('policy-v1','b'*64,'challenge-only-fixture-b','OFFICE_B','client-B')
+          services={'svc-a':{'office':'OFFICE_A','code':'consult_a','channels':{'in_person','online'}},'svc-b':{'office':'OFFICE_B','code':'consult_b','channels':{'phone'}}}
+          future=(datetime.now(JST)+timedelta(days=7)).replace(hour=10,minute=0,second=0,microsecond=0).isoformat()
+          body={'service_id':'svc-a','requested_start_at':future,'appointment_channel':'online','privacy_consent':True,'privacy_notice_version':noticeA.version,'privacy_notice_sha256':noticeA.digest,'privacy_challenge':noticeA.challenge}
+          headers={'Idempotency-Key':str(uuid.uuid4())}
+          context=VerifiedContext('OFFICE_A','client-A','server_verified')
+          kwargs=dict(feature_enabled=True,read_only=False,pii_storage_approved=False,identity_provider_configured=True,consent_journal_configured=True,notices={'OFFICE_A':noticeA,'OFFICE_B':noticeB},services=services)
+          rejected=Candidate(**kwargs)
+          def mutate(**d):return Candidate(**(kwargs|d))
+          rejects('real staging default refuses write',lambda:Candidate().book(body,headers,context),403,'STAGING_READ_ONLY')
+          rejects('read-only refuses even fully set fake source',lambda:mutate(read_only=True).book(body,headers,context),403,'STAGING_READ_ONLY')
+          rejects('feature opt-in off refuses',lambda:mutate(feature_enabled=False).book(body,headers,context),503,'BRIDGE_DISABLED')
+          rejects('identity provider missing refuses',lambda:mutate(identity_provider_configured=False).book(body,headers,context),503,'REAL_IDENTITY_PROVIDER_UNAVAILABLE')
+          rejects('server consent journal missing refuses',lambda:mutate(consent_journal_configured=False).book(body,headers,context),503,'CONSENT_JOURNAL_UNAVAILABLE')
+          rejects('unknown context refuses',lambda:rejected.book(body,headers,None),401,'UNVERIFIED_SUBJECT')
+          rejects('client claim object refuses',lambda:rejected.book(body,headers,{'office':'OFFICE_A','subject':'client-A'}),401,'UNVERIFIED_SUBJECT')
+          rejects('unverified fake server claim refuses',lambda:rejected.book(body,headers,VerifiedContext('OFFICE_A','client-A','browser')) ,401,'UNVERIFIED_SUBJECT')
+          rejects('no office refuses',lambda:rejected.book(body,headers,VerifiedContext('','client-A','server_verified')),401,'UNVERIFIED_SUBJECT')
+          rejects('no subject refuses',lambda:rejected.book(body,headers,VerifiedContext('OFFICE_A','','server_verified')),401,'UNVERIFIED_SUBJECT')
+          rejects('office client field refuses',lambda:rejected.book(body|{'office':'OFFICE_B'},headers,context),422,'FORBIDDEN_CLIENT_FIELD')
+          rejects('subject client field refuses',lambda:rejected.book(body|{'subject':'client-B'},headers,context),422,'FORBIDDEN_CLIENT_FIELD')
+          rejects('status client field refuses',lambda:rejected.book(body|{'status':'confirmed'},headers,context),422,'FORBIDDEN_CLIENT_FIELD')
+          rejects('line id user claim refuses',lambda:rejected.book(body|{'line_user_id':'demo-user'},headers,context),422,'FORBIDDEN_CLIENT_FIELD')
+          rejects('missing key refuses',lambda:rejected.book(body,{},context),422,'INVALID_IDEMPOTENCY_KEY')
+          rejects('malformed key refuses',lambda:rejected.book(body,{'Idempotency-Key':'abc'},context),422,'INVALID_IDEMPOTENCY_KEY')
+          rejects('wrong UUID version refuses',lambda:rejected.book(body,{'Idempotency-Key':'00000000-0000-1000-8000-000000000000'},context),422,'INVALID_IDEMPOTENCY_KEY')
+          rejects('consent false refuses',lambda:rejected.book(body|{'privacy_consent':False},headers,context),422,'EXPLICIT_CONSENT_REQUIRED')
+          rejects('consent text refuses',lambda:rejected.book(body|{'privacy_consent':'true'},headers,context),422,'EXPLICIT_CONSENT_REQUIRED')
+          rejects('consent missing refuses',lambda:rejected.book({k:v for k,v in body.items() if k!='privacy_consent'},headers,context),422,'EXPLICIT_CONSENT_REQUIRED')
+          rejects('R171 UI absent digest refuses',lambda:rejected.book({k:v for k,v in body.items() if k!='privacy_notice_sha256'},headers,context),422,'NOTICE_VERSION_DIGEST_CHALLENGE_REQUIRED')
+          rejects('R171 UI absent challenge refuses',lambda:rejected.book({k:v for k,v in body.items() if k!='privacy_challenge'},headers,context),422,'NOTICE_VERSION_DIGEST_CHALLENGE_REQUIRED')
+          rejects('wrong digest refuses',lambda:rejected.book(body|{'privacy_notice_sha256':'f'*64},headers,context),422,'NOTICE_VERSION_DIGEST_CHALLENGE_REQUIRED')
+          rejects('wrong challenge refuses',lambda:rejected.book(body|{'privacy_challenge':'other'},headers,context),422,'NOTICE_VERSION_DIGEST_CHALLENGE_REQUIRED')
+          rejects('wrong version refuses',lambda:rejected.book(body|{'privacy_notice_version':'policy-v2'},headers,context),422,'NOTICE_VERSION_DIGEST_CHALLENGE_REQUIRED')
+          rejects('cross tenant office context refuses',lambda:rejected.book(body,headers,VerifiedContext('OFFICE_B','client-B','server_verified')),422,'NOTICE_VERSION_DIGEST_CHALLENGE_REQUIRED')
+          rejects('mismatched scoped notice refuses',lambda:mutate(notices={'OFFICE_A':noticeB}).book(body,headers,context),403,'BOUND_NOTICE_MISSING')
+          rejects('name PII is blocked without privacy approval',lambda:rejected.book(body|{'requester_name':'TEST_ONLY'},headers,context),503,'PII_PROCESSING_UNAPPROVED')
+          rejects('phone PII is blocked without privacy approval',lambda:rejected.book(body|{'requester_phone':'09000000000'},headers,context),503,'PII_PROCESSING_UNAPPROVED')
+          rejects('mail PII is blocked without privacy approval',lambda:rejected.book(body|{'requester_email':'fixture@example.invalid'},headers,context),503,'PII_PROCESSING_UNAPPROVED')
+          rejects('message PII is blocked without privacy approval',lambda:rejected.book(body|{'message':'fictional'},headers,context),503,'PII_PROCESSING_UNAPPROVED')
+          rejects('even approved contact processing cannot silently discard PII',lambda:mutate(pii_storage_approved=True).book(body|{'requester_name':'FICTIONAL'},headers,context),503,'PII_MAPPING_NOT_IMPLEMENTED')
+          rejects('missing service denied',lambda:rejected.book(body|{'service_id':''},headers,context),422,'SERVICE_SCOPE_DENIED')
+          rejects('other tenant service denied',lambda:rejected.book(body|{'service_id':'svc-b'},headers,context),422,'SERVICE_SCOPE_DENIED')
+          rejects('unsupported channel denied',lambda:rejected.book(body|{'appointment_channel':'phone'},headers,context),422,'CHANNEL_DENIED')
+          rejects('past booking denied',lambda:rejected.book(body|{'requested_start_at':'2020-01-01T10:00:00+09:00'},headers,context),422,'INVALID_APPOINTMENT_SLOT')
+          rejects('quarter hour denied',lambda:rejected.book(body|{'requested_start_at':future.replace('10:00','10:15')},headers,context),422,'INVALID_APPOINTMENT_SLOT')
+          rejects('missing timezone denied',lambda:rejected.book(body|{'requested_start_at':future[:-6]},headers,context),422,'INVALID_APPOINTMENT_SLOT')
+          rejects('invalid calendar denied',lambda:rejected.book(body|{'requested_start_at':'2026-02-30T10:00:00+09:00'},headers,context),422,'INVALID_APPOINTMENT_SLOT')
+          result=rejected.book(body,headers,context)
+          check('fake backend creates pending',result['status']=='pending')
+          check('fake backend never says confirmed','confirmed' not in str(result))
+          check('receipt contains no raw tenant identity',not any(k in result for k in ('office','subject','phone','email')))
+          check('only one fake row exists',len(rejected.gateway.rows)==1)
+          check('private trusted office comes from server context',next(iter(rejected.gateway.rows))[0]=='OFFICE_A')
+          result2=rejected.book(body,headers,context)
+          check('same key yields identical receipt',result2['request_id']==result['request_id'])
+          check('same key is recognized as replay',result2['duplicate'] is True)
+          check('same key does not duplicate pending row',len(rejected.gateway.rows)==1)
+          rejects('changed time same key conflicts',lambda:rejected.book(body|{'requested_start_at':(datetime.fromisoformat(future)+timedelta(minutes=30)).isoformat()},headers,context),409,'IDEMPOTENCY_PAYLOAD_CONFLICT')
+          rejects('changed channel same key conflicts',lambda:rejected.book(body|{'appointment_channel':'in_person'},headers,context),409,'IDEMPOTENCY_PAYLOAD_CONFLICT')
+          new=rejected.book(body,{'Idempotency-Key':str(uuid.uuid4())},context)
+          check('new key produces distinct synthetic pending receipt',new['request_id']!=result['request_id'] and new['status']=='pending')
+          check('fake only backend row count matches',len(rejected.gateway.rows)==2)
+          print(f'R173_GATE_SUMMARY {n} / {n} PASS; FAKE_IDENTITY_FAKE_BACKEND_NO_DEPLOY')
+          R173_R173_BOOKING_GATE_QA.py_END
+          cat > "$RUNNER_TEMP/R173_REAL_SOURCE_GAP_AUDIT.py" <<'R173_R173_REAL_SOURCE_GAP_AUDIT.py_END'
+          """Read-only: audit actual staging frontend, not a released backend implementation."""
+          from html.parser import HTMLParser
+          from pathlib import Path
+          import re, subprocess, sys
+          root=Path(sys.argv[1] if len(sys.argv)>1 else '.').resolve()
+          app=(root/'app.js').read_text();cfg=(root/'config.js').read_text();html=(root/'index.html').read_text()
+          count=0
+          
+          def ok(label,b):
+           global count
+           count+=1
+           if not b: raise AssertionError(f'R173_GAP_FAIL_{count:02d}: {label}')
+           print(f'R173_GAP_PASS_{count:02d}: {label}',flush=True)
+          
+          def blob(path):
+           raw=(root/path).read_bytes()
+           import hashlib
+           return hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()
+          
+          class BookingHTML(HTMLParser):
+           def __init__(self): super().__init__();self.active=False;self.names=set();self.ids=set()
+           def handle_starttag(self,tag,attrs):
+            d=dict(attrs)
+            if tag=='form' and d.get('id')=='booking-form':self.active=True
+            if self.active:
+             if d.get('name'):self.names.add(d['name'])
+             if d.get('id'):self.ids.add(d['id'])
+           def handle_endtag(self,tag):
+            if tag=='form' and self.active:self.active=False
+          h=BookingHTML();h.feed(html)
+          expected={'service_id','booking_date','requested_start_at','requester_name','requester_phone','requester_email','appointment_channel','message'}
+          for path,sha in [('app.js','4c3475219e5c7fc9203ec5e5143d4f6eb8299423'),('config.js','da1876bae8333a3a10ee13495c0063ded0c2b351'),('index.html','c7f6c0b30d1da913a924a582097d4bfe1570a704')]:ok('actual pinned '+path,blob(path)==sha)
+          ok('public appointment form exists', 'id="booking-form"' in html)
+          ok('exact known eight form data fields',h.names==expected)
+          ok('service_id is client-visible form identifier','service_id' in h.names)
+          ok('required requester name input','requester_name' in h.names and 'name="requester_name"' in html)
+          ok('required requester phone input','requester_phone' in h.names and 'name="requester_phone"' in html)
+          ok('optional requester email is present','requester_email' in h.names)
+          ok('potentially sensitive free-text message is present','message' in h.names)
+          ok('channel is part of form','appointment_channel' in h.names)
+          ok('old calendar date must be deleted in submit','delete values.booking_date;' in app)
+          ok('form posts to legacy public appointments endpoint','api("/api/public/appointments", { method: "POST"' in app)
+          ok('current app has no Idempotency-Key header','Idempotency-Key' not in app)
+          ok('current booking submit lacks consent version','privacy_notice_version' not in app)
+          ok('current public form has no affirmative privacy checkbox','privacy_consent' not in h.names)
+          ok('current public form has no challenge','privacy_challenge' not in h.names)
+          ok('current public form has no notice digest','privacy_notice_sha256' not in h.names)
+          ok('client form does not contain server-issued office binding','office' not in h.names and 'subject' not in h.names)
+          ok('read-only TRUE in staging config',re.search(r'TAX_R105_STAGING_READ_ONLY:\s*true',cfg)!=None)
+          ok('read-only API protection exists', 'CONFIG.TAX_R105_STAGING_READ_ONLY === true' in app)
+          ok('public booking submit itself does not require verified LINE identity', 'initializeLineIdentity({ required: true })' not in app.split('$("#booking-form").addEventListener("submit"')[1].split('$("#inquiry-form").addEventListener("submit"')[0])
+          ok('LIFF_ID not provisioned',re.search(r'LIFF_ID:\s*""',cfg)!=None)
+          ok('R167 flag unconfigured in current config','TAX_R167_BOOKING_BRIDGE_ENABLED' not in cfg)
+          ok('R171 flag unconfigured in current config','TAX_R171_PRIVACY_GATE_ENABLED' not in cfg)
+          ok('form user name/phone cannot fit no-PII R172 fixture by itself','requester_name' in h.names and 'requester_phone' in h.names and 'privacy_notice_sha256' not in h.names)
+          ok('source audit does not modify working tree',not (root/'.git').exists() or not subprocess.run(['git','diff','--quiet','--','app.js','config.js','index.html'],cwd=root).returncode)
+          print(f'R173_GAP_SUMMARY {count} / {count} PASS; ACTUAL_STAGING_INTEGRATION_GAPS_OPEN_RELEASE_HOLD')
+          R173_R173_REAL_SOURCE_GAP_AUDIT.py_END
+          python3 -m py_compile "$RUNNER_TEMP/R173_REAL_SOURCE_GAP_AUDIT.py" "$RUNNER_TEMP/R173_BOOKING_GATE_ADAPTER_DO_NOT_DEPLOY.py" "$RUNNER_TEMP/R173_BOOKING_GATE_QA.py"
+          python3 -I "$RUNNER_TEMP/R173_REAL_SOURCE_GAP_AUDIT.py" "$GITHUB_WORKSPACE" | tee "$RUNNER_TEMP/r173_gap.log"
+          grep -Fx 'R173_GAP_SUMMARY 27 / 27 PASS; ACTUAL_STAGING_INTEGRATION_GAPS_OPEN_RELEASE_HOLD' "$RUNNER_TEMP/r173_gap.log"
+      - name: Test inactive reference adapter with fictional identities and non-PII gateway
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -I "$RUNNER_TEMP/R173_BOOKING_GATE_QA.py" | tee "$RUNNER_TEMP/r173_gate.log"
+          grep -Fx 'R173_GATE_SUMMARY 51 / 51 PASS; FAKE_IDENTITY_FAKE_BACKEND_NO_DEPLOY' "$RUNNER_TEMP/r173_gate.log"
+          echo 'R173_STAGING_UI_GAP_AND_SYNTHETIC_GATE_QA_PASS_RELEASE_HOLD'
+      - name: Document nondeployable scope and release HOLD
+        if: success()
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'R173_SCOPE_END'
+          ## R173 read-only UI integration gap and disabled reference adapter — RELEASE HOLD
+          - Audits **real** pinned staging `app.js`, `index.html`, `config.js` read-only. The existing public booking form includes real-world PII fields not present in R172 synthetic reference.
+          - Reports missing mandatory UI-to-server binding: identity verification, Idempotency-Key, server-issued consent challenge/hash, explicit form consent and service_id -> service_code mapping.
+          - A completely separate Python reference adapter enforces fail-closed preconditions; 50 tests use ONLY fabricated verified contexts, synthetic policies and in-memory fake DB.
+          - The reference does NOT validate actual LINE identity, does NOT store real PII, does NOT prove JWT/CORS/rate limits or real Worker or Supabase authorization and must never be deployed.
+          - No changes to staging files besides this single QA YML, no credentials, customer records, production SQL, LINE, CONTROL CENTER, Worker, main or deployment.
+          - The secondary R172.2 workflow is recorded but not modified; its auto-trigger path references an R172.1 filename and has no confirmed successful run.
+          - Real-customer release 0/18 NOT_TESTED. COMMERCIAL RELEASE HOLD until authorized real integrations and acceptance.
+          R173_SCOPE_END
