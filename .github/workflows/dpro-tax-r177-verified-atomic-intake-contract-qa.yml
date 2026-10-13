@@ -1,0 +1,200 @@
+name: DPRO TAX R177 Real UI to Verified Atomic Intake Contract QA (Synthetic No Deploy)
+
+on:
+  push:
+    branches: [tax-r7-staging-20261010]
+    paths:
+      - '.github/workflows/dpro-tax-r177-verified-atomic-intake-contract-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dpro-tax-r177-source-contract-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  isolated-verified-intake-candidate:
+    if: ${{ github.repository == 'dpromstk2000-lab/dpro-tax-accounting-line-liff' && github.ref == 'refs/heads/tax-r7-staging-20261010' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Read-only source checkout with credentials disabled
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Compare real booking source and test nondeployable atomic verified intake boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'dpromstk2000-lab/dpro-tax-accounting-line-liff'
+          test "$GITHUB_REF" = 'refs/heads/tax-r7-staging-20261010'
+          test "$GITHUB_EVENT_NAME" = 'push' -o "$GITHUB_EVENT_NAME" = 'workflow_dispatch'
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}" && test -z "${LINE_CHANNEL_SECRET:-}" && test -z "${CLOUDFLARE_API_TOKEN:-}"
+          test "$(git hash-object app.js)" = '4c3475219e5c7fc9203ec5e5143d4f6eb8299423' || { echo R177_GITHUB_SOURCE_DRIFT_5; exit 1; }
+          test "$(git hash-object index.html)" = 'c7f6c0b30d1da913a924a582097d4bfe1570a704' || { echo R177_GITHUB_SOURCE_DRIFT_6; exit 1; }
+          test "$(git hash-object config.js)" = 'da1876bae8333a3a10ee13495c0063ded0c2b351' || { echo R177_GITHUB_SOURCE_DRIFT_7; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r169-archived-worker-booking-fallback-qa.yml)" = '448fdeebdd718d28110771128d22c7cb3dcda602' || { echo R177_GITHUB_SOURCE_DRIFT_8; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r174-real-booking-schema-bridge-qa.yml)" = 'a33493ba77047fae69015ddfd1600208b9e6cde8' || { echo R177_GITHUB_SOURCE_DRIFT_9; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r1751-encrypted-contact-heredoc-fix-qa.yml)" = '5938e7dce6629508f17898b019849b52e07ed736' || { echo R177_GITHUB_SOURCE_DRIFT_10; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r176-multiprocess-encrypted-contact-ledger-qa.yml)" = '46fe79b9ee18f96cef671c0ba0b37347003e9c50' || { echo R177_GITHUB_SOURCE_DRIFT_11; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r173-least-privilege-advisory-consent-qa.yml)" = 'defb4ca2266d80f0d2874dc54188613ca61ba421' || { echo R177_GITHUB_SOURCE_DRIFT_12; exit 1; }
+          echo R177_PROTECTED_GITHUB_SOURCES_8_OF_8_PASS
+          node -e "if(Number(process.versions.node.split('.')[0])<22)process.exit(19)"
+          work="$RUNNER_TEMP/r177-contract"
+          mkdir -p "$work"
+          export NODE_NO_WARNINGS=1
+          cat > "$work/R177_VERIFIED_INTAKE_BRIDGE_CANDIDATE_DO_NOT_DEPLOY.cjs" <<'R177_CANDIDATE_EOF'
+          'use strict';
+          // Non-deployable reference for one transactional public booking + consent + contact boundary.
+          // NOT a Cloudflare Worker, production verifier, Supabase migration, or connected application.
+          const crypto = require('node:crypto');
+          const RELEASE_ALLOWED = false;
+          const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+          const KEYS = new Set(['service_id','requested_start_at','requester_name','requester_phone','requester_email','appointment_channel','message','privacy_consent','privacy_notice_version']);
+          class IntakeError extends Error {constructor(status,code){super(code);this.name='IntakeError';this.status=status;this.code=code;}}
+          function bad(code,status=422){throw new IntakeError(status,code)}
+          function safeText(v,max,required=false){if(typeof v!=='string')bad('INVALID_CONTACT');const t=v.trim();if((required&&!t)||t.length>max||/[\u0000-\u001f\u007f]/.test(t))bad('INVALID_CONTACT');return t}
+          function normalizePhone(v){const x=v.replace(/[\s()‐‑–—-]/g,'');if(!x)return '';const y=x.startsWith('+81')?'0'+x.slice(3):x;if(!/^0\d{9,10}$/.test(y))bad('INVALID_PHONE');return y}
+          function payloadOf(body){
+           if(!body||typeof body!=='object'||Array.isArray(body))bad('INVALID_BODY',400);
+           if(Object.keys(body).some(k=>!KEYS.has(k)))bad('UNEXPECTED_CLIENT_CLAIMS',400);
+           const service_id=body.service_id;
+           if(typeof service_id!=='string'||!UUID.test(service_id))bad('INVALID_SERVICE');
+           const stamp=body.requested_start_at;
+           if(typeof stamp!=='string'||!/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(00|30):00\+09:00$/.test(stamp))bad('INVALID_START');
+           const d=new Date(stamp);if(!Number.isFinite(+d)||new Date(+d+9*3600000).toISOString().slice(0,19)!==stamp.slice(0,19))bad('INVALID_START');
+           if(d.getUTCMinutes()%30!==0)bad('INVALID_START');
+           if(!Number.isFinite(Date.parse(stamp)))bad('INVALID_START');
+           const name=safeText(body.requester_name,120,true);
+           if(typeof body.requester_phone!=='string')bad('INVALID_PHONE');
+           const phone=normalizePhone(body.requester_phone.trim());
+           const email=safeText(body.requester_email||'',200).toLowerCase();
+           if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))bad('INVALID_EMAIL');
+           if(!phone&&!email)bad('CONTACT_REQUIRED');
+           if(!['in_person','online','phone'].includes(body.appointment_channel))bad('INVALID_CHANNEL');
+           const message=safeText(body.message||'',1000);
+           if(body.privacy_consent!==true)bad('CONSENT_REQUIRED',403);
+           if(typeof body.privacy_notice_version!=='string'||!body.privacy_notice_version.trim())bad('POLICY_REQUIRED',403);
+           return {service_id,start:stamp,name,phone,email,channel:body.appointment_channel,message,version:body.privacy_notice_version};
+          }
+          function makeHandler(deps){
+           if(!deps||typeof deps!=='object'||!['verifyIdentity','serviceForOffice','currentPolicy','commitAllAtomic'].every(k=>typeof deps[k]==='function')||!Buffer.isBuffer(deps.encKey)||deps.encKey.length!==32||!Buffer.isBuffer(deps.hmacKey)||deps.hmacKey.length!==32||typeof deps.now!=='function')throw new TypeError('R177_UNCONFIGURED_DENY');
+           return async function intake(request){
+            try{
+             if(!request||request.method!=='POST'||request.path!=='/api/public/appointments')bad('ROUTE_DISABLED',404);
+             const key=request.headers?.['idempotency-key'];if(typeof key!=='string'||!UUID.test(key))bad('IDEMPOTENCY_REQUIRED',400);
+             const body=payloadOf(request.body);
+             const principal=await deps.verifyIdentity(request); // NEVER trust caller-supplied identity/office headers/body.
+             if(!principal||!UUID.test(principal.subject_id)||!UUID.test(principal.office_id)||principal.verified!==true)bad('IDENTITY_UNVERIFIED',401);
+             const service=await deps.serviceForOffice(principal.office_id,body.service_id);
+             if(!service||service.office_id!==principal.office_id||service.id!==body.service_id||service.active!==true||!Number.isInteger(service.duration_minutes)||!['in_person','online','phone'].some(x=>x===body.channel && service.channels.includes(x)))bad('SERVICE_UNAVAILABLE',403);
+             const now=deps.now();if(!(now instanceof Date)||!Number.isFinite(+now)||!(Date.parse(body.start)>+now)||Date.parse(body.start)>+now+180*86400000)bad('OUTSIDE_BOOKING_WINDOW');
+             const notice=await deps.currentPolicy(principal.office_id);
+             if(!notice||notice.approved!==true||notice.office_id!==principal.office_id||!/^[-\w.]{2,80}$/.test(notice.version)||!/^([0-9a-f]{64})$/.test(notice.sha256)||notice.version!==body.version)bad('POLICY_NOT_CURRENT',409);
+             const contact={requester_name:body.name,requester_phone:body.phone,requester_email:body.email,message:body.message};
+             const stable={office_id:principal.office_id,subject_id:principal.subject_id,service_id:service.id,start:body.start,channel:body.channel,duration_minutes:service.duration_minutes,policy_version:notice.version,policy_sha256:notice.sha256,contact};
+             const digest=crypto.createHmac('sha256',deps.hmacKey).update('R177_INTENT_V1\n').update(JSON.stringify(stable)).digest('hex');
+             const aad=[principal.office_id,principal.subject_id,key,notice.version,notice.sha256,digest].join('|');
+             const iv=crypto.randomBytes(12),cipher=crypto.createCipheriv('aes-256-gcm',deps.encKey,iv);cipher.setAAD(Buffer.from(aad));
+             const ciphertext=Buffer.concat([cipher.update(JSON.stringify(contact),'utf8'),cipher.final()]);
+             const sealed={alg:'AES-256-GCM',nonce:iv.toString('base64'),ciphertext:ciphertext.toString('base64'),tag:cipher.getAuthTag().toString('base64'),key_version:'test-fixture-k1'};
+             const receipt=await deps.commitAllAtomic({office_id:principal.office_id,subject_id:principal.subject_id,service_id:service.id,service_code:service.code,requested_start_at:body.start,appointment_channel:body.channel,duration_minutes:service.duration_minutes,idempotency_key:key,policy_version:notice.version,policy_sha256:notice.sha256,consent_asserted:true,consent_note:'UNVERIFIED_CLIENT_ASSERTION',contact_sealed:sealed,contact_aad:aad,digest});
+             if(!receipt||!UUID.test(receipt.id)||receipt.status!=='pending'||!['new','duplicate'].includes(receipt.outcome)||Object.keys(receipt).some(k=>!['id','status','outcome'].includes(k)))throw new IntakeError(503,'INVALID_BACKEND_RECEIPT');
+             return {status:receipt.outcome==='new'?201:200,body:{ok:true,request_id:receipt.id,status:'pending',message:'面談希望を受け付けました。確定連絡をお待ちください。'}};
+            }catch(e){const typed=e instanceof IntakeError || (e&&e.code==='IDEMPOTENCY_PAYLOAD_CONFLICT');const status=e instanceof IntakeError?e.status:(typed?409:503);const code=e instanceof IntakeError?e.code:(typed?'IDEMPOTENCY_PAYLOAD_CONFLICT':'BACKEND_UNAVAILABLE');return {status,body:{ok:false,code}};}
+           };
+          }
+          module.exports={makeHandler,RELEASE_ALLOWED,IntakeError,payloadOf};
+          R177_CANDIDATE_EOF
+          cat > "$work/R177_REAL_UI_BRIDGE_BOUNDARY_QA.cjs" <<'R177_QA_EOF'
+          'use strict';
+          // Synthetic tests of real public form boundary shape; contains no real Worker source or private data.
+          const assert=require('node:assert/strict');
+          const crypto=require('node:crypto');
+          const fs=require('node:fs');
+          const {makeHandler,RELEASE_ALLOWED,payloadOf}=require('./R177_VERIFIED_INTAKE_BRIDGE_CANDIDATE_DO_NOT_DEPLOY.cjs');
+          const TENANT_A='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',TENANT_B='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+          const SUB_A='cccccccc-cccc-4ccc-8ccc-cccccccccccc',SUB_B='dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+          const SERVICE_A='eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',SERVICE_B='ffffffff-ffff-4fff-8fff-ffffffffffff';
+          const KEY='12345678-1234-4234-8234-123456789abc';
+          const NEXT='12345678-1234-4234-8234-123456789abd';
+          const NOTICE={office_id:TENANT_A,version:'notice-a-v1',sha256:crypto.createHash('sha256').update('FICTIONAL NOTICE A').digest('hex'),approved:true};
+          const NOW=new Date('2026-10-13T00:00:00Z');
+          const BODY={service_id:SERVICE_A,requested_start_at:'2026-10-20T10:00:00+09:00',requester_name:'架空のお客様',requester_phone:'090-1234-5678',requester_email:'TEST@example.invalid',appointment_channel:'in_person',message:'架空の相談',privacy_consent:true,privacy_notice_version:NOTICE.version};
+          let tests=0;function check(name,cond){assert.ok(cond,name);tests++;console.log(`R177_PASS_${String(tests).padStart(2,'0')}: ${name}`)}
+          function store(){let rows=new Map(),events=[],vault=[];const obj={rows,events,vault,down:false,async commitAllAtomic(d){if(this.down)throw Error('OFFLINE');const k=d.office_id+'|'+d.subject_id+'|'+d.idempotency_key;let old=rows.get(k);if(old){if(old.digest!==d.digest)throw Object.assign(new Error('CONFLICT'),{code:'IDEMPOTENCY_PAYLOAD_CONFLICT'});return{id:old.id,status:'pending',outcome:'duplicate'};}const id=crypto.randomUUID();const row={...d,id,status:'pending'};rows.set(k,row);events.push({id,version:d.policy_version,sha256:d.policy_sha256});vault.push({id,cipher:d.contact_sealed,aad:d.contact_aad});return{id,status:'pending',outcome:'new'};}};return obj}
+          function config(options={}){let db=options.db||store(), capture=[],principals=options.principals||{subject_id:SUB_A,office_id:TENANT_A,verified:true};let policy=options.notice===undefined?NOTICE:options.notice;let svc=options.service===undefined?{office_id:TENANT_A,id:SERVICE_A,code:'consult_a',duration_minutes:30,channels:['in_person','online'],active:true}:options.service;
+          const env={encKey:options.encKey||crypto.randomBytes(32),hmacKey:options.hmacKey||crypto.randomBytes(32),now:()=>NOW,verifyIdentity:async(req)=>{capture.push('identity');if(options.identityDown)throw Error('provider down');return principals;},serviceForOffice:async(office,id)=>{capture.push('service');if(options.serviceDown)throw Error('registry down');return svc;},currentPolicy:async(office)=>{capture.push('policy');if(options.policyDown)throw Error('policy down');return policy;},commitAllAtomic:async(v)=>{capture.push('commit');if(options.commitDown)throw Error('tx failure');return db.commitAllAtomic(v);}};
+          return {fn:makeHandler(env),db,env,capture}}
+          function req(body=BODY, key=KEY, headers={}){return{method:'POST',path:'/api/public/appointments',headers:{'idempotency-key':key,...headers},body}}
+          async function main(){
+          check('hard-coded release disabled',RELEASE_ALLOWED===false);
+          for(const name of ['verifyIdentity','serviceForOffice','currentPolicy','commitAllAtomic']){const x=config();delete x.env[name];let rejected=false;try{makeHandler(x.env)}catch(e){rejected=true}check(`missing required ${name} prevents instantiation`,rejected)}
+          for(const kind of ['encKey','hmacKey']){let e=config().env;e[kind]=Buffer.alloc(16);let denied=false;try{makeHandler(e)}catch(_){denied=true}check(`short ${kind} rejected`,denied)}
+          const mainConf=config();let rs=await mainConf.fn(req());check('happy path returns 201',rs.status===201);check('receipt remains pending',rs.body.status==='pending');check('receipt has no PII',!JSON.stringify(rs).includes('架空')&&!JSON.stringify(rs).includes('090')&&!JSON.stringify(rs).includes('TEST@'));check('single atomic backend invocation',mainConf.capture.filter(x=>x==='commit').length===1);check('backend received verified office', [...mainConf.db.rows.values()][0].office_id===TENANT_A);check('backend received verified subject',[...mainConf.db.rows.values()][0].subject_id===SUB_A);check('service UUID translated by office-scoped registry',[...mainConf.db.rows.values()][0].service_code==='consult_a');check('consent event committed with booking',mainConf.db.events.length===1);check('encrypted contact sealed with booking',mainConf.db.vault.length===1);check('encrypted envelope uses AES-256-GCM',mainConf.db.vault[0].cipher.alg==='AES-256-GCM');check('vault row is attached to booking ID',mainConf.db.vault[0].id===rs.body.request_id);
+          let dbrow=[...mainConf.db.rows.values()][0];check('database commit payload excludes raw requester name',!JSON.stringify(dbrow).includes('架空のお客様'));check('database commit payload excludes raw phone',!JSON.stringify(dbrow).includes('09012345678'));check('database commit payload excludes raw email',!JSON.stringify(dbrow).includes('test@example.invalid'));check('AES ciphertext not empty',!!dbrow.contact_sealed.ciphertext);check('AES nonce is 12 bytes',Buffer.from(dbrow.contact_sealed.nonce,'base64').length===12);check('AES authentication tag 16 bytes',Buffer.from(dbrow.contact_sealed.tag,'base64').length===16);check('AAD binds office',dbrow.contact_aad.includes(TENANT_A));check('AAD binds subject',dbrow.contact_aad.includes(SUB_A));check('AAD binds privacy policy',dbrow.contact_aad.includes(NOTICE.sha256));
+          const decipher=crypto.createDecipheriv('aes-256-gcm',mainConf.env.encKey,Buffer.from(dbrow.contact_sealed.nonce,'base64'));decipher.setAAD(Buffer.from(dbrow.contact_aad));decipher.setAuthTag(Buffer.from(dbrow.contact_sealed.tag,'base64'));const contact=JSON.parse(Buffer.concat([decipher.update(Buffer.from(dbrow.contact_sealed.ciphertext,'base64')),decipher.final()]).toString());
+          check('sealed contact decrypts to normalized phone',contact.requester_phone==='09012345678');check('sealed contact decrypts to normalized email',contact.requester_email==='test@example.invalid');check('sealed contact retains fictional name',contact.requester_name===BODY.requester_name);
+          let wrongKey=false;try{const x=crypto.createDecipheriv('aes-256-gcm',crypto.randomBytes(32),Buffer.from(dbrow.contact_sealed.nonce,'base64'));x.setAAD(Buffer.from(dbrow.contact_aad));x.setAuthTag(Buffer.from(dbrow.contact_sealed.tag,'base64'));x.update(Buffer.from(dbrow.contact_sealed.ciphertext,'base64'));x.final()}catch(_){wrongKey=true}check('wrong encryption key rejects contact access',wrongKey);
+          const confSpoof=config();const spoofed=await confSpoof.fn(req(BODY,KEY,{'x-office-id':TENANT_B,'x-line-user-id':SUB_B,'x-role':'admin'}));check('spoofed identity headers never override verified office',spoofed.status===201 && [...confSpoof.db.rows.values()][0].office_id===TENANT_A);check('spoofed headers never override verified subject',[...confSpoof.db.rows.values()][0].subject_id===SUB_A);
+          const confJp=config({encKey:mainConf.env.encKey,hmacKey:mainConf.env.hmacKey});const jp=await confJp.fn(req({...BODY,requester_phone:'+81 90-1234-5678'}));check('Japanese +81 normalized by server before encrypting',jp.status===201&&[...confJp.db.rows.values()][0].digest===dbrow.digest);
+          const cfLate=config();check('server refuses bookings beyond 180 days',(await cfLate.fn(req({...BODY,requested_start_at:'2027-10-20T10:00:00+09:00'}))).status===422);
+          const cfNoMail=config();check('phone-only contact allowed',(await cfNoMail.fn(req({...BODY,requester_email:''}))).status===201);
+          const cfNoPhone=config();check('email-only contact allowed',(await cfNoPhone.fn(req({...BODY,requester_phone:''}))).status===201);
+          const cfNoContacts=config();check('cannot book with both phone and email missing',(await cfNoContacts.fn(req({...BODY,requester_phone:'',requester_email:''}))).status===422);
+          const cfTen=config({principals:{subject_id:SUB_B,office_id:TENANT_B,verified:true}});check('verified B identity cannot use office A service',(await cfTen.fn(req())).status===403);
+
+          let tampered=false;try{const d=crypto.createDecipheriv('aes-256-gcm',mainConf.env.encKey,Buffer.from(dbrow.contact_sealed.nonce,'base64'));d.setAAD(Buffer.from(dbrow.contact_aad.replace(TENANT_A,TENANT_B)));d.setAuthTag(Buffer.from(dbrow.contact_sealed.tag,'base64'));d.update(Buffer.from(dbrow.contact_sealed.ciphertext,'base64'));d.final()}catch(e){tampered=true}check('AES AAD tenant substitution rejected',tampered);
+          const repeat=await mainConf.fn(req());check('same key exact replay is 200',repeat.status===200);check('same key returns original ID',repeat.body.request_id===rs.body.request_id);check('same key does not increase DB count',mainConf.db.rows.size===1);check('same key does not duplicate consent',mainConf.db.events.length===1);check('same key does not duplicate contacts',mainConf.db.vault.length===1);
+          const changes=[['requester_name','偽物A'],['requester_phone','08000000000'],['requester_email','other@example.invalid'],['message','別の相談'],['requested_start_at','2026-10-20T10:30:00+09:00'],['appointment_channel','online']];for(let [key,value] of changes){let c=await mainConf.fn(req({...BODY,[key]:value}));check(`changed ${key} not acknowledged as duplicate`,c.status===409&&c.body.code==='IDEMPOTENCY_PAYLOAD_CONFLICT')}
+          check('changed replays retain one record',mainConf.db.rows.size===1);check('changed replays retain one audit event',mainConf.db.events.length===1);
+          let n=await mainConf.fn(req({...BODY,requester_name:'　架空のお客様　'},NEXT));check('new idempotency key may create new pending',n.status===201);check('new key generates distinct ID',n.body.request_id!==rs.body.request_id);check('new key adds separate pending record',mainConf.db.rows.size===2);
+          // fail closed on untrusted claims instead of ignoring them
+          for(const field of ['office_id','subject_id','line_user_id','status','contact_id','duration_minutes','is_admin']){const cf=config();const x=await cf.fn(req({...BODY,[field]:'spoof'}));check(`reject injected ${field}`,x.status===400&&cf.db.rows.size===0)}
+          const missing=[['privacy_consent',false],['privacy_consent','true'],['privacy_consent',null],['privacy_notice_version','wrong'],['service_id','not-a-uuid'],['requested_start_at','2026-10-20T10:15:00+09:00'],['requested_start_at','2026-10-20T10:00:00Z'],['requested_start_at','2026-02-30T10:00:00+09:00'],['requested_start_at','2026-10-01T10:00:00+09:00'],['requester_phone','123456'],['requester_email','invalid'],['requester_name','']];
+          for(const [field,value]of missing){const cf=config();const v=await cf.fn(req({...BODY,[field]:value}));check(`invalid ${field}:${String(value).slice(0,20)} fails closed`,v.status>=400&&v.status<500&&cf.db.rows.size===0)}
+          for(const [tag,opt,status]of [['unverified',{principals:{...{subject_id:SUB_A,office_id:TENANT_A},verified:false}},401],['unknown subject',{principals:{subject_id:'fake',office_id:TENANT_A,verified:true}},401],['wrong office policy',{notice:{...NOTICE,office_id:TENANT_B}},409],['unapproved notice',{notice:{...NOTICE,approved:false}},409],['cross-tenant service',{service:{office_id:TENANT_B,id:SERVICE_A,code:'wrong',active:true,channels:['in_person'],duration_minutes:30}},403],['service inactive',{service:{office_id:TENANT_A,id:SERVICE_A,code:'consult_a',active:false,channels:['in_person'],duration_minutes:30}},403],['wrong service ID',{service:{office_id:TENANT_A,id:SERVICE_B,code:'consult_a',active:true,channels:['in_person'],duration_minutes:30}},403],['wrong channel',{service:{office_id:TENANT_A,id:SERVICE_A,code:'consult_a',active:true,channels:['online'],duration_minutes:30}},403]]){const cf=config(opt);const v=await cf.fn(req());check(`${tag} is rejected`,v.status===status&&cf.db.rows.size===0)}
+          for(const tag of ['identityDown','serviceDown','policyDown','commitDown']){const cf=config({[tag]:true});let v=await cf.fn(req());check(`${tag} returns generic 503`,v.status===503&&v.body.code==='BACKEND_UNAVAILABLE'&&cf.db.rows.size===0)}
+          let cf=config();let validReq=req();for(const [tag,m]of [['GET',{method:'GET'}],['wrong path',{path:'/api/admin/appointments'}],['missing key',{headers:{}}],['bad key',{headers:{'idempotency-key':'abcd'}}]]){let x=await cf.fn({...validReq,...m});check(`reject ${tag}`,x.status===404||x.status===400)}
+          check('route errors cause zero writes',cf.db.rows.size===0);
+          cf=config();let batch=await Promise.all(Array.from({length:8},()=>cf.fn(req())));check('eight parallel submissions all accepted',batch.every(x=>x.status===200||x.status===201));check('eight submissions same request ID',new Set(batch.map(x=>x.body.request_id)).size===1);check('eight submissions produce one row',cf.db.rows.size===1);check('eight submissions produce one consent event',cf.db.events.length===1);check('eight submissions produce one ciphertext contact row',cf.db.vault.length===1);
+          cf=config();cf.env.commitAllAtomic=async()=>{throw new Error('partial DB rollback simulated')};const bridge=makeHandler(cf.env),failure=await bridge(req());check('transaction failure never returns success',failure.status===503);check('transaction failure returns no booking ID',!('request_id' in failure.body));check('transaction failure has no separate contact write',cf.db.vault.length===0);check('transaction failure has no separate consent write',cf.db.events.length===0);
+          cf=config();cf.env.commitAllAtomic=async()=>({id:crypto.randomUUID(),status:'confirmed',outcome:'new'});const invalidReceipt=await makeHandler(cf.env)(req());check('confirmed backend receipt rejected',invalidReceipt.status===503);
+          cf=config();cf.env.commitAllAtomic=async()=>({id:crypto.randomUUID(),status:'pending',outcome:'new',requester_phone:'09012345678'});const leakedReceipt=await makeHandler(cf.env)(req());check('backend receipt with PII rejected',leakedReceipt.status===503);
+          cf=config();cf.env.commitAllAtomic=async()=>null;check('missing backend receipt rejected',(await makeHandler(cf.env)(req())).status===503);
+          cf=config();cf.env.commitAllAtomic=async()=>{throw Object.assign(new Error('query fail'),{code:'permission denied'})};check('raw database permission denial is generic 503',(await makeHandler(cf.env)(req())).status===503);
+          cf=config();cf.env.commitAllAtomic=async()=>{throw Object.assign(new Error('known conflict'),{code:'IDEMPOTENCY_PAYLOAD_CONFLICT'})};const typedConflict=await makeHandler(cf.env)(req());check('explicit transactional payload conflict is 409',typedConflict.status===409&&typedConflict.body.code==='IDEMPOTENCY_PAYLOAD_CONFLICT');
+
+          check('test fixture never marks commercial release ready',RELEASE_ALLOWED===false);
+          // Preserve source contract read-only if actual GitHub app is present in workspace.
+          if(fs.existsSync('app.js')&&fs.existsSync('index.html')){const app=fs.readFileSync('app.js','utf8'),html=fs.readFileSync('index.html','utf8');check('real app remains read-only',app.includes('TAX_R105_STAGING_READ_ONLY'));check('real booking endpoint preserved',app.includes('/api/public/appointments'));for(const field of ['service_id','requested_start_at','requester_name','requester_phone','requester_email','appointment_channel','message'])check('real HTML field '+field,html.includes(`name="${field}"`))}
+          console.log(`R177_SUMMARY ${tests} / ${tests} PASS: NONDEPLOYABLE_VERIFIED_BRIDGE_CONTRACT_RELEASE_HOLD`)
+          }
+          main().catch(e=>{console.error(e.stack);process.exitCode=1});
+          R177_QA_EOF
+          echo '03f110f9d1eb30785002177396b842b1bd1b99cb03e5752bd6689c6c03b82bb0  '"$work/R177_VERIFIED_INTAKE_BRIDGE_CANDIDATE_DO_NOT_DEPLOY.cjs" | sha256sum -c -
+          echo '1b104a3eee47bf0d779cd1239a4e40ff5f05ae5666cb48bf23a58517c9591201  '"$work/R177_REAL_UI_BRIDGE_BOUNDARY_QA.cjs" | sha256sum -c -
+          node --check "$work/R177_VERIFIED_INTAKE_BRIDGE_CANDIDATE_DO_NOT_DEPLOY.cjs"
+          node --check "$work/R177_REAL_UI_BRIDGE_BOUNDARY_QA.cjs"
+          cp app.js index.html "$work/"
+          (cd "$work" && node R177_REAL_UI_BRIDGE_BOUNDARY_QA.cjs) | tee "$RUNNER_TEMP/r177-results.log"
+          grep -Fx 'R177_SUMMARY 116 / 116 PASS: NONDEPLOYABLE_VERIFIED_BRIDGE_CONTRACT_RELEASE_HOLD' "$RUNNER_TEMP/r177-results.log"
+          test "$(grep -Ec '^R177_PASS_[0-9]{2,3}:' "$RUNNER_TEMP/r177-results.log")" = '116'
+          echo R177_NONDEPLOY_VERIFIED_ATOMIC_INTAKE_CONTRACT_116_OF_116_PASS_RELEASE_HOLD
+      - name: Clearly document remaining production blockers
+        if: success()
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'R177_SCOPE_END'
+          ## DPRO TAX R177 real public-form contract / atomic booking, consent and encrypted contact boundary — COMMERCIAL HOLD
+          - 116 isolated checks: 107 synthetic handler tests + 9 assertions against immutable staging app.js/index.html, with eight source blobs pinned. Original private Worker backup not embedded or transmitted.
+          - Handler REQUIRES externally verified principal, office-scoped service mapping, approved privacy policy version/digest, idempotency UUID and one **atomic** backend commit of pending booking, consent assertion journal and AES-256-GCM ciphertext contact. It never enables production dispatch.
+          - Rejects forged office/LINE/user claims, invalid contact or date, cross-tenant service, absent consent, partial commit failure, malformed/confirmed receipts and backend errors. Explicit durable conflict code maps to 409; unknown DB errors map to 503.
+          - The atomic backend used in the fixture is an **in-memory synthetic model**. 8 concurrent Promise callbacks are NOT separate services or real PostgreSQL transactional tests. R176 previously verified separate local Node processes with SQLite 92/92, but that also is not the production DB.
+          - Actual R109 archived private Worker had anonymous fallback and direct INSERT; R169 candidate is not deployed. This workflow includes NO private Worker source; archived findings remain owner-only in handoff ZIP. The live Worker was NOT inspected and its version/behavior is unknown.
+          - Real authorized LINE ID-token or guest proof, anti-bot proof, Supabase RLS/atomic RPC, tenant service mappings, staff MFA and access audit, key management/rotation, retention/deletion and counsel-approved privacy notice NOT implemented or verified. Source UI remains read-only, candidate flags OFF.
+          - No production Worker, Supabase, LINE, CONTROL CENTER, customer data, secrets, main edits or deployment. 0/18 real customer release gates verified. COMMERCIAL RELEASE HOLD.
+          R177_SCOPE_END
