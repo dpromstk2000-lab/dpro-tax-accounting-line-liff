@@ -1,0 +1,174 @@
+name: DPRO TAX R177 Real Source Binding and 18 Release Gate GAP Audit (HOLD)
+
+on:
+  push:
+    branches: [tax-r7-staging-20261010]
+    paths:
+      - '.github/workflows/dpro-tax-r177-real-integration-source-binding-qa.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: dpro-tax-r177-readonly-hold-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  real-staging-boundaries-readonly:
+    if: ${{ github.repository == 'dpromstk2000-lab/dpro-tax-accounting-line-liff' && github.ref == 'refs/heads/tax-r7-staging-20261010' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Checkout immutable staging without write credentials
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Confirm locked staging checkout and deny production credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'dpromstk2000-lab/dpro-tax-accounting-line-liff'
+          test "$GITHUB_REF" = 'refs/heads/tax-r7-staging-20261010'
+          for k in SUPABASE_SERVICE_ROLE_KEY DATABASE_URL CLOUDFLARE_API_TOKEN LINE_CHANNEL_SECRET; do
+            test -z "${{!k:-}}" || { echo "R177_LIVE_ENVIRONMENT_PROHIBITED"; exit 1; }
+          done
+          test "$(git status --porcelain)" = ''
+          echo 'R177_READONLY_STAGING_CHECKOUT_OK'
+      - name: Materialize audited source manifest ONLY inside disposable runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/r177_audit.py" <<'R177_SOURCE_EOF'
+          #!/usr/bin/env python3
+          """Read-only source/gate audit. No network, credentials, SQL or customer data access.
+          
+          This is NOT a product security approval. It describes known incomplete integration.
+          """
+          import hashlib
+          import json
+          import re
+          import sys
+          from pathlib import Path
+          
+          GATE_IDS = ('C01','C02','S01','S02','S03','S04','D01','D02','B01','B02','L01','L02','O01','O02','O03','U01','U02','U03')
+          BLOB_SHA = {
+              'app.js': '4c3475219e5c7fc9203ec5e5143d4f6eb8299423',
+              'index.html': 'c7f6c0b30d1da913a924a582097d4bfe1570a704',
+              'config.js': 'da1876bae8333a3a10ee13495c0063ded0c2b351',
+              '.github/workflows/dpro-tax-r176-real-release-evidence-reconciliation-qa.yml': 'd0b6d5de6b8f03d0e24e3fe6b7a9837793a70c8b',
+              '.github/workflows/dpro-tax-r176-multiprocess-encrypted-contact-ledger-qa.yml': '46fe79b9ee18f96cef671c0ba0b37347003e9c50',
+              '.github/workflows/dpro-tax-r175-fictional-contact-vault-privacy-qa.yml': '9d0fb3a78ab6c053293d4a2430f8b890a7555af9',
+          }
+          
+          class Auditor:
+              def __init__(self):
+                  self.names = []
+              def check(self, name, truth):
+                  if not truth:
+                      raise AssertionError('R177_FAILED: ' + name)
+                  self.names.append(name)
+                  print(f'R177_PASS_{len(self.names):02d}: {name}', flush=True)
+              def gates(self):
+                  a = self.check
+                  a('18 exactly distinct evidence gates', len(set(GATE_IDS)) == len(GATE_IDS) == 18)
+                  a('contract gate identifiers preserved', GATE_IDS[:2] == ('C01','C02'))
+                  a('security gates preserved', GATE_IDS[2:6] == ('S01','S02','S03','S04'))
+                  a('data gates preserved', GATE_IDS[6:8] == ('D01','D02'))
+                  a('booking gates preserved', GATE_IDS[8:10] == ('B01','B02'))
+                  a('LINE gates preserved', GATE_IDS[10:12] == ('L01','L02'))
+                  a('operations gates preserved', GATE_IDS[12:15] == ('O01','O02','O03'))
+                  a('real-device acceptance gates preserved', GATE_IDS[15:] == ('U01','U02','U03'))
+                  manifest = {'status':'HOLD','real_customer_valid_evidence':0,
+                              'approved':False,'gates':{g:'NOT_TESTED' for g in GATE_IDS},
+                              'production_authorized':False,'verified_real_worker':False,'verified_tax_db':False}
+                  a('no real customer evidence', manifest['real_customer_valid_evidence'] == 0)
+                  a('every actual gate still NOT_TESTED', all(s=='NOT_TESTED' for s in manifest['gates'].values()))
+                  a('release cannot auto become GO', manifest['status']=='HOLD' and not manifest['approved'] and not manifest['production_authorized'])
+                  a('no false Worker verification', manifest['verified_real_worker'] is False)
+                  a('no false TAX DB verification', manifest['verified_tax_db'] is False)
+                  a('synthetic PASS does not alter actual gate evidence', manifest['real_customer_valid_evidence'] == 0 and manifest['status']=='HOLD')
+                  return manifest
+              def sources(self, root):
+                  a=self.check
+                  def sha(path):
+                      data=(root/path).read_bytes()
+                      return hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+                  for path,want in BLOB_SHA.items():
+                      a('immutable source '+path, (root/path).is_file() and sha(path)==want)
+                  app=(root/'app.js').read_text(encoding='utf-8')
+                  html=(root/'index.html').read_text(encoding='utf-8')
+                  cfg=(root/'config.js').read_text(encoding='utf-8')
+                  form=re.search(r'<form\b[^>]*\bid="booking-form"[^>]*>(.*?)</form>',html,re.I|re.S)
+                  a('real public booking form exists', form is not None)
+                  fields=re.findall(r'\bname="([^"]+)"',form.group(1)) if form else []
+                  expected={'service_id','booking_date','requested_start_at','requester_name','requester_phone','requester_email','appointment_channel','message'}
+                  a('all real form names mapped exactly',set(fields)==expected and len(fields)==8)
+                  a('actual app posts public appointments', 'api("/api/public/appointments", { method: "POST"' in app)
+                  a('real UI currently passes unverified client LINE ID (BLOCKER)', 'values.line_user_id = lineUserId' in app)
+                  a('UI does not send actual Idempotency-Key (BLOCKER)', 'Idempotency-Key' not in app)
+                  a('UI has no server-issued privacy challenge field (BLOCKER)', 'privacy_challenge' not in fields)
+                  a('UI has no explicit privacy consent field (BLOCKER)', 'privacy_consent' not in fields)
+                  a('staging R105 client guard remains ON', 'TAX_R105_STAGING_READ_ONLY: true' in cfg and 'CONFIG.TAX_R105_STAGING_READ_ONLY === true' in app)
+                  a('real LIFF app ID not supplied yet (BLOCKER)', bool(re.search(r'LIFF_ID:\s*""',cfg)))
+                  a('disabled R167 booking bridge in real config', 'TAX_R167_BOOKING_BRIDGE_ENABLED' not in cfg)
+                  a('disabled R171 consent bridge in real config', 'TAX_R171_PRIVACY_GATE_ENABLED' not in cfg)
+                  a('disabled R175 real contact vault in config', 'TAX_R175_CONTACT_VAULT_ENABLED' not in cfg)
+                  paths=[p.as_posix().lower() for p in root.rglob('*') if p.is_file()]
+                  # The repository contains reference SQL and CI scripts; this checks only operational sources.
+                  a('no present production Worker source in THIS repo (UNKNOWN REAL INFRA)',
+                    not any(p=='worker.js' or p=='src/worker.js' or p=='wrangler.toml' or p=='wrangler.jsonc' for p in paths))
+                  a('no tracked operational supabase/migrations in THIS repo (UNKNOWN REAL INFRA)',
+                    not any(p.startswith('supabase/migrations/') for p in paths))
+                  a('no production gate activation from this read-only audit', True)
+              def summary(self, manifest):
+                  result={'case_count':len(self.names),'case_results':'PASS','kind':'SOURCE_GAP_AUDIT_NOT_LIVE_INTEGRATION',
+                          'real_customer_evidence':0,'real_customer_total':18,'status':'HOLD',
+                          'tax_project_bound':False,'worker_source_reviewed':False,'source_integrity_only':True,
+                          'evidence_gates':manifest['gates']}
+                  print('R177_SUMMARY '+str(len(self.names))+' / '+str(len(self.names))+' PASS; REAL_CUSTOMER_0_OF_18_HOLD',flush=True)
+                  print('R177_NO_PRODUCTION_VERIFICATION_NO_DEPLOY',flush=True)
+                  return result
+          
+          if __name__=='__main__':
+              root=Path(sys.argv[1]) if len(sys.argv)>1 else Path('.')
+              audit=Auditor()
+              manifest=audit.gates()
+              audit.sources(root)
+              print('R177_JSON '+json.dumps(audit.summary(manifest),sort_keys=True,ensure_ascii=False),flush=True)
+          R177_SOURCE_EOF
+          echo 'e57050e8878e5d63670cd7be2cfe926d78ad3e34d460236680f71da1b5a8f92a  '"$RUNNER_TEMP/r177_audit.py" | sha256sum -c -
+          python3 -m py_compile "$RUNNER_TEMP/r177_audit.py"
+      - name: Examine actual GitHub source and release HOLD without connecting live systems
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -I "$RUNNER_TEMP/r177_audit.py" "$GITHUB_WORKSPACE" | tee "$RUNNER_TEMP/r177_log.txt"
+          grep -Fx 'R177_NO_PRODUCTION_VERIFICATION_NO_DEPLOY' "$RUNNER_TEMP/r177_log.txt"
+          python3 - "$RUNNER_TEMP/r177_log.txt" <<'R177_RESULT_EOF'
+          import sys,json,re
+          t=open(sys.argv[1],encoding='utf8').read()
+          matches=[s[len('R177_JSON '):] for s in t.splitlines() if s.startswith('R177_JSON ')]
+          assert len(matches)==1
+          a=json.loads(matches[0]);assert a['status']=='HOLD'
+          assert a['real_customer_total']==18 and a['real_customer_evidence']==0
+          assert not a['tax_project_bound'] and not a['worker_source_reviewed']
+          assert all(x=='NOT_TESTED' for x in a['evidence_gates'].values())
+          assert a['case_count']>=30 and a['case_results']=='PASS'
+          assert len(re.findall(r'^R177_PASS_\d\d:',t,flags=re.M))==a['case_count']
+          print('R177_RELEASE_GAP_MANIFEST_VERIFIED_NO_PRODUCTION_GO')
+          R177_RESULT_EOF
+          test "$(git status --porcelain)" = ''
+      - name: Explain real operational blocker and require verified TAX project
+        if: success()
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'R177_SCOPE'
+          ## DPRO TAX R177 — Actual staging source boundary audit; COMMERCIAL RELEASE HOLD
+          - Read-only source SHA checks on real staging `index.html`, `app.js`, `config.js`, and three immutable prior workflow versions. These checks do NOT test real Worker/DB.
+          - All 18 customer acceptance gates remain 0/18 NOT_TESTED and cannot be overridden by synthetic pass counts or a fictional signoff.
+          - Public booking form requires contact data, but server identity, durable private contact vault, consent challenge, and idempotent UI bridge remain unconnected.
+          - Real tax Worker source, Cloudflare deploy configuration, and actual Supabase production migrations are NOT present in this repository. This says nothing about other repositories or cloud accounts.
+          - Connected Supabase project discovery currently has not identified a DPRO TAX project. Do NOT infer an unrelated project is a TAX tenant, and do not run SQL against one.
+          - The owner's PRIVATE handoff has an optional metadata-only SQL inventory and local private Worker scanner, NEVER upload those or private source to GitHub.
+          - This action never uses live secrets or networks except read-only GitHub checkout, and does not deploy/write client data.
+          - **NO COMMERCIAL RELEASE AUTHORIZATION**. Confirm correct TAX project/Worker and collect independent real-stack evidence prior to any production decision.
+          R177_SCOPE
