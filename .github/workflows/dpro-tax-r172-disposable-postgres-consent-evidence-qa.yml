@@ -1,0 +1,661 @@
+name: DPRO TAX R172 Disposable PostgreSQL Consent Audit and Booking QA (Synthetic)
+
+on:
+  push:
+    branches: [tax-r7-staging-20261010]
+    paths:
+      - '.github/workflows/dpro-tax-r172-disposable-postgres-consent-evidence-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dpro-tax-r172-no-prod-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  consent-journal-qa:
+    if: ${{ github.repository == 'dpromstk2000-lab/dpro-tax-accounting-line-liff' && github.ref == 'refs/heads/tax-r7-staging-20261010' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    services:
+      pg:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: r172-only-disposable-no-customer-data
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    steps:
+      - name: Checkout immutable staging source without persisted credentials
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Protect 24 staging source blobs and reject unsafe runner environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'dpromstk2000-lab/dpro-tax-accounting-line-liff'
+          test "$GITHUB_REF" = 'refs/heads/tax-r7-staging-20261010'
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}" && test -z "${LINE_CHANNEL_SECRET:-}" && test -z "${CLOUDFLARE_API_TOKEN:-}"
+          test "$(git hash-object .github/workflows/dpro-tax-r151-staging-boundary-qa.yml)" = "bd6a075f06f0692ff868067416afb5781faad6c1" || { echo "R172_PIN_DRIFT .github/workflows/dpro-tax-r151-staging-boundary-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r152-disposable-postgres-booking-qa.yml)" = "8c3ed43f0f1fdc3217382f47b43c5f68763f1f37" || { echo "R172_PIN_DRIFT .github/workflows/dpro-tax-r152-disposable-postgres-booking-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r153-disposable-direct-dml-qa.yml)" = "d931f63a70a560b7f447fbcef1e6fd25868fb06d" || { echo "R172_PIN_DRIFT .github/workflows/dpro-tax-r153-disposable-direct-dml-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r154-disposable-auth-role-boundary-qa.yml)" = "3d5964f33675a636bf1f35e90c98d59aaaafd437" || { echo "R172_PIN_DRIFT .github/workflows/dpro-tax-r154-disposable-auth-role-boundary-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r155-synthetic-trust-boundary-qa.yml)" = "e21797ce5271a949c337b6bcf85d3d1339ce4ffd" || { echo "R172_PIN_DRIFT .github/workflows/dpro-tax-r155-synthetic-trust-boundary-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r156-disposable-rls-replay-qa.yml)" = "ff6442c6b4d2d0c409b906625a3322cdb16ab47e" || { echo "R172_PIN_DRIFT .github/workflows/dpro-tax-r156-disposable-rls-replay-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r157-loopback-http-gateway-qa.yml)" = "c6cf3510194b6f3af3474554966f57905fce7224" || { echo "R172_PIN_DRIFT .github/workflows/dpro-tax-r157-loopback-http-gateway-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r158-public-demo-source-integrity-qa.yml)" = "7590c8417fa940b73ccaf4e65534176e1d643f32" || { echo "R172_PIN_DRIFT .github/workflows/dpro-tax-r158-public-demo-source-integrity-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r159-release-evidence-contract-qa.yml)" = "b631da2cf67eb198160a0ffd8b88596b020d51e9" || { echo "R172_PIN_DRIFT .github/workflows/dpro-tax-r159-release-evidence-contract-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r160-staging-commercial-gap-qa.yml)" = "5f359b6ec11b1e119a180302e64c19e68885a637" || { echo "R172_PIN_DRIFT .github/workflows/dpro-tax-r160-staging-commercial-gap-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r161-disposable-booking-atomicity-qa.yml)" = "7ae80a66d01c45e5bb2a8debfc5d0a4b0be5a838" || { echo "R172_PIN_DRIFT .github/workflows/dpro-tax-r161-disposable-booking-atomicity-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r162-booking-bridge-contract-qa.yml)" = "ebc86c4e716f79b159cadac3b3b5e115934114f1" || { echo "R172_PIN_DRIFT .github/workflows/dpro-tax-r162-booking-bridge-contract-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r163-guest-capability-loopback-qa.yml)" = "9a20d807bb0f47f9016e0609f2e04af7e35a2210" || { echo "R172_PIN_DRIFT .github/workflows/dpro-tax-r163-guest-capability-loopback-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r164-ui-retry-bridge-contract-qa.yml)" = "292100ad0c5fdfa933c1cf3ad252658b6482a50f" || { echo "R172_PIN_DRIFT .github/workflows/dpro-tax-r164-ui-retry-bridge-contract-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r165-disposable-recovery-http-qa.yml)" = "1ae15008458d07531fe8b784b6de17fa9ae6261f" || { echo "R172_PIN_DRIFT .github/workflows/dpro-tax-r165-disposable-recovery-http-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r166-offline-booking-ui-contract-qa.yml)" = "a0313ee52c2924ac66ec776a789d10608546c111" || { echo "R172_PIN_DRIFT .github/workflows/dpro-tax-r166-offline-booking-ui-contract-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r167-real-ui-candidate-isolation-qa.yml)" = "0b5957a015a378002eb81ee271c0880a11ab7cac" || { echo "R172_PIN_DRIFT .github/workflows/dpro-tax-r167-real-ui-candidate-isolation-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r168-disposable-http-postgres-bridge-qa.yml)" = "aa139b7cb7723ec066310d35fe45888df9933254" || { echo "R172_PIN_DRIFT .github/workflows/dpro-tax-r168-disposable-http-postgres-bridge-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r169-archived-worker-booking-fallback-qa.yml)" = "448fdeebdd718d28110771128d22c7cb3dcda602" || { echo "R172_PIN_DRIFT .github/workflows/dpro-tax-r169-archived-worker-booking-fallback-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r170-cutover-rollback-contract-qa.yml)" = "bf903fb6a2a108e49977780c087eec5d969d3fbe" || { echo "R172_PIN_DRIFT .github/workflows/dpro-tax-r170-cutover-rollback-contract-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r171-privacy-consent-bridge-qa.yml)" = "63d78f54d56b72846c0dd071089d79d37716960d" || { echo "R172_PIN_DRIFT .github/workflows/dpro-tax-r171-privacy-consent-bridge-qa.yml"; exit 1; }
+          test "$(git hash-object app.js)" = "4c3475219e5c7fc9203ec5e5143d4f6eb8299423" || { echo "R172_PIN_DRIFT app.js"; exit 1; }
+          test "$(git hash-object config.js)" = "da1876bae8333a3a10ee13495c0063ded0c2b351" || { echo "R172_PIN_DRIFT config.js"; exit 1; }
+          test "$(git hash-object index.html)" = "c7f6c0b30d1da913a924a582097d4bfe1570a704" || { echo "R172_PIN_DRIFT index.html"; exit 1; }
+          echo "R172_PROTECTED_SOURCE_SUMMARY 24 / 24 PASS"
+      - name: Materialize only public fictional PostgreSQL schema and Python QA in runner temp
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/r172_r161.sql" <<'R172_R161_SQL_EOF'
+          -- DPRO TAX R161 isolated reference ONLY. Not a Supabase migration; NEVER deploy.
+          -- Authoritative tenant identity, verified JWT, resource policy, timezone rules and business
+          -- approvals remain separate production gates. This assumes a trusted server invokes
+          -- the r161_gateway / r161_staff functions, NEVER an untrusted SQL client.
+          CREATE EXTENSION IF NOT EXISTS btree_gist;
+          CREATE SCHEMA r161;
+          REVOKE ALL ON SCHEMA r161 FROM PUBLIC;
+          CREATE ROLE r161_fn_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
+          CREATE ROLE r161_gateway NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
+          CREATE ROLE r161_staff NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
+          GRANT USAGE ON SCHEMA r161 TO r161_fn_owner,r161_gateway,r161_staff;
+          CREATE TABLE r161.memberships(
+            subject text PRIMARY KEY,
+            office text NOT NULL,
+            actor_kind text NOT NULL CHECK(actor_kind IN ('client','staff'))
+          );
+          INSERT INTO r161.memberships(subject,office,actor_kind) VALUES
+            ('clientA1','A','client'),('clientA2','A','client'),
+            ('clientB1','B','client'),('staffA','A','staff'),('staffB','B','staff');
+          CREATE TABLE r161.resources(office text NOT NULL,resource text NOT NULL,
+            PRIMARY KEY(office,resource));
+          INSERT INTO r161.resources VALUES ('A','desk1'),('A','desk2'),('B','desk1');
+          CREATE TABLE r161.bookings(
+            id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            office text NOT NULL,
+            client text NOT NULL,
+            resource text NOT NULL,
+            idempotency_key text NOT NULL,
+            starts_at timestamptz NOT NULL,
+            ends_at timestamptz NOT NULL,
+            status text NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','confirmed','cancelled')),
+            CHECK(ends_at > starts_at),
+            UNIQUE(office,client,idempotency_key),
+            FOREIGN KEY(office,resource) REFERENCES r161.resources(office,resource),
+            CONSTRAINT r161_confirmed_no_overlap EXCLUDE USING gist (
+              office WITH =, resource WITH =, tstzrange(starts_at,ends_at,'[)') WITH &&
+            ) WHERE (status = 'confirmed')
+          );
+          -- Raw tables and sequence are not available to gateway/staff roles.
+          GRANT SELECT ON r161.memberships,r161.resources TO r161_fn_owner;
+          GRANT SELECT,INSERT,UPDATE ON r161.bookings TO r161_fn_owner;
+          GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA r161 TO r161_fn_owner;
+          -- Untrusted business identity must NOT be sourced from PostgreSQL custom GUC claims.
+          -- p_office/p_subject are trusted-server fields only; server binding is not modeled here.
+          CREATE FUNCTION r161.request_booking(
+           p_office text,p_subject text,p_resource text,p_key text,p_start timestamptz,p_minutes integer
+          ) RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,r161 AS $$
+          DECLARE v_id bigint; v_old r161.bookings%ROWTYPE;
+          BEGIN
+           IF p_office IS NULL OR p_subject IS NULL OR p_resource IS NULL OR p_key IS NULL
+              OR p_key !~ '^[A-Za-z0-9_-]{16,96}$'
+              OR NOT EXISTS(SELECT 1 FROM r161.memberships
+                 WHERE subject=p_subject AND office=p_office AND actor_kind='client')
+              OR NOT EXISTS(SELECT 1 FROM r161.resources
+                 WHERE office=p_office AND resource=p_resource)
+              OR p_start IS NULL OR p_start <= clock_timestamp() OR p_start > clock_timestamp()+interval '365 days'
+              OR extract(minute from p_start AT TIME ZONE 'Asia/Tokyo')::int NOT IN (0,30)
+              OR extract(second from p_start AT TIME ZONE 'Asia/Tokyo') <> 0
+              OR p_minutes IS NULL OR p_minutes NOT IN (30,60,90) THEN
+              RAISE EXCEPTION 'R161_BOOKING_REQUEST_DENIED';
+           END IF;
+           INSERT INTO r161.bookings(office,client,resource,idempotency_key,starts_at,ends_at)
+           VALUES(p_office,p_subject,p_resource,p_key,p_start,p_start+make_interval(mins=>p_minutes))
+           ON CONFLICT(office,client,idempotency_key) DO NOTHING RETURNING id INTO v_id;
+           IF v_id IS NOT NULL THEN RETURN 'new:'||v_id::text; END IF;
+           SELECT * INTO v_old FROM r161.bookings
+             WHERE office=p_office AND client=p_subject AND idempotency_key=p_key;
+           IF NOT FOUND OR v_old.resource IS DISTINCT FROM p_resource
+             OR v_old.starts_at IS DISTINCT FROM p_start
+             OR v_old.ends_at IS DISTINCT FROM p_start+make_interval(mins=>p_minutes) THEN
+              RAISE EXCEPTION 'R161_IDEMPOTENCY_PAYLOAD_CONFLICT';
+           END IF;
+           RETURN 'duplicate:'||v_old.id::text;
+          END $$;
+          CREATE FUNCTION r161.confirm_booking(p_office text,p_staff text,p_id bigint)
+           RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,r161 AS $$
+          DECLARE v r161.bookings%ROWTYPE;
+          BEGIN
+           IF NOT EXISTS(SELECT 1 FROM r161.memberships
+               WHERE subject=p_staff AND office=p_office AND actor_kind='staff') THEN
+              RAISE EXCEPTION 'R161_STAFF_SCOPE_DENIED'; END IF;
+           SELECT * INTO v FROM r161.bookings WHERE id=p_id FOR UPDATE;
+           IF NOT FOUND OR v.office IS DISTINCT FROM p_office THEN
+              RAISE EXCEPTION 'R161_CROSS_OFFICE_DENIED'; END IF;
+           IF v.status='confirmed' THEN RETURN 'already_confirmed'; END IF;
+           IF v.status<>'pending' THEN RAISE EXCEPTION 'R161_CANCELLED_IS_FINAL'; END IF;
+           UPDATE r161.bookings SET status='confirmed' WHERE id=p_id;
+           RETURN 'confirmed';
+          END $$;
+          CREATE FUNCTION r161.cancel_booking(p_office text,p_staff text,p_id bigint)
+           RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,r161 AS $$
+          DECLARE v r161.bookings%ROWTYPE;
+          BEGIN
+           IF NOT EXISTS(SELECT 1 FROM r161.memberships
+               WHERE subject=p_staff AND office=p_office AND actor_kind='staff') THEN
+              RAISE EXCEPTION 'R161_STAFF_SCOPE_DENIED'; END IF;
+           SELECT * INTO v FROM r161.bookings WHERE id=p_id FOR UPDATE;
+           IF NOT FOUND OR v.office IS DISTINCT FROM p_office THEN
+              RAISE EXCEPTION 'R161_CROSS_OFFICE_DENIED'; END IF;
+           IF v.status='cancelled' THEN RETURN 'already_cancelled'; END IF;
+           UPDATE r161.bookings SET status='cancelled' WHERE id=p_id;
+           RETURN 'cancelled';
+          END $$;
+          ALTER FUNCTION r161.request_booking(text,text,text,text,timestamptz,integer) OWNER TO r161_fn_owner;
+          ALTER FUNCTION r161.confirm_booking(text,text,bigint) OWNER TO r161_fn_owner;
+          ALTER FUNCTION r161.cancel_booking(text,text,bigint) OWNER TO r161_fn_owner;
+          REVOKE ALL ON ALL FUNCTIONS IN SCHEMA r161 FROM PUBLIC;
+          GRANT EXECUTE ON FUNCTION r161.request_booking(text,text,text,text,timestamptz,integer) TO r161_gateway;
+          GRANT EXECUTE ON FUNCTION r161.confirm_booking(text,text,bigint),r161.cancel_booking(text,text,bigint) TO r161_staff;
+          -- No user/role gets CREATE on this schema; never expose role privileges to public endpoints.
+          R172_R161_SQL_EOF
+          cat > "$RUNNER_TEMP/r172_consent.sql" <<'R172_CONSENT_SQL_EOF'
+          -- DPRO TAX R172: disposable-only PostgreSQL 17 reference. NEVER MIGRATE TO SUPABASE.
+          -- Assumes caller subject and office are securely bound by a trusted backend, not body/header claims.
+          -- This logs a client ASSERTION of consent, NOT proof they read or understood the notice.
+          -- Real consent/legal wording, issuer verification, retention, real PII, RLS remain unimplemented.
+          CREATE SCHEMA r172;
+          REVOKE ALL ON SCHEMA r172 FROM PUBLIC;
+          CREATE ROLE r172_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
+          CREATE ROLE r172_gateway NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
+          GRANT USAGE ON SCHEMA r172 TO r172_owner,r172_gateway;
+          GRANT USAGE ON SCHEMA r161 TO r172_owner;
+          GRANT SELECT ON r161.bookings TO r172_owner;
+          GRANT EXECUTE ON FUNCTION r161.request_booking(text,text,text,text,timestamptz,integer) TO r172_owner;
+          CREATE TABLE r172.policies(
+           office text NOT NULL,
+           notice_version text NOT NULL,
+           notice_sha256 text NOT NULL CHECK(notice_sha256 ~ '^[0-9a-f]{64}$'),
+           active boolean NOT NULL DEFAULT false,
+           fictional_approver text NOT NULL,
+           PRIMARY KEY(office,notice_version)
+          );
+          CREATE UNIQUE INDEX one_current_notice_per_office ON r172.policies(office) WHERE active;
+          -- Fictional test policies only. No legally approved text exists here.
+          INSERT INTO r172.policies VALUES
+           ('A','r172-test-a-v1','9bee026925b31131b2a7992e777df28af84ea001b973f7d74903da178a5efb04',true,'FICTIONAL_ONLY'),
+           ('B','r172-test-b-v1','97759f55b96ebd255481b5a2cb299c62c0ef0bb0510d1c04e77c83d170e8cb49',true,'FICTIONAL_ONLY');
+          CREATE TABLE r172.consent_events(
+           id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+           office text NOT NULL,
+           subject text NOT NULL,
+           booking_id bigint NOT NULL REFERENCES r161.bookings(id),
+           idempotency_key text NOT NULL,
+           notice_version text NOT NULL,
+           notice_sha256 text NOT NULL CHECK(notice_sha256 ~ '^[0-9a-f]{64}$'),
+           affirmative boolean NOT NULL CHECK (affirmative IS TRUE),
+           evidence_kind text NOT NULL DEFAULT 'CLIENT_ASSERTION_UNVERIFIED' CHECK(evidence_kind='CLIENT_ASSERTION_UNVERIFIED'),
+           recorded_at timestamptz NOT NULL DEFAULT transaction_timestamp(),
+           UNIQUE(office,subject,idempotency_key),
+           UNIQUE(booking_id),
+           FOREIGN KEY(office,notice_version) REFERENCES r172.policies(office,notice_version)
+          );
+          CREATE FUNCTION r172.reject_event_mutation() RETURNS trigger
+          LANGUAGE plpgsql SET search_path=pg_catalog,r172 AS $$
+          BEGIN RAISE EXCEPTION 'R172_IMMUTABLE_CONSENT_EVENT'; END $$;
+          CREATE TRIGGER consent_append_only BEFORE UPDATE OR DELETE ON r172.consent_events
+          FOR EACH ROW EXECUTE FUNCTION r172.reject_event_mutation();
+          GRANT SELECT ON r172.policies,r172.consent_events TO r172_owner;
+          GRANT INSERT ON r172.consent_events TO r172_owner;
+          GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA r172 TO r172_owner;
+          
+          -- One transaction per function call. If event journaling fails, the booking insert rolls back.
+          CREATE FUNCTION r172.request_with_consent(
+           p_office text,p_subject text,p_resource text,p_key text,p_start timestamptz,p_minutes integer,
+           p_affirmative boolean,p_version text,p_digest text
+          ) RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,r172,r161 AS $$
+          DECLARE v_prior r172.consent_events%ROWTYPE; v_policy r172.policies%ROWTYPE;
+                  v_status text; v_bid bigint;
+          BEGIN
+           IF p_affirmative IS DISTINCT FROM TRUE
+           OR p_version IS NULL OR p_version !~ '^[a-zA-Z0-9_.-]{4,60}$'
+           OR p_digest IS NULL OR p_digest !~ '^[0-9a-f]{64}$'
+           OR p_office IS NULL OR p_subject IS NULL OR p_key IS NULL THEN
+             RAISE EXCEPTION 'R172_CONSENT_ASSERTION_INVALID';
+           END IF;
+           -- Preserve exact replay of previously recorded consent even after policy rotation.
+           SELECT * INTO v_prior FROM r172.consent_events
+           WHERE office=p_office AND subject=p_subject AND idempotency_key=p_key FOR SHARE;
+           IF FOUND THEN
+             IF v_prior.notice_version IS DISTINCT FROM p_version
+             OR v_prior.notice_sha256 IS DISTINCT FROM p_digest THEN
+               RAISE EXCEPTION 'R172_CONSENT_REPLAY_CONFLICT';
+             END IF;
+             v_status:=r161.request_booking(p_office,p_subject,p_resource,p_key,p_start,p_minutes);
+             IF split_part(v_status,':',2)::bigint IS DISTINCT FROM v_prior.booking_id THEN
+               RAISE EXCEPTION 'R172_BOOKING_EVIDENCE_MISMATCH';
+             END IF;
+             RETURN v_status;
+           END IF;
+           SELECT * INTO v_policy FROM r172.policies
+           WHERE office=p_office AND notice_version=p_version AND active=TRUE
+           FOR SHARE;
+           IF NOT FOUND OR v_policy.notice_sha256 IS DISTINCT FROM p_digest THEN
+             RAISE EXCEPTION 'R172_POLICY_NOT_CURRENT';
+           END IF;
+           v_status:=r161.request_booking(p_office,p_subject,p_resource,p_key,p_start,p_minutes);
+           v_bid:=split_part(v_status,':',2)::bigint;
+           IF split_part(v_status,':',1)='new' THEN
+             INSERT INTO r172.consent_events(office,subject,booking_id,idempotency_key,notice_version,notice_sha256,affirmative)
+             VALUES(p_office,p_subject,v_bid,p_key,p_version,p_digest,TRUE);
+           ELSE
+             -- An old direct R161 booking, or a concurrent submission without an event, is NOT
+             -- retroactively assigned fictitious consent; allow only the same completed event.
+             SELECT * INTO v_prior FROM r172.consent_events
+             WHERE office=p_office AND subject=p_subject AND idempotency_key=p_key FOR SHARE;
+             IF NOT FOUND OR v_prior.booking_id IS DISTINCT FROM v_bid
+               OR v_prior.notice_version IS DISTINCT FROM p_version
+               OR v_prior.notice_sha256 IS DISTINCT FROM p_digest THEN
+               RAISE EXCEPTION 'R172_CONSENT_EVIDENCE_MISSING';
+             END IF;
+           END IF;
+           RETURN v_status;
+          END $$;
+          ALTER FUNCTION r172.request_with_consent(text,text,text,text,timestamptz,integer,boolean,text,text) OWNER TO r172_owner;
+          REVOKE ALL ON ALL FUNCTIONS IN SCHEMA r172 FROM PUBLIC;
+          GRANT EXECUTE ON FUNCTION r172.request_with_consent(text,text,text,text,timestamptz,integer,boolean,text,text) TO r172_gateway;
+          -- r172_gateway receives NO SELECT/INSERT/UPDATE/DELETE on r161 or r172 tables.
+          -- The r161_gateway role still exists for R161 tests, but MUST NOT be used to bypass this
+          -- API in any real service. This file is NOT a complete migration or authorization policy.
+          R172_CONSENT_SQL_EOF
+          cat > "$RUNNER_TEMP/r172_test.py" <<'R172_TEST_PY_EOF'
+          #!/usr/bin/env python3
+          """R172 isolated consent-version + atomic booking journal reference. NEVER DEPLOY.
+          Local: disposable SQLite; Actions: disposable Docker PostgreSQL 17 + R161/R172 SQL.
+          Synthetic signed identity is NOT LINE, Supabase, JWT production identity, user consent proof, or legal advice.
+          """
+          import base64, concurrent.futures, datetime as dt, hashlib, hmac, json, os, re, secrets, sqlite3
+          import subprocess, tempfile, threading, urllib.error, urllib.request, uuid
+          from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+          from pathlib import Path
+          from datetime import timezone, timedelta
+          
+          JST=timezone(timedelta(hours=9))
+          CONTAINER=os.environ.get('R172_PG_CONTAINER','')
+          if CONTAINER and not re.fullmatch(r'[0-9a-f]{12,64}', CONTAINER):raise RuntimeError('R172_INVALID_DISPOSABLE_CONTAINER')
+          SECRET=secrets.token_bytes(32)  # synthetic, never stored, no production secrets
+          ISS='r172.fixture.invalid';AUD='r172.test-only'
+          # Hashes are of explicit FICTIONAL fixture texts, not real approved privacy notices.
+          TEST_NOTICES={'A1':'FICTIONAL R172 office A v1 notice, never approved','B1':'FICTIONAL R172 office B v1 notice, never approved','A2':'FICTIONAL R172 office A v2 notice, never approved'}
+          HASH_A=hashlib.sha256(TEST_NOTICES['A1'].encode()).hexdigest()
+          HASH_B=hashlib.sha256(TEST_NOTICES['B1'].encode()).hexdigest()
+          HASH_C=hashlib.sha256(TEST_NOTICES['A2'].encode()).hexdigest()
+          
+          MEM={'clientA1':'A','clientA2':'A','clientB1':'B'}
+          SERV={'consult_a':('A','desk1',30),'consult_a_long':('A','desk1',60),'consult_b':('B','desk1',30)}
+          CURRENT={'A':('r172-test-a-v1',HASH_A),'B':('r172-test-b-v1',HASH_B)}
+          DATE=(dt.datetime.now(JST)+timedelta(days=7)).replace(hour=10,minute=0,second=0,microsecond=0)
+          SLOT=DATE.isoformat(timespec='seconds')
+          OTHER=(DATE+timedelta(minutes=30)).isoformat(timespec='seconds')
+          CASES=[]
+          
+          def check(title,ok):
+              if not ok:raise AssertionError(f'R172_FAIL_{len(CASES)+1:02d}: {title}')
+              CASES.append(title)
+              print(f'R172_PASS_{len(CASES):02d}: {title}',flush=True)
+          
+          class Error(Exception):
+              def __init__(self,status,code):super().__init__(code);self.status=status;self.code=code
+          
+          def encode(obj):return base64.urlsafe_b64encode(json.dumps(obj,separators=(',',':')).encode()).rstrip(b'=').decode()
+          def mint(subject='clientA1',**updates):
+              now=int(dt.datetime.now(timezone.utc).timestamp())
+              payload={'iss':ISS,'aud':AUD,'sub':subject,'iat':now,'nbf':now-1,'exp':now+120};payload.update(updates)
+              data=f'{encode({"alg":"HS256","typ":"JWT"})}.{encode(payload)}'
+              return data+'.'+base64.urlsafe_b64encode(hmac.new(SECRET,data.encode(),hashlib.sha256).digest()).rstrip(b'=').decode()
+          
+          def decode_token(t):
+              if not isinstance(t,str) or len(t)>4096:raise Error(401,'IDENTITY_UNVERIFIED')
+              parts=t.split('.')
+              if len(parts)!=3 or any(not re.fullmatch(r'[A-Za-z0-9_-]{1,4096}',p) for p in parts):raise Error(401,'IDENTITY_UNVERIFIED')
+              try:
+                  got=base64.urlsafe_b64decode(parts[2]+'='*(-len(parts[2])%4))
+                  want=hmac.new(SECRET,(parts[0]+'.'+parts[1]).encode(),hashlib.sha256).digest()
+                  head=json.loads(base64.urlsafe_b64decode(parts[0]+'='*(-len(parts[0])%4)))
+                  p=json.loads(base64.urlsafe_b64decode(parts[1]+'='*(-len(parts[1])%4)))
+              except Exception:raise Error(401,'IDENTITY_UNVERIFIED')
+              if not hmac.compare_digest(got,want) or head!={'alg':'HS256','typ':'JWT'}:raise Error(401,'IDENTITY_UNVERIFIED')
+              now=int(dt.datetime.now(timezone.utc).timestamp())
+              if p.get('iss')!=ISS or p.get('aud')!=AUD or not isinstance(p.get('sub'),str) or p.get('sub') not in MEM:
+                  raise Error(401,'IDENTITY_UNVERIFIED')
+              if type(p.get('exp')) is not int or type(p.get('nbf')) is not int or type(p.get('iat')) is not int:
+                  raise Error(401,'IDENTITY_UNVERIFIED')
+              if p['exp']<=now or p['nbf']>now or p['iat']>now+10 or p['exp']-p['iat']>180:
+                  raise Error(401,'IDENTITY_UNVERIFIED')
+              return p['sub'],MEM[p['sub']]
+          
+          def parse_json(raw):
+              def pairs(items):
+                  d={}
+                  for k,v in items:
+                      if k in d:raise ValueError('DUPLICATE_JSON_KEY')
+                      d[k]=v
+                  return d
+              return json.loads(raw,object_pairs_hook=pairs,parse_constant=lambda _: (_ for _ in ()).throw(ValueError('NAN_DENIED')))
+          
+          def quote(x):return "'"+str(x).replace("'","''")+"'"
+          
+          def pg_sql(sql,role=None):
+              data=(f'SET ROLE {role};\n' if role else '')+sql+'\n'
+              p=subprocess.run(['docker','exec','-i','-u','postgres',CONTAINER,'psql','-XAt','-v','ON_ERROR_STOP=1','-d','postgres'],input=data,text=True,capture_output=True,timeout=40)
+              if p.returncode:raise RuntimeError(p.stderr[-1200:].strip() or p.stdout[-1200:].strip())
+              return p.stdout.strip().splitlines()[-1] if p.stdout.strip() else ''
+          
+          class PGStore:
+              def accept(self,office,sub,resource,key,start,minutes,affirm,version,digest):
+                  fields=','.join([quote(x) for x in (office,sub,resource,key,start)])+f',{minutes},'+('TRUE' if affirm else 'FALSE')+','+quote(version)+','+quote(digest)
+                  try:
+                      ans=pg_sql(f'SELECT r172.request_with_consent({fields});',role='r172_gateway')
+                  except RuntimeError as exc:
+                      code=re.search(r'R17[12]_[A-Z_]+',str(exc))
+                      marker=code.group() if code else 'DB_REJECTED'
+                      raise Error(409 if any(x in marker for x in ('CONFLICT','MISMATCH','MISSING')) else 422,marker)
+                  if not re.fullmatch(r'(?:new|duplicate):\d+',ans):raise Error(503,'BAD_DB_RESPONSE')
+                  return ans
+              def counts(self):
+                  return tuple(int(s) for s in pg_sql('SELECT (SELECT count(*) FROM r161.bookings)::text ||\',\'||(SELECT count(*) FROM r172.consent_events)::text;').split(','))
+              def rotate(self):
+                  pg_sql("BEGIN; UPDATE r172.policies SET active=false WHERE office='A'; INSERT INTO r172.policies VALUES ('A','r172-test-a-v2','"+HASH_C+"',true,'FICTIONAL_ONLY'); COMMIT;")
+              def direct_denied(self):
+                  try:pg_sql('SELECT count(*) FROM r172.consent_events;',role='r172_gateway')
+                  except RuntimeError:return True
+                  return False
+              def raw_insert_denied(self):
+                  try:pg_sql("INSERT INTO r172.consent_events(office,subject,booking_id,idempotency_key,notice_version,notice_sha256,affirmative) VALUES ('A','clientA1',1,'AAAAAAAAAAAAAAAA','r172-test-a-v1','"+HASH_A+"',true);",role='r172_gateway')
+                  except RuntimeError:return True
+                  return False
+              def direct_r161_denied(self):
+                  try:pg_sql("SELECT r161.request_booking('A','clientA1','desk1','AAAAAAAAAAAAAAAA',now()+interval '7 days',30);",role='r172_gateway')
+                  except RuntimeError:return True
+                  return False
+              def immutable(self):
+                  try:pg_sql('UPDATE r172.consent_events SET affirmative=false WHERE id=(SELECT min(id) FROM r172.consent_events);')
+                  except RuntimeError as e:return 'R172_IMMUTABLE_CONSENT_EVENT' in str(e)
+                  return False
+              def evidence_kind(self):return pg_sql('SELECT string_agg(DISTINCT evidence_kind,\',\') FROM r172.consent_events;')
+          
+          class SQLiteStore:
+              def __init__(self):
+                  self.tmp=tempfile.TemporaryDirectory(prefix='r172_disposable_')
+                  self.db=str(Path(self.tmp.name)/'only_fixture.db')
+                  with self.connect() as c:
+                      c.executescript('''
+                      CREATE TABLE policies(office TEXT NOT NULL,version TEXT NOT NULL,digest TEXT NOT NULL,active INTEGER NOT NULL,PRIMARY KEY(office,version));
+                      CREATE UNIQUE INDEX active_once ON policies(office) WHERE active=1;
+                      INSERT INTO policies VALUES('A','r172-test-a-v1','''+quote(HASH_A)+''',1),('B','r172-test-b-v1','''+quote(HASH_B)+''',1);
+                      CREATE TABLE bookings(id INTEGER PRIMARY KEY AUTOINCREMENT,office TEXT,sub TEXT,resource TEXT,k TEXT,start TEXT,minutes INTEGER,status TEXT DEFAULT 'pending',UNIQUE(office,sub,k));
+                      CREATE TABLE events(id INTEGER PRIMARY KEY AUTOINCREMENT,office TEXT,sub TEXT,booking_id INTEGER UNIQUE,k TEXT,version TEXT,digest TEXT,affirm INTEGER CHECK(affirm=1),kind TEXT DEFAULT 'CLIENT_ASSERTION_UNVERIFIED',recorded_at TEXT DEFAULT CURRENT_TIMESTAMP,UNIQUE(office,sub,k),FOREIGN KEY(booking_id) REFERENCES bookings(id),FOREIGN KEY(office,version) REFERENCES policies(office,version));
+                      CREATE TRIGGER immutable_u BEFORE UPDATE ON events BEGIN SELECT RAISE(ABORT,'R172_IMMUTABLE_CONSENT_EVENT'); END;
+                      CREATE TRIGGER immutable_d BEFORE DELETE ON events BEGIN SELECT RAISE(ABORT,'R172_IMMUTABLE_CONSENT_EVENT'); END;
+                      ''')
+              def connect(self):
+                  c=sqlite3.connect(self.db,timeout=20,isolation_level=None);c.execute('PRAGMA busy_timeout=20000');c.execute('PRAGMA foreign_keys=ON');return c
+              def accept(self,office,sub,resource,key,start,minutes,affirm,version,digest):
+                  if not affirm or not re.fullmatch('[a-zA-Z0-9_.-]{4,60}',version) or not re.fullmatch('[0-9a-f]{64}',digest):raise Error(422,'R172_CONSENT_ASSERTION_INVALID')
+                  if MEM.get(sub)!=office:raise Error(422,'R161_BOOKING_REQUEST_DENIED')
+                  with self.connect() as c:
+                      c.execute('BEGIN IMMEDIATE')
+                      row=c.execute('SELECT id,resource,start,minutes FROM bookings WHERE office=? AND sub=? AND k=?',(office,sub,key)).fetchone()
+                      event=c.execute('SELECT booking_id,version,digest FROM events WHERE office=? AND sub=? AND k=?',(office,sub,key)).fetchone()
+                      if event and (event[1]!=version or event[2]!=digest):raise Error(409,'R172_CONSENT_REPLAY_CONFLICT')
+                      if row:
+                          if tuple(row[1:])!=(resource,start,minutes):raise Error(409,'R161_IDEMPOTENCY_PAYLOAD_CONFLICT')
+                          if not event or event[0]!=row[0]:raise Error(409,'R172_CONSENT_EVIDENCE_MISSING')
+                          c.execute('COMMIT');return f'duplicate:{row[0]}'
+                      pol=c.execute('SELECT digest FROM policies WHERE office=? AND version=? AND active=1',(office,version)).fetchone()
+                      if not pol or pol[0]!=digest:raise Error(422,'R172_POLICY_NOT_CURRENT')
+                      id_=c.execute('INSERT INTO bookings(office,sub,resource,k,start,minutes) VALUES(?,?,?,?,?,?)',(office,sub,resource,key,start,minutes)).lastrowid
+                      c.execute('INSERT INTO events(office,sub,booking_id,k,version,digest,affirm) VALUES(?,?,?,?,?,?,1)',(office,sub,id_,key,version,digest))
+                      c.execute('COMMIT');return f'new:{id_}'
+              def counts(self):
+                  with self.connect() as c:return (c.execute('SELECT count(*) FROM bookings').fetchone()[0],c.execute('SELECT count(*) FROM events').fetchone()[0])
+              def rotate(self):
+                  with self.connect() as c:
+                      c.execute("UPDATE policies SET active=0 WHERE office='A'")
+                      c.execute('INSERT INTO policies VALUES(?,?,?,1)',('A','r172-test-a-v2',HASH_C))
+              def immutable(self):
+                  try:
+                      with self.connect() as c:c.execute('UPDATE events SET affirm=0 WHERE id=(SELECT min(id) FROM events)')
+                  except sqlite3.DatabaseError as e:return 'R172_IMMUTABLE_CONSENT_EVENT' in str(e)
+                  return False
+              def evidence_kind(self):
+                  with self.connect() as c:return c.execute('SELECT group_concat(DISTINCT kind) FROM events').fetchone()[0]
+              def direct_denied(self):return True  # not evidence of PG grants: tested only in Actions
+              def raw_insert_denied(self):return True
+              def direct_r161_denied(self):return True
+          
+          STORE=PGStore() if CONTAINER else SQLiteStore()
+          
+          def serve():
+              class Handler(BaseHTTPRequestHandler):
+                  def log_message(self,*args):pass  # never log bearer, body, PII
+                  def reply(self,n,obj):
+                      msg=json.dumps(obj,separators=(',',':')).encode()
+                      self.send_response(n);self.send_header('Content-Type','application/json');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(msg)));self.end_headers();self.wfile.write(msg)
+                  def do_GET(self):
+                      if self.path=='/synthetic/health':return self.reply(200,{'mode':'synthetic','production_release':'HOLD'})
+                      if self.path=='/synthetic/policy':
+                          try:
+                              _,office=decode_token(self.headers.get('Authorization','').removeprefix('Bearer '))
+                              version,digest=CURRENT[office]
+                              return self.reply(200,{'notice_version':version,'notice_sha256':digest,'fictional':True})
+                          except Error as e:return self.reply(e.status,{'error':e.code})
+                      return self.reply(404,{'error':'NOT_FOUND'})
+                  def do_POST(self):
+                      try:
+                          if self.path!='/synthetic/book':raise Error(404,'NOT_FOUND')
+                          sub,office=decode_token(self.headers.get('Authorization','').removeprefix('Bearer '))
+                          if self.headers.get('Content-Type')!='application/json':raise Error(415,'BAD_MEDIA_TYPE')
+                          size=int(self.headers.get('Content-Length','0'))
+                          if size<2 or size>4096:raise Error(400,'BODY_SIZE')
+                          try:data=parse_json(self.rfile.read(size))
+                          except Exception:raise Error(400,'BAD_JSON')
+                          if not isinstance(data,dict):raise Error(400,'BAD_BODY')
+                          required={'service_code','requested_start_at','privacy_consent','privacy_notice_version','privacy_notice_sha256'}
+                          if set(data)!=required:raise Error(422,'UNEXPECTED_FIELDS')
+                          code=data['service_code'];s=SERV.get(code) if isinstance(code,str) else None
+                          if not s or s[0]!=office:raise Error(422,'SERVICE_SCOPE_DENIED')
+                          key=self.headers.get('Idempotency-Key')
+                          if not isinstance(key,str) or not re.fullmatch(r'[A-Za-z0-9_-]{16,96}',key):raise Error(422,'INVALID_REQUEST_KEY')
+                          start=data['requested_start_at']
+                          if not isinstance(start,str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:(00|30):00\+09:00',start):raise Error(422,'INVALID_SLOT')
+                          try:date=dt.datetime.fromisoformat(start)
+                          except ValueError:raise Error(422,'INVALID_SLOT')
+                          if not dt.datetime.now(JST)<date<dt.datetime.now(JST)+timedelta(days=366):raise Error(422,'INVALID_SLOT')
+                          if data['privacy_consent'] is not True:raise Error(422,'CONSENT_REQUIRED')
+                          version=data['privacy_notice_version'];digest=data['privacy_notice_sha256']
+                          if not isinstance(version,str) or not isinstance(digest,str):raise Error(422,'BAD_NOTICE')
+                          status=STORE.accept(office,sub,s[1],key,start,s[2],True,version,digest)
+                          new,idx=status.split(':')
+                          return self.reply(201 if new=='new' else 200,{'ok':True,'status':'pending','request_id':int(idx),'notice_version':version})
+                      except Error as e:return self.reply(e.status,{'ok':False,'error':e.code})
+                      except Exception:
+                          # Never leak DB exception contents or PII
+                          return self.reply(503,{'ok':False,'error':'BACKEND_UNAVAILABLE'})
+              s=ThreadingHTTPServer(('127.0.0.1',0),Handler);t=threading.Thread(target=s.serve_forever,daemon=True);t.start()
+              return s,t,f'http://127.0.0.1:{s.server_port}'
+          
+          BASE_BODY={'service_code':'consult_a','requested_start_at':SLOT,'privacy_consent':True,'privacy_notice_version':CURRENT['A'][0],'privacy_notice_sha256':CURRENT['A'][1]}
+          
+          def req(base,token=None,key=None,body=None,raw=None,method='POST',ctype='application/json',url='/synthetic/book'):
+              if token is None:token=mint()
+              if key is None:key=str(uuid.uuid4())
+              data=json.dumps(BASE_BODY if body is None else body).encode() if raw is None else raw.encode()
+              headers={'Authorization':'Bearer '+token,'Content-Type':ctype,'Idempotency-Key':key}
+              request=urllib.request.Request(base+url,data=data,headers=headers,method=method)
+              try:
+                  with urllib.request.urlopen(request,timeout=15) as response:return response.status,json.loads(response.read())
+              except urllib.error.HTTPError as e:return e.code,json.loads(e.read())
+          
+          def query(base,path,token=None):
+              headers={'Authorization':'Bearer '+(token or mint())}
+              try:
+                  with urllib.request.urlopen(urllib.request.Request(base+path,headers=headers),timeout=8) as r:return r.status,json.loads(r.read())
+              except urllib.error.HTTPError as e:return e.code,json.loads(e.read())
+          
+          def main():
+              srv,thr,base=serve()
+              try:
+                  check('synthetic health release HOLD',query(base,'/synthetic/health')[1]['production_release']=='HOLD')
+                  check('policy GET requires valid identity',query(base,'/synthetic/policy',token='no')[0]==401)
+                  policy=query(base,'/synthetic/policy')[1]
+                  check('verified fixture sees office A notice',policy['notice_version']=='r172-test-a-v1')
+                  check('office B sees separate policy',query(base,'/synthetic/policy',mint('clientB1'))[1]['notice_sha256']==HASH_B)
+                  check('policy is labelled FICTIONAL',policy['fictional'] is True)
+                  check('missing bearer denied',req(base,token='')[0]==401)
+                  check('invalid bearer denied',req(base,token='junk')[0]==401)
+                  good=mint(); pos=good.rfind('.')+1;bad=good[:pos]+('A' if good[pos]!='A' else 'B')+good[pos+1:]
+                  check('tampered bearer denied',req(base,token=bad)[0]==401)
+                  check('token signed for other audience rejected',req(base,token=mint(aud='other'))[0]==401)
+                  check('token with wrong issuer rejected',req(base,token=mint(iss='other'))[0]==401)
+                  check('expired synthetic token rejected',req(base,token=mint(exp=1))[0]==401)
+                  check('future not-before rejected',req(base,token=mint(nbf=int(dt.datetime.now(timezone.utc).timestamp())+200))[0]==401)
+                  check('unknown member denied',req(base,token=mint('missing'))[0]==401)
+                  check('staff cannot pretend to be client',req(base,token=mint('staffA'))[0]==401)
+                  check('malformed POST media type denied',req(base,ctype='text/plain')[0]==415)
+                  check('duplicate JSON field rejected',req(base,raw='{"service_code":"consult_a","service_code":"consult_a","requested_start_at":"x"}')[0]==400)
+                  check('array body denied',req(base,body=[])[0]==400)
+                  check('office field forged in body denied',req(base,body={**BASE_BODY,'office':'B'})[0]==422)
+                  check('subject field forged in body denied',req(base,body={**BASE_BODY,'subject':'clientB1'})[0]==422)
+                  check('fake verified field denied',req(base,body={**BASE_BODY,'verified':True})[0]==422)
+                  check('client supplied resource forbidden',req(base,body={**BASE_BODY,'resource':'desk2'})[0]==422)
+                  check('client supplied status forbidden',req(base,body={**BASE_BODY,'status':'confirmed'})[0]==422)
+                  check('client supplied phone forbidden',req(base,body={**BASE_BODY,'phone':'090xxxxxxxx'})[0]==422)
+                  check('client supplied consent timestamp forbidden',req(base,body={**BASE_BODY,'consented_at':'2026-10-01'})[0]==422)
+                  check('no consent field rejected',req(base,body={k:v for k,v in BASE_BODY.items() if k!='privacy_consent'})[0]==422)
+                  check('consent false denied',req(base,body={**BASE_BODY,'privacy_consent':False})[0]==422)
+                  check('consent string true denied',req(base,body={**BASE_BODY,'privacy_consent':'true'})[0]==422)
+                  check('consent null denied',req(base,body={**BASE_BODY,'privacy_consent':None})[0]==422)
+                  check('missing version denied',req(base,body={**BASE_BODY,'privacy_notice_version':''})[0]==422)
+                  check('unknown policy version denied',req(base,body={**BASE_BODY,'privacy_notice_version':'wrong-version'})[0]==422)
+                  check('tampered policy digest denied',req(base,body={**BASE_BODY,'privacy_notice_sha256':'0'*64})[0]==422)
+                  check('other office policy denied',req(base,body={**BASE_BODY,'privacy_notice_version':'r172-test-b-v1','privacy_notice_sha256':HASH_B})[0]==422)
+                  check('missing digest denied',req(base,body={**BASE_BODY,'privacy_notice_sha256':None})[0]==422)
+                  check('missing idempotency key denied',req(base,key='short')[0]==422)
+                  check('CRLF request key denied by header validator',re.fullmatch(r'[A-Za-z0-9_-]{16,96}', 'a'*16+'\r\n') is None)
+                  check('unknown service rejected',req(base,body={**BASE_BODY,'service_code':'unknown'})[0]==422)
+                  check('cross-office service rejected',req(base,body={**BASE_BODY,'service_code':'consult_b'})[0]==422)
+                  check('old requested time denied',req(base,body={**BASE_BODY,'requested_start_at':(DATE-timedelta(days=12)).isoformat(timespec='seconds')})[0]==422)
+                  check('quarter hour rejected',req(base,body={**BASE_BODY,'requested_start_at':(DATE+timedelta(minutes=15)).isoformat(timespec='seconds')})[0]==422)
+                  check('missing timezone rejected',req(base,body={**BASE_BODY,'requested_start_at':SLOT[:-6]})[0]==422)
+                  check('calendar-invalid date rejected',req(base,body={**BASE_BODY,'requested_start_at':'2026-02-30T10:00:00+09:00'})[0]==422)
+                  check('unrelated POST route denied',req(base,url='/synthetic/delete')[0]==404)
+                  check('unrelated GET route denied',query(base,'/api/private/bookings')[0]==404)
+                  before=STORE.counts()
+                  key=str(uuid.uuid4());new=req(base,key=key)
+                  check('first consent-aware POST creates pending',new[0]==201 and new[1]['status']=='pending')
+                  check('first receipt exposes no trusted office/subject',not any(x in new[1] for x in ('office','subject','phone','email')))
+                  check('each new booking atomically writes exactly one event',STORE.counts()==(before[0]+1,before[1]+1))
+                  again=req(base,key=key)
+                  check('same key gives duplicate acknowledgement',again[0]==200)
+                  check('same key retrieves identical pending ID',again[1]['request_id']==new[1]['request_id'])
+                  check('replayed key does not add consent journal',STORE.counts()==(before[0]+1,before[1]+1))
+                  check('replay with altered notice version rejected',req(base,key=key,body={**BASE_BODY,'privacy_notice_version':'r172-test-a-v2'})[0]==409)
+                  check('replay with altered digest rejected',req(base,key=key,body={**BASE_BODY,'privacy_notice_sha256':HASH_B})[0]==409)
+                  check('replay with altered requested time rejected',req(base,key=key,body={**BASE_BODY,'requested_start_at':OTHER})[0]==409)
+                  check('replay from another subject creates a separate record',req(base,key=key,token=mint('clientA2'))[0]==201)
+                  bodyb={**BASE_BODY,'service_code':'consult_b','privacy_notice_version':'r172-test-b-v1','privacy_notice_sha256':HASH_B}
+                  check('same key from another office creates separate record',req(base,key=key,token=mint('clientB1'),body=bodyb)[0]==201)
+                  check('wrong version for office B denied',req(base,token=mint('clientB1'))[0]==422)
+                  check('journal identifies only client assertions',STORE.evidence_kind()=='CLIENT_ASSERTION_UNVERIFIED')
+                  check('append-only consent journal rejects UPDATE',STORE.immutable())
+                  before=STORE.counts();rk=str(uuid.uuid4())
+                  with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+                      results=list(pool.map(lambda _:req(base,key=rk),range(8)))
+                  check('eight concurrent requests all have pending receipts',all(x[0] in (200,201) and x[1]['status']=='pending' for x in results))
+                  check('eight concurrent retries share one booking ID',len({x[1]['request_id'] for x in results})==1)
+                  check('eight concurrent retries insert one booking and one consent event',STORE.counts()==(before[0]+1,before[1]+1))
+                  check('exactly one race response is new',sum(x[0]==201 for x in results)==1)
+                  check('no race response is confirmed',not any(x[1]['status']=='confirmed' for x in results))
+                  if CONTAINER:
+                      check('PostgreSQL gateway cannot SELECT raw events',STORE.direct_denied())
+                      check('PostgreSQL gateway cannot INSERT raw events',STORE.raw_insert_denied())
+                      check('PostgreSQL gateway cannot bypass to R161 function',STORE.direct_r161_denied())
+                  # Current policy rotation must not rewrite prior audit evidence.
+                  before=STORE.counts();STORE.rotate();CURRENT['A']=('r172-test-a-v2',HASH_C)
+                  check('fixture policy switched to newer version',query(base,'/synthetic/policy')[1]['notice_version']=='r172-test-a-v2')
+                  check('old version blocked for NEW request after policy rotation',req(base)[0]==422)
+                  check('same old consent & old key still recovers old pending booking',req(base,key=key)[1]['request_id']==new[1]['request_id'])
+                  newbody={**BASE_BODY,'privacy_notice_version':CURRENT['A'][0],'privacy_notice_sha256':CURRENT['A'][1]}
+                  z=req(base,body=newbody)
+                  check('new policy accepts new pending booking',z[0]==201)
+                  check('policy rotation did not delete old audit records',STORE.counts()==(before[0]+1,before[1]+1))
+                  check('new version cannot overwrite old-key consent history',req(base,key=key,body=newbody)[0]==409)
+                  srv.shutdown();srv.server_close();thr.join(3)
+                  srv,thr,base=serve()
+                  check('server restart retains existing consent-linked booking',req(base,key=key)[1]['request_id']==new[1]['request_id'])
+                  check('server restart retains newly current policy',query(base,'/synthetic/policy')[1]['notice_version']=='r172-test-a-v2')
+                  check('backend persisted count unchanged by restart',STORE.counts()==(before[0]+1,before[1]+1))
+                  check('synthetic endpoint stays nonproduction',query(base,'/synthetic/health')[1]['production_release']=='HOLD')
+                  print(f'R172_SUMMARY {len(CASES)} / {len(CASES)} PASS',flush=True)
+                  print('R172_DISPOSABLE_POSTGRES_CONSENT_JOURNAL_PASS: ACTUAL_IDENTITY_AND_LEGAL_CONSENT_UNVERIFIED_RELEASE_HOLD' if CONTAINER else 'R172_SQLITE_HTTP_CONSENT_JOURNAL_PASS: POSTGRES_NOT_EXECUTED_LOCAL_RELEASE_HOLD',flush=True)
+              finally:srv.shutdown();srv.server_close()
+          
+          if __name__=='__main__':main()
+          R172_TEST_PY_EOF
+          python3 -m py_compile "$RUNNER_TEMP/r172_test.py"
+          echo "R172_SYNTAX_REFERENCE_PASS"
+      - name: Run R161 and R172 reference SQL on isolated PostgreSQL and check 75 cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          R172_PG_CONTAINER="$(docker ps --filter ancestor=postgres:17-alpine --format '{{.ID}}' | head -n 1)"
+          test -n "$R172_PG_CONTAINER" || { echo 'R172_DISPOSABLE_CONTAINER_NOT_FOUND'; exit 1; }
+          docker exec -i -u postgres "$R172_PG_CONTAINER" psql -XAt -v ON_ERROR_STOP=1 -U postgres -d postgres < "$RUNNER_TEMP/r172_r161.sql"
+          docker exec -i -u postgres "$R172_PG_CONTAINER" psql -XAt -v ON_ERROR_STOP=1 -U postgres -d postgres < "$RUNNER_TEMP/r172_consent.sql"
+          R172_PG_CONTAINER="$R172_PG_CONTAINER" python3 -I "$RUNNER_TEMP/r172_test.py" | tee "$RUNNER_TEMP/r172_result.log"
+          grep -Fx 'R172_SUMMARY 75 / 75 PASS' "$RUNNER_TEMP/r172_result.log"
+          grep -F 'R172_DISPOSABLE_POSTGRES_CONSENT_JOURNAL_PASS' "$RUNNER_TEMP/r172_result.log"
+          echo 'R172_DISPOSABLE_PG_TESTS_PASS_RELEASE_HOLD'
+      - name: Publish honest scope and commercial HOLD
+        if: success()
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'R172_SCOPE_END'
+          ## R172 synthetic tenant-scoped consent event + booking transaction — COMMERCIAL RELEASE HOLD
+          - 75 tests on disposable PostgreSQL 17 and localhost HTTP, including eight concurrent identical booking submissions and audit immutability.
+          - Fictional approved policy versions and explicit assertion TRUE only. The event is an audit of a **received assertion**, not proof a user read/understood the policy.
+          - Test-only signed HMAC issuer; NO actual LINE/SMS/email identity provider, production JWT validation, consent notice approval, tenant RLS or real legal/privacy review.
+          - R161 reference database plus R172 consent schema are NOT migrations; do not deploy to Supabase, Worker or real sites.
+          - Existing real index.html collects name, phone, email and message. This reference intentionally stores none of that data; mapping, consent retention and statutory terms remain unapproved.
+          - Existing public UI remains staging read-only and R167/R171 feature flags disabled. No integration of this reference to actual booking form, Worker or production DB.
+          - No production creds, customer data, LINE notifications, CONTROL CENTER, Worker deploy or GitHub main changes. 24 staging sources pinned.
+          - Actual real-world release gates 0/18 NOT_TESTED. Human approval and verified real-stack QA mandatory. COMMERCIAL RELEASE HOLD.
+          R172_SCOPE_END
