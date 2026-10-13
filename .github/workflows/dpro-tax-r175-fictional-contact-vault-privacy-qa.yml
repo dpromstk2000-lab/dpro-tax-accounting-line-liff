@@ -1,0 +1,330 @@
+name: DPRO TAX R175 Fictional AES-GCM Contact Vault Privacy Contract QA (Read Only)
+
+on:
+  push:
+    branches: [tax-r7-staging-20261010]
+    paths:
+      - '.github/workflows/dpro-tax-r175-fictional-contact-vault-privacy-qa.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: dpro-tax-r175-disposable-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  offline-contact-vault:
+    if: ${{ github.repository == 'dpromstk2000-lab/dpro-tax-accounting-line-liff' && github.ref == 'refs/heads/tax-r7-staging-20261010' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact staging snapshot without push permissions
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Pin real staging code and keep production resources unreachable
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "dpromstk2000-lab/dpro-tax-accounting-line-liff"
+          test "$GITHUB_REF" = "refs/heads/tax-r7-staging-20261010"
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}" && test -z "${LINE_CHANNEL_SECRET:-}" && test -z "${CLOUDFLARE_API_TOKEN:-}"
+          test -z "${DATABASE_URL:-}" && test -z "${CLOUDFLARE_ACCOUNT_ID:-}"
+          test "$(git hash-object app.js)" = "4c3475219e5c7fc9203ec5e5143d4f6eb8299423" || { echo "R175_SOURCE_DRIFT: app.js"; exit 1; }
+          test "$(git hash-object index.html)" = "c7f6c0b30d1da913a924a582097d4bfe1570a704" || { echo "R175_SOURCE_DRIFT: index.html"; exit 1; }
+          test "$(git hash-object config.js)" = "da1876bae8333a3a10ee13495c0063ded0c2b351" || { echo "R175_SOURCE_DRIFT: config.js"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r174-fictional-form-contact-consent-ledger-qa.yml)" = "746ff0607389f8d8d9b7b0ac8b0370383a846b6c" || { echo "R175_SOURCE_DRIFT: .github/workflows/dpro-tax-r174-fictional-form-contact-consent-ledger-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r174-real-booking-schema-bridge-qa.yml)" = "a33493ba77047fae69015ddfd1600208b9e6cde8" || { echo "R175_SOURCE_DRIFT: .github/workflows/dpro-tax-r174-real-booking-schema-bridge-qa.yml"; exit 1; }
+          echo 'R175_PROTECTED_SOURCES 5 / 5 PASS'
+      - name: Materialize and hash-lock synthetic privacy fixture in runner temp
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/R175_FICTIONAL_CONTACT_VAULT_DO_NOT_DEPLOY.js" <<'R175_SCRIPT_R175_FICTIONAL_CONTACT_VAULT_DO_NOT_DEPLOY_JS'
+          'use strict';
+          // R175 synthetic contact-vault reference. OFFLINE TEST ONLY; never deploy or process real PII.
+          // Server-provided identity, policy approval, audit integrity, retention compliance and KMS are MOCKS.
+          const {randomBytes,randomUUID,createCipheriv,createDecipheriv,hkdfSync} = require('node:crypto');
+          const FIELD_NAMES = Object.freeze(['requester_name','requester_phone','requester_email','message']);
+          const STAFF_READ_REASON = 'appointment_followup';
+          const DELETION_REASON = 'approved_erasure';
+          function denied(code){const e=new Error(code);e.code=code;throw e;}
+          function requireOffice(office){if(typeof office!=='string'||!/^office_[AB]$/.test(office))denied('OFFICE_INVALID');}
+          function checkedRecord(v){
+            if(!v||typeof v!=='object'||Array.isArray(v)||Object.keys(v).some(x=>!FIELD_NAMES.includes(x)))denied('CONTACT_SCHEMA_INVALID');
+            if(FIELD_NAMES.some(x=>typeof v[x]!=='string'))denied('CONTACT_FIELDS_REQUIRED');
+            if(v.requester_name.trim().length<2||v.requester_name.length>100)denied('CONTACT_NAME_INVALID');
+            if(!/^0[0-9]{9,10}$/.test(v.requester_phone))denied('CONTACT_PHONE_INVALID');
+            if(v.requester_email.length>250||v.message.length>600)denied('CONTACT_LENGTH_INVALID');
+            return Object.fromEntries(FIELD_NAMES.map(x=>[x,v[x]]));
+          }
+          class FictionalVault {
+            constructor({enabled=false,contactProcessingApproved=false,consentEvidenceEnabled=false,retentionDays=30}={}){
+              this.enabled=enabled;this.contactProcessingApproved=contactProcessingApproved;this.consentEvidenceEnabled=consentEvidenceEnabled;
+              if(!Number.isInteger(retentionDays)||retentionDays<1||retentionDays>365)denied('RETENTION_INVALID');
+              this.retentionDays=retentionDays;this.records=new Map();this.events=[];
+              this.keyring=new Map([[1,randomBytes(32)]]);this.activeVersion=1;
+            }
+            _on(){if(!this.enabled||!this.contactProcessingApproved||!this.consentEvidenceEnabled)denied('SAFE_GATE_DISABLED');}
+            _ctx(ctx,role,permission){
+              if(!ctx||ctx.serverVerified!==true||ctx.actorKind!==role||typeof ctx.subject!=='string'||ctx.subject.length<3)denied('VERIFIED_IDENTITY_REQUIRED');
+              requireOffice(ctx.office);
+              if(permission&&(!Array.isArray(ctx.grants)||!ctx.grants.includes(permission)))denied('PERMISSION_DENIED');
+            }
+            _key(version,office){
+              const secret=this.keyring.get(version);if(!secret)denied('KEY_NOT_AVAILABLE');
+              return Buffer.from(hkdfSync('sha256',secret,Buffer.from('DPRO_TAX_R175_FICTIONAL_SALT_ONLY'),Buffer.from('contact:'+office),32));
+            }
+            _aad(office,id){return Buffer.from(`r175-contact-v1|${office}|${id}`,'utf8');}
+            _seal(v,office,id,version){
+              const iv=randomBytes(12),enc=createCipheriv('aes-256-gcm',this._key(version,office),iv);
+              enc.setAAD(this._aad(office,id));const ciphertext=Buffer.concat([enc.update(Buffer.from(JSON.stringify(v))),enc.final()]);
+              return {version,iv:iv.toString('base64url'),ciphertext:ciphertext.toString('base64url'),tag:enc.getAuthTag().toString('base64url')};
+            }
+            _unseal(record){
+              const {version,iv,ciphertext,tag}=record.envelope;
+              if(!Number.isInteger(version)||typeof iv!=='string'||typeof ciphertext!=='string'||typeof tag!=='string')denied('ENVELOPE_INVALID');
+              const key=this._key(version,record.office);
+              try{
+                const dec=createDecipheriv('aes-256-gcm',key,Buffer.from(iv,'base64url'));
+                dec.setAAD(this._aad(record.office,record.id));dec.setAuthTag(Buffer.from(tag,'base64url'));
+                return JSON.parse(Buffer.concat([dec.update(Buffer.from(ciphertext,'base64url')),dec.final()]).toString('utf8'));
+              }catch{denied('AUTHENTICATED_DECRYPT_DENIED');}
+            }
+            _event(action,id,office,at){this.events.push(Object.freeze({action,id,office,at}));}
+            put(ctx,{bookingId,contact,serverConsentRecorded=false,serverPolicyBound=false,at=Date.now()}={}){
+              this._on();this._ctx(ctx,'service','contact_write');
+              if(serverConsentRecorded!==true||serverPolicyBound!==true)denied('TRUSTED_CONSENT_MISSING');
+              if(typeof bookingId!=='string'||!/^fixture-booking-[0-9A-Za-z-]{8,80}$/.test(bookingId))denied('BOOKING_ID_INVALID');
+              if(!Number.isSafeInteger(at)||at<0)denied('CLOCK_INVALID');
+              if(this.records.has(bookingId))denied('CONTACT_ALREADY_PRESENT');
+              const safe=checkedRecord(contact),envelope=this._seal(safe,ctx.office,bookingId,this.activeVersion);
+              this.records.set(bookingId,{id:bookingId,office:ctx.office,createdAt:at,envelope});
+              this._event('contact_created',bookingId,ctx.office,at);
+              return Object.freeze({request_id:bookingId,status:'pending'});
+            }
+            get(ctx,id,{reason}={}){
+              this._on();this._ctx(ctx,'staff','contact_read');
+              if(reason!==STAFF_READ_REASON)denied('PURPOSE_REQUIRED');
+              const r=this.records.get(id);if(!r)denied('CONTACT_NOT_FOUND');
+              if(r.office!==ctx.office)denied('OFFICE_SCOPE_DENIED');
+              const decoded=this._unseal(r);
+              this._event('contact_accessed',id,r.office,Date.now());
+              return decoded;
+            }
+            erase(ctx,id,{reason,at=Date.now()}={}){
+              this._on();this._ctx(ctx,'privacy_admin','contact_erase');
+              if(reason!==DELETION_REASON)denied('ERASURE_APPROVAL_REQUIRED');
+              const r=this.records.get(id);if(!r)denied('CONTACT_NOT_FOUND');
+              if(r.office!==ctx.office)denied('OFFICE_SCOPE_DENIED');
+              this.records.delete(id);this._event('contact_erased',id,r.office,at);return true;
+            }
+            purgeExpired(at){
+              this._on();if(!Number.isSafeInteger(at))denied('CLOCK_INVALID');
+              let count=0;for(const r of [...this.records.values()])if(at-r.createdAt>=this.retentionDays*86400000){this.records.delete(r.id);this._event('expired_contact_purged',r.id,r.office,at);count++;}
+              return count;
+            }
+            rotate(){this._on();const next=this.activeVersion+1;this.keyring.set(next,randomBytes(32));this.activeVersion=next;return next;}
+            rewrap(office){this._on();requireOffice(office);let count=0;for(const r of this.records.values())if(r.office===office){const clear=this._unseal(r);r.envelope=this._seal(clear,r.office,r.id,this.activeVersion);count++;}return count;}
+            retire(version){this._on();if(version===this.activeVersion)denied('ACTIVE_KEY_CANNOT_RETIRE');
+              if([...this.records.values()].some(r=>r.envelope.version===version))denied('KEY_IN_USE');
+              return this.keyring.delete(version);
+            }
+            snapshot(){return JSON.stringify({records:[...this.records.values()],events:this.events});}
+          }
+          module.exports={FictionalVault,FIELD_NAMES,STAFF_READ_REASON,DELETION_REASON,checkedRecord};
+          R175_SCRIPT_R175_FICTIONAL_CONTACT_VAULT_DO_NOT_DEPLOY_JS
+          test "$(sha256sum "$RUNNER_TEMP/R175_FICTIONAL_CONTACT_VAULT_DO_NOT_DEPLOY.js" | cut -d' ' -f1)" = "8bb21887c02e66d647252720ad69c18a2d8e67cebe6dc14cdfc97b800d9ad91b"
+          cat > "$RUNNER_TEMP/R175_FICTIONAL_CONTACT_VAULT_QA.js" <<'R175_SCRIPT_R175_FICTIONAL_CONTACT_VAULT_QA_JS'
+          'use strict';
+          const assert=require('node:assert/strict');
+          const {FictionalVault,FIELD_NAMES,STAFF_READ_REASON,DELETION_REASON,checkedRecord}=require('./R175_FICTIONAL_CONTACT_VAULT_DO_NOT_DEPLOY');
+          const cases=[];function check(name,test){assert.ok(test(),name);cases.push(name);console.log(`R175_PASS_${String(cases.length).padStart(2,'0')}: ${name}`)}
+          function throws(fn,code){try{fn();return false}catch(e){return e.code===code}}
+          const data={requester_name:'FICTIONAL PERSON A',requester_phone:'09012345678',requester_email:'fictional.a@example.invalid',message:'FICTIONAL TEST CONTENT ONLY'};
+          const data2={...data,requester_name:'FICTIONAL PERSON B',requester_phone:'09087654321',requester_email:'fictional.b@example.invalid',message:'FICTIONAL MESSAGE B'};
+          const id1='fixture-booking-12345678',id2='fixture-booking-87654321',id3='fixture-booking-23456789',id4='fixture-booking-34567890';
+          const serviceA={serverVerified:true,actorKind:'service',subject:'fixture_server_A',office:'office_A',grants:['contact_write']};
+          const staffA={serverVerified:true,actorKind:'staff',subject:'fixture_staff_A',office:'office_A',grants:['contact_read']};
+          const staffB={...staffA,subject:'fixture_staff_B',office:'office_B'};
+          const privacyA={serverVerified:true,actorKind:'privacy_admin',subject:'fixture_privacy_A',office:'office_A',grants:['contact_erase']};
+          const privacyB={...privacyA,subject:'fixture_privacy_B',office:'office_B'};
+          const evidence={serverConsentRecorded:true,serverPolicyBound:true,at:1_000_000_000_000};
+          const v=new FictionalVault({enabled:true,contactProcessingApproved:true,consentEvidenceEnabled:true,retentionDays:30});
+          check('default OFF refuses any contact save',()=>throws(()=>new FictionalVault().put(serviceA,{bookingId:id1,contact:data,...evidence}),'SAFE_GATE_DISABLED'));
+          check('missing privacy processing approval refuses',()=>throws(()=>new FictionalVault({enabled:true,consentEvidenceEnabled:true}).put(serviceA,{bookingId:id1,contact:data,...evidence}),'SAFE_GATE_DISABLED'));
+          check('missing consent evidence configuration refuses',()=>throws(()=>new FictionalVault({enabled:true,contactProcessingApproved:true}).put(serviceA,{bookingId:id1,contact:data,...evidence}),'SAFE_GATE_DISABLED'));
+          check('invalid short retention refused',()=>throws(()=>new FictionalVault({retentionDays:0}),'RETENTION_INVALID'));
+          check('invalid long retention refused',()=>throws(()=>new FictionalVault({retentionDays:366}),'RETENTION_INVALID'));
+          check('non-integer retention refused',()=>throws(()=>new FictionalVault({retentionDays:1.5}),'RETENTION_INVALID'));
+          check('schema includes exactly 4 contact fields',()=>FIELD_NAMES.length===4);
+          check('unknown contact field refused',()=>throws(()=>checkedRecord({...data,office:'office_B'}),'CONTACT_SCHEMA_INVALID'));
+          check('contact array refused',()=>throws(()=>checkedRecord([]),'CONTACT_SCHEMA_INVALID'));
+          check('missing mandatory contact refused',()=>throws(()=>checkedRecord({requester_name:'a'}),'CONTACT_FIELDS_REQUIRED'));
+          check('blank name refused',()=>throws(()=>checkedRecord({...data,requester_name:' ' }),'CONTACT_NAME_INVALID'));
+          check('unformatted phone refused',()=>throws(()=>checkedRecord({...data,requester_phone:'+81 90 1234 5678'}),'CONTACT_PHONE_INVALID'));
+          check('invalid email length refused',()=>throws(()=>checkedRecord({...data,requester_email:'x'.repeat(251)}),'CONTACT_LENGTH_INVALID'));
+          check('invalid long message refused',()=>throws(()=>checkedRecord({...data,message:'x'.repeat(601)}),'CONTACT_LENGTH_INVALID'));
+          check('malformed booking ID refused',()=>throws(()=>v.put(serviceA,{bookingId:'a',contact:data,...evidence}),'BOOKING_ID_INVALID'));
+          check('unverified actor refused',()=>throws(()=>v.put({...serviceA,serverVerified:false},{bookingId:id1,contact:data,...evidence}),'VERIFIED_IDENTITY_REQUIRED'));
+          check('client-origin role refused',()=>throws(()=>v.put({...serviceA,actorKind:'client'},{bookingId:id1,contact:data,...evidence}),'VERIFIED_IDENTITY_REQUIRED'));
+          check('missing backend write privilege refused',()=>throws(()=>v.put({...serviceA,grants:[]},{bookingId:id1,contact:data,...evidence}),'PERMISSION_DENIED'));
+          check('malformed office refused',()=>throws(()=>v.put({...serviceA,office:'office_C'},{bookingId:id1,contact:data,...evidence}),'OFFICE_INVALID'));
+          check('client-side consent alone refused',()=>throws(()=>v.put(serviceA,{bookingId:id1,contact:data,serverConsentRecorded:false,serverPolicyBound:true}),'TRUSTED_CONSENT_MISSING'));
+          check('unbound policy refused',()=>throws(()=>v.put(serviceA,{bookingId:id1,contact:data,serverConsentRecorded:true,serverPolicyBound:false}),'TRUSTED_CONSENT_MISSING'));
+          check('invalid booking time refused',()=>throws(()=>v.put(serviceA,{bookingId:id1,contact:data,...evidence,at:NaN}),'CLOCK_INVALID'));
+          check('fictional contact stored as pending only',()=>v.put(serviceA,{bookingId:id1,contact:data,...evidence}).status==='pending');
+          check('opaque booking ID retained',()=>v.records.get(id1).id===id1);
+          check('tenant scoped fixture stored',()=>v.records.get(id1).office==='office_A');
+          check('envelope AES-GCM has 12 byte nonce',()=>Buffer.from(v.records.get(id1).envelope.iv,'base64url').length===12);
+          check('envelope AES-GCM has 16 byte tag',()=>Buffer.from(v.records.get(id1).envelope.tag,'base64url').length===16);
+          check('envelope ciphertext exists',()=>v.records.get(id1).envelope.ciphertext.length>25);
+          check('raw name absent at rest snapshot',()=>!v.snapshot().includes(data.requester_name));
+          check('raw phone absent at rest snapshot',()=>!v.snapshot().includes(data.requester_phone));
+          check('raw email absent at rest snapshot',()=>!v.snapshot().includes(data.requester_email));
+          check('raw free text absent at rest snapshot',()=>!v.snapshot().includes(data.message));
+          check('snapshot does not expose encryption key',()=>!v.snapshot().includes(v.keyring.get(1).toString('base64url')));
+          check('no contact duplicate overwrite',()=>throws(()=>v.put(serviceA,{bookingId:id1,contact:data2,...evidence}),'CONTACT_ALREADY_PRESENT'));
+          check('unverified staff read refused',()=>throws(()=>v.get({...staffA,serverVerified:false},id1,{reason:STAFF_READ_REASON}),'VERIFIED_IDENTITY_REQUIRED'));
+          check('browser actor read refused',()=>throws(()=>v.get({...staffA,actorKind:'client'},id1,{reason:STAFF_READ_REASON}),'VERIFIED_IDENTITY_REQUIRED'));
+          check('staff without contact_read denied',()=>throws(()=>v.get({...staffA,grants:[]},id1,{reason:STAFF_READ_REASON}),'PERMISSION_DENIED'));
+          check('staff no reason denied',()=>throws(()=>v.get(staffA,id1),'PURPOSE_REQUIRED'));
+          check('staff arbitrary reason denied',()=>throws(()=>v.get(staffA,id1,{reason:'marketing'}),'PURPOSE_REQUIRED'));
+          check('cross-office staff read denied',()=>throws(()=>v.get(staffB,id1,{reason:STAFF_READ_REASON}),'OFFICE_SCOPE_DENIED'));
+          check('authorized staff returns exact fictional contact',()=>JSON.stringify(v.get(staffA,id1,{reason:STAFF_READ_REASON}))===JSON.stringify(data));
+          check('access audit records only action and opaque identifiers',()=>v.events.at(-1).action==='contact_accessed'&&Object.keys(v.events.at(-1)).length===4);
+          check('wrong authenticated tag denied',()=>{let r=v.records.get(id1),o=r.envelope.tag;r.envelope.tag='AAAAAAAAAAAAAAAAAAAAAA';let ok=throws(()=>v.get(staffA,id1,{reason:STAFF_READ_REASON}),'AUTHENTICATED_DECRYPT_DENIED');r.envelope.tag=o;return ok;});
+          check('wrong ciphertext denied',()=>{let r=v.records.get(id1),o=r.envelope.ciphertext;r.envelope.ciphertext='AAAAAAAAAAAAAAAAAAAAAA';let ok=throws(()=>v.get(staffA,id1,{reason:STAFF_READ_REASON}),'AUTHENTICATED_DECRYPT_DENIED');r.envelope.ciphertext=o;return ok;});
+          check('wrong nonce denied',()=>{let r=v.records.get(id1),o=r.envelope.iv;r.envelope.iv='AAAAAAAAAAAAAAAA';let ok=throws(()=>v.get(staffA,id1,{reason:STAFF_READ_REASON}),'AUTHENTICATED_DECRYPT_DENIED');r.envelope.iv=o;return ok;});
+          check('swapped tenant metadata blocks decrypt',()=>{let r=v.records.get(id1),o=r.office;r.office='office_B';let ok=throws(()=>v.get(staffB,id1,{reason:STAFF_READ_REASON}),'AUTHENTICATED_DECRYPT_DENIED');r.office=o;return ok;});
+          check('swapped booking ID metadata blocks decrypt',()=>{let r=v.records.get(id1),o=r.id;r.id=id2;let ok=throws(()=>v.get(staffA,id1,{reason:STAFF_READ_REASON}),'AUTHENTICATED_DECRYPT_DENIED');r.id=o;return ok;});
+          check('unknown key version refused',()=>{let r=v.records.get(id1),o=r.envelope.version;r.envelope.version=999;let ok=throws(()=>v.get(staffA,id1,{reason:STAFF_READ_REASON}),'KEY_NOT_AVAILABLE');r.envelope.version=o;return ok;});
+          check('missing contact denied',()=>throws(()=>v.get(staffA,id4,{reason:STAFF_READ_REASON}),'CONTACT_NOT_FOUND'));
+          check('new encryption key version created',()=>v.rotate()===2);
+          check('old key cannot retire while records remain',()=>throws(()=>v.retire(1),'KEY_IN_USE'));
+          check('new record encrypted on latest version',()=>v.put(serviceA,{bookingId:id2,contact:data2,...evidence}).status==='pending'&&v.records.get(id2).envelope.version===2);
+          check('fresh nonce differs between entries',()=>v.records.get(id2).envelope.iv!==v.records.get(id1).envelope.iv);
+          check('old key still decrypts before rewrap',()=>v.get(staffA,id1,{reason:STAFF_READ_REASON}).requester_name===data.requester_name);
+          check('rewrap tenant A reencrypts all current tenant records',()=>v.rewrap('office_A')===2);
+          check('rewrap preserves contents',()=>v.get(staffA,id1,{reason:STAFF_READ_REASON}).requester_name===data.requester_name);
+          check('all rewrapped entries point to new version',()=>[id1,id2].every(id=>v.records.get(id).envelope.version===2));
+          check('retire old key after rewrap succeeds',()=>v.retire(1)===true);
+          check('old key unavailable after retire',()=>!v.keyring.has(1));
+          check('active key never retired',()=>throws(()=>v.retire(2),'ACTIVE_KEY_CANNOT_RETIRE'));
+          check('repeated rewrap keeps decryptable text',()=>v.rewrap('office_A')===2&&v.get(staffA,id2,{reason:STAFF_READ_REASON}).message===data2.message);
+          check('no leak after multiple rewraps',()=>!v.snapshot().includes(data2.requester_email));
+          check('cross-tenant privacy admin erase denied',()=>throws(()=>v.erase(privacyB,id1,{reason:DELETION_REASON}),'OFFICE_SCOPE_DENIED'));
+          check('unverified privacy admin erase denied',()=>throws(()=>v.erase({...privacyA,serverVerified:false},id1,{reason:DELETION_REASON}),'VERIFIED_IDENTITY_REQUIRED'));
+          check('privacy admin missing erase grant denied',()=>throws(()=>v.erase({...privacyA,grants:[]},id1,{reason:DELETION_REASON}),'PERMISSION_DENIED'));
+          check('privacy admin erase without reason denied',()=>throws(()=>v.erase(privacyA,id1),'ERASURE_APPROVAL_REQUIRED'));
+          check('privacy admin erase with improper reason denied',()=>throws(()=>v.erase(privacyA,id1,{reason:'silent_erase'}),'ERASURE_APPROVAL_REQUIRED'));
+          check('authorized erase removes contact ciphertext',()=>v.erase(privacyA,id1,{reason:DELETION_REASON}));
+          check('erased ciphertext no longer readable',()=>throws(()=>v.get(staffA,id1,{reason:STAFF_READ_REASON}),'CONTACT_NOT_FOUND'));
+          check('erasure audit leaves sanitized tombstone',()=>v.events.some(e=>e.id===id1&&e.action==='contact_erased'));
+          check('erasure cannot be used twice',()=>throws(()=>v.erase(privacyA,id1,{reason:DELETION_REASON}),'CONTACT_NOT_FOUND'));
+          check('expired candidate created',()=>v.put(serviceA,{bookingId:id3,contact:data,...evidence}).status==='pending');
+          check('retention not reached preserves records',()=>v.purgeExpired(evidence.at+29*86400000)===0);
+          check('retention threshold purges records',()=>v.purgeExpired(evidence.at+30*86400000)===2);
+          check('retention purge removes all ciphertext',()=>v.records.size===0);
+          check('retention purge audits opaque IDs only',()=>v.events.filter(e=>e.action==='expired_contact_purged').length===2);
+          check('final audit never contains fictional name',()=>!v.snapshot().includes(data.requester_name));
+          check('final audit never contains fictional phone',()=>!v.snapshot().includes(data.requester_phone));
+          check('final audit never contains fictional message',()=>!v.snapshot().includes(data.message));
+          check('final audit never contains fictional email',()=>!v.snapshot().includes(data.requester_email));
+          check('empty vault reads remain denied',()=>throws(()=>v.get(staffA,id2,{reason:STAFF_READ_REASON}),'CONTACT_NOT_FOUND'));
+          check('feature OFF locks reads, even stored contact',()=>{v.enabled=false;return throws(()=>v.get(staffA,id2,{reason:STAFF_READ_REASON}),'SAFE_GATE_DISABLED');});
+          check('feature OFF locks scheduled purge',()=>throws(()=>v.purgeExpired(evidence.at+40*86400000),'SAFE_GATE_DISABLED'));
+          check('no external network requests exist',()=>typeof global.fetch==='function'&&v.events.every(e=>!('url'in e)));
+          check('all audit actions are from enumerated safe values',()=>v.events.every(e=>['contact_created','contact_accessed','contact_erased','expired_contact_purged'].includes(e.action)));
+          check('final encrypted snapshot no raw contact fields',()=>!v.snapshot().includes('requester_phone')&&!v.snapshot().includes('requester_name'));
+          check('fixture is explicitly NOT production',()=>require('./R175_FICTIONAL_CONTACT_VAULT_DO_NOT_DEPLOY').FictionalVault===FictionalVault);
+          console.log(`R175_SUMMARY ${cases.length} / ${cases.length} PASS`);
+          console.log('R175_SYNTHETIC_AES256_GCM_PRIVACY_REFERENCE_PASS_NO_REAL_KMS_NO_DEPLOY_RELEASE_HOLD');
+          R175_SCRIPT_R175_FICTIONAL_CONTACT_VAULT_QA_JS
+          test "$(sha256sum "$RUNNER_TEMP/R175_FICTIONAL_CONTACT_VAULT_QA.js" | cut -d' ' -f1)" = "e93971a98d2b4a5a2451662715d8d8b44ee1af0abd091ce905b710fab3c89fce"
+          cat > "$RUNNER_TEMP/R175_REAL_STAGING_PRIVACY_GAP_AUDIT.py" <<'R175_SCRIPT_R175_REAL_STAGING_PRIVACY_GAP_AUDIT_PY'
+          """Read-only scan of SHA pinned real staging sources. Privacy encryption is NOT deployed."""
+          from pathlib import Path
+          from html.parser import HTMLParser
+          import hashlib, sys, re
+          root=Path(sys.argv[1] if len(sys.argv)>1 else '.')
+          files={p:(root/p).read_bytes() for p in ('app.js','index.html','config.js')}
+          blobs={p:hashlib.sha1(f'blob {len(body)}\0'.encode()+body).hexdigest() for p,body in files.items()}
+          app=files['app.js'].decode();html=files['index.html'].decode();cfg=files['config.js'].decode()
+          class Form(HTMLParser):
+           def __init__(self):super().__init__();self.inside=False;self.names=set()
+           def handle_starttag(self,tag,attrs):
+            a=dict(attrs)
+            if tag=='form' and a.get('id')=='booking-form':self.inside=True
+            if self.inside and 'name' in a:self.names.add(a['name'])
+           def handle_endtag(self,tag):
+            if tag=='form' and self.inside:self.inside=False
+          f=Form();f.feed(html)
+          checks=[]
+          def ck(label,ok):
+           assert ok,f'R175_AUDIT_FAIL_{len(checks)+1:02d}: {label}'
+           checks.append(label);print(f'R175_AUDIT_PASS_{len(checks):02d}: {label}',flush=True)
+          ck('existing app hash pinned',blobs['app.js']=='4c3475219e5c7fc9203ec5e5143d4f6eb8299423')
+          ck('existing HTML hash pinned',blobs['index.html']=='c7f6c0b30d1da913a924a582097d4bfe1570a704')
+          ck('existing config hash pinned',blobs['config.js']=='da1876bae8333a3a10ee13495c0063ded0c2b351')
+          ck('exact current public booking inputs',f.names=={'service_id','booking_date','requested_start_at','requester_name','requester_phone','requester_email','appointment_channel','message'})
+          ck('name still collected', 'requester_name' in f.names)
+          ck('phone still collected','requester_phone' in f.names)
+          ck('email still collected','requester_email' in f.names)
+          ck('message still collected','message' in f.names)
+          ck('office not accepted from form','office' not in f.names)
+          ck('verified subject not accepted from form','subject' not in f.names)
+          ck('browser booking still legacy POST','api("/api/public/appointments", { method: "POST"' in app)
+          ck('browser idempotency header absent','Idempotency-Key' not in app)
+          ck('booking privacy checkbox absent','privacy_consent' not in f.names)
+          ck('booking challenge absent','privacy_challenge' not in f.names)
+          ck('client policy digest absent','privacy_notice_sha256' not in app)
+          ck('legacy booking form date helper stripped','delete values.booking_date;' in app)
+          ck('staging R105 read-only gate kept','CONFIG.TAX_R105_STAGING_READ_ONLY === true' in app)
+          ck('read-only gate still configured ON','TAX_R105_STAGING_READ_ONLY: true' in cfg)
+          ck('LIFF ID remains unconfigured','LIFF_ID: ""' in cfg)
+          ck('R167 bridge flag remains unconfigured','TAX_R167_BOOKING_BRIDGE_ENABLED' not in cfg)
+          ck('R171 privacy gate flag unconfigured','TAX_R171_PRIVACY_GATE_ENABLED' not in cfg)
+          ck('R175 vault flag unconfigured','TAX_R175_CONTACT_VAULT_ENABLED' not in cfg)
+          ck('app contains no R175 vault adapter','R175_CONTACT_VAULT' not in app)
+          ck('index contains no R175 vault adapter','R175_CONTACT_VAULT' not in html)
+          ck('booking submit retains error handling','catch (error) { $("#public-alert").innerHTML = alertBox(error.message); }' in app)
+          ck('source audit cannot claim deployed contact encryption','crypto.createCipheriv' not in app and 'aes-256-gcm' not in app)
+          print(f'R175_AUDIT_SUMMARY {len(checks)} / {len(checks)} PASS; ACTUAL_BOOKING_VAULT_NOT_CONNECTED_RELEASE_HOLD')
+          R175_SCRIPT_R175_REAL_STAGING_PRIVACY_GAP_AUDIT_PY
+          test "$(sha256sum "$RUNNER_TEMP/R175_REAL_STAGING_PRIVACY_GAP_AUDIT.py" | cut -d' ' -f1)" = "1f14d338fab0b9dad97ff8c44a011f26c8a046c254ca925c2f16b76ea958f8ed"
+          node --check "$RUNNER_TEMP/R175_FICTIONAL_CONTACT_VAULT_DO_NOT_DEPLOY.js"
+          node --check "$RUNNER_TEMP/R175_FICTIONAL_CONTACT_VAULT_QA.js"
+          python3 -m py_compile "$RUNNER_TEMP/R175_REAL_STAGING_PRIVACY_GAP_AUDIT.py"
+          echo 'R175_INLINE_QA_SOURCES 3 / 3 PASS'
+      - name: Read only audit of real UI and missing integrated contact vault
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B "$RUNNER_TEMP/R175_REAL_STAGING_PRIVACY_GAP_AUDIT.py" "$GITHUB_WORKSPACE" | tee "$RUNNER_TEMP/r175_actual_source.log"
+          grep -Fx 'R175_AUDIT_SUMMARY 26 / 26 PASS; ACTUAL_BOOKING_VAULT_NOT_CONNECTED_RELEASE_HOLD' "$RUNNER_TEMP/r175_actual_source.log"
+          test "$(grep -Ec '^R175_AUDIT_PASS_[0-9]{2}:' "$RUNNER_TEMP/r175_actual_source.log")" = 26
+      - name: Run AES-256-GCM privacy, role, tamper, rotate, purge, fail-closed tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          node "R175_FICTIONAL_CONTACT_VAULT_QA.js" | tee "$RUNNER_TEMP/r175_privacy.log"
+          grep -Fx 'R175_SUMMARY 87 / 87 PASS' "$RUNNER_TEMP/r175_privacy.log"
+          grep -Fx 'R175_SYNTHETIC_AES256_GCM_PRIVACY_REFERENCE_PASS_NO_REAL_KMS_NO_DEPLOY_RELEASE_HOLD' "$RUNNER_TEMP/r175_privacy.log"
+          test "$(grep -Ec '^R175_PASS_[0-9]{2}:' "$RUNNER_TEMP/r175_privacy.log")" = 87
+          echo 'R175_DISPOSABLE_PRIVACY_QA_87_OF_87_PASS_RELEASE_HOLD'
+      - name: State strict limitations and no commercial deployment
+        if: success()
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'R175_SCOPE'
+          ## R175 fictional-contact encryption reference: AES-256-GCM, no actual Worker or DB, RELEASE HOLD
+          - 87 synthetic Node crypto checks using fabricated names, phones and contact data only. Read-only audit of actual staging app/index/config (26 checks).
+          - AES-256-GCM with randomized per-record nonce and AAD binding office/opaque booking ID; role checks, purpose limit, tamper failure, key version rotation, retention fixture purge.
+          - Mock serverVerified flag is not actual LINE, Supabase, staff Auth or guest identity. This is an IN-MEMORY class and does NOT implement a real durable vault, KMS, audit immutability, RLS, backups, contact retention compliance or deletion across backups.
+          - The example grants are in-memory untrusted values, NOT secure authorization. Keys are created locally for each run and are NOT persisted; loading a snapshot without real KMS would lose decryption capability.
+          - No real data, external network, client-approved notice, enterprise tenant mapping, email/SMS identity, SQL migrations, Worker integrations or user-visible booking changes.
+          - Staging remains R105 read-only and R167/R171 flags OFF; no access to Supabase, LINE, Worker, CONTROL CENTER, production secrets, or main branch.
+          - Commercial release remains HOLD with 0/18 real-customer release gates NOT_TESTED. Do not deploy any materialized code.
+          R175_SCOPE
