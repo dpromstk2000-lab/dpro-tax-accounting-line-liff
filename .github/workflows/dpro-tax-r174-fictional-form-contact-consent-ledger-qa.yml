@@ -1,0 +1,470 @@
+name: DPRO TAX R174 Fictional Real-Form PII / Consent / Booking Ledger QA (Read Only)
+
+on:
+  push:
+    branches: [tax-r7-staging-20261010]
+    paths:
+      - '.github/workflows/dpro-tax-r174-fictional-form-contact-consent-ledger-qa.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: dpro-tax-r174-disposable-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  fictional-form-ledger:
+    if: ${{ github.repository == 'dpromstk2000-lab/dpro-tax-accounting-line-liff' && github.ref == 'refs/heads/tax-r7-staging-20261010' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact staging revision (no write credentials)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Lock down real staging sources and prohibit deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "dpromstk2000-lab/dpro-tax-accounting-line-liff"
+          test "$GITHUB_REF" = "refs/heads/tax-r7-staging-20261010"
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}" && test -z "${LINE_CHANNEL_SECRET:-}" && test -z "${CLOUDFLARE_API_TOKEN:-}"
+          test -z "${DATABASE_URL:-}" && test -z "${CLOUDFLARE_ACCOUNT_ID:-}"
+          test "$(git hash-object app.js)" = '4c3475219e5c7fc9203ec5e5143d4f6eb8299423' || { echo 'R174_SOURCE_DRIFT app.js'; exit 1; }
+          test "$(git hash-object config.js)" = 'da1876bae8333a3a10ee13495c0063ded0c2b351' || { echo 'R174_SOURCE_DRIFT config.js'; exit 1; }
+          test "$(git hash-object index.html)" = 'c7f6c0b30d1da913a924a582097d4bfe1570a704' || { echo 'R174_SOURCE_DRIFT index.html'; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r173-real-ui-booking-integration-gap-qa.yml)" = '86e1b1e78e2c312bf5365f75291ebf34c97757c0' || { echo 'R174_SOURCE_DRIFT .github/workflows/dpro-tax-r173-real-ui-booking-integration-gap-qa.yml'; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r173-least-privilege-advisory-consent-qa.yml)" = 'defb4ca2266d80f0d2874dc54188613ca61ba421' || { echo 'R174_SOURCE_DRIFT .github/workflows/dpro-tax-r173-least-privilege-advisory-consent-qa.yml'; exit 1; }
+          echo 'R174_SOURCE_PINS 5 / 5 PASS'
+      - name: Materialize THREE synthetic/read-only QA scripts only in runner temp
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/R174_BOOKING_REFERENCE_DO_NOT_DEPLOY.py" <<'R174_EOF_R174_BOOKING_REFERENCE_DO_NOT_DEPLOY_PY'
+          """R174 FICTIONAL ONLY: localhost-only HTTP/SQLite multi-table booking reference.
+          NEVER deploy or use with real PII. Fake HMAC identity is NOT a verified identity provider.
+          No production contact, real worker calls, real Supabase, real LINE or real policies.
+          """
+          import base64, hashlib, hmac, json, re, secrets, sqlite3, threading, uuid
+          from datetime import datetime, timedelta, timezone
+          from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+          from pathlib import Path
+          
+          JST=timezone(timedelta(hours=9))
+          SCHEMA_FIELDS={'service_id','requested_start_at','requester_name','requester_phone','requester_email',
+                         'appointment_channel','message','privacy_consent','privacy_notice_version',
+                         'privacy_notice_sha256','privacy_challenge'}
+          PII={'requester_name','requester_phone','requester_email','message'}
+          MEMBERS={'fixture_A1':'office_A','fixture_A2':'office_A','fixture_B1':'office_B'}
+          SERVICES={'svc_A':('office_A',{'in_person','online'},30), 'svc_B':('office_B',{'phone'},30)}
+          NOTICE_TEXT='FICTIONAL_R174_NOTICE_NOT_LEGALLY_APPROVED'
+          NOTICE_VERSION='r174-fixture-v1'
+          NOTICE_DIGEST=hashlib.sha256(NOTICE_TEXT.encode()).hexdigest()
+          
+          class Denied(Exception):
+              def __init__(self,status,code):super().__init__(code);self.status=status;self.code=code
+          
+          def norm_phone(value):
+              if not isinstance(value,str):raise Denied(422,'PHONE_INVALID')
+              x=re.sub(r'[^0-9+]','',value)
+              if x.startswith('+81'):x='0'+x[3:]
+              x=re.sub(r'\D','',x)
+              if not re.fullmatch(r'0[0-9]{9,10}',x):raise Denied(422,'PHONE_INVALID')
+              return x
+          
+          def b64(raw):return base64.urlsafe_b64encode(raw).rstrip(b'=').decode()
+          def unb64(v):return base64.urlsafe_b64decode(v+'='*(-len(v)%4))
+          class Fixture:
+              def __init__(self,path,*,enabled=False,identity_enabled=False,notice_approved=False,contact_storage_approved=False):
+                  self.path=str(path); self.enabled=enabled;self.identity_enabled=identity_enabled
+                  self.notice_approved=notice_approved;self.contact_storage_approved=contact_storage_approved
+                  self.secret=secrets.token_bytes(32);self.lock=threading.RLock()
+                  self.setup()
+              def conn(self):
+                  c=sqlite3.connect(self.path,timeout=8,isolation_level=None)
+                  c.execute('PRAGMA foreign_keys=ON');c.execute('PRAGMA busy_timeout=8000');return c
+              def setup(self):
+                  with self.conn() as db:
+                      db.executescript('''
+                      PRAGMA journal_mode=WAL;
+                      CREATE TABLE IF NOT EXISTS booking_requests(
+                          id TEXT PRIMARY KEY,office TEXT NOT NULL,subject TEXT NOT NULL,
+                          service_id TEXT NOT NULL,requested_start_at TEXT NOT NULL,appointment_channel TEXT NOT NULL,
+                          idempotency_key TEXT NOT NULL,request_digest TEXT NOT NULL,
+                          status TEXT NOT NULL DEFAULT 'pending' CHECK(status='pending'),
+                          UNIQUE(office,subject,idempotency_key));
+                      CREATE TABLE IF NOT EXISTS private_contacts(
+                          booking_id TEXT PRIMARY KEY REFERENCES booking_requests(id),office TEXT NOT NULL,
+                          requester_name TEXT NOT NULL,requester_phone TEXT NOT NULL,
+                          requester_email TEXT NOT NULL,message TEXT NOT NULL);
+                      CREATE TABLE IF NOT EXISTS consent_events(
+                          booking_id TEXT PRIMARY KEY REFERENCES booking_requests(id),office TEXT NOT NULL,
+                          subject TEXT NOT NULL,notice_version TEXT NOT NULL,notice_sha256 TEXT NOT NULL,
+                          challenge TEXT NOT NULL,affirmative INTEGER NOT NULL CHECK(affirmative=1),
+                          evidence_kind TEXT NOT NULL DEFAULT 'CLIENT_ASSERTION_ONLY');
+                      CREATE TABLE IF NOT EXISTS consent_challenges(
+                          challenge TEXT PRIMARY KEY,office TEXT NOT NULL,subject TEXT NOT NULL,
+                          notice_version TEXT NOT NULL,notice_sha256 TEXT NOT NULL,
+                          expires_at INTEGER NOT NULL,used_key TEXT);
+                      CREATE TRIGGER IF NOT EXISTS consent_no_update BEFORE UPDATE ON consent_events
+                        BEGIN SELECT RAISE(ABORT,'CONSENT_APPEND_ONLY');END;
+                      CREATE TRIGGER IF NOT EXISTS consent_no_delete BEFORE DELETE ON consent_events
+                        BEGIN SELECT RAISE(ABORT,'CONSENT_APPEND_ONLY');END;
+                      ''')
+              def token(self,subject='fixture_A1',**updates):
+                  now=int(datetime.now(timezone.utc).timestamp())
+                  data={'sub':subject,'aud':'R174_FAKE_ONLY','iss':'fixture.invalid','exp':now+90,'iat':now}
+                  data.update(updates)
+                  payload=b64(json.dumps(data,sort_keys=True,separators=(',',':')).encode())
+                  return payload+'.'+b64(hmac.new(self.secret,payload.encode(),hashlib.sha256).digest())
+              def verified(self,authorization):
+                  if not self.identity_enabled:raise Denied(503,'REAL_IDENTITY_NOT_CONNECTED')
+                  if not authorization.startswith('Bearer '):raise Denied(401,'BEARER_REQUIRED')
+                  token=authorization[7:];parts=token.split('.')
+                  try:
+                      if len(token)>2048 or len(parts)!=2 or not all(re.fullmatch(r'[A-Za-z0-9_-]+',v) for v in parts):raise ValueError()
+                      expected=hmac.new(self.secret,parts[0].encode(),hashlib.sha256).digest()
+                      if not hmac.compare_digest(unb64(parts[1]),expected):raise ValueError()
+                      data=json.loads(unb64(parts[0]))
+                  except Exception:raise Denied(401,'IDENTITY_UNVERIFIED')
+                  now=int(datetime.now(timezone.utc).timestamp())
+                  if data.get('iss')!='fixture.invalid' or data.get('aud')!='R174_FAKE_ONLY' or type(data.get('exp'))!=int or data['exp']<=now or type(data.get('iat'))!=int or data['iat']>now+10 or data['exp']-data['iat']>180:
+                      raise Denied(401,'IDENTITY_UNVERIFIED')
+                  sub=data.get('sub');office=MEMBERS.get(sub)
+                  if office is None:raise Denied(401,'IDENTITY_UNVERIFIED')
+                  return office,sub
+              def notice(self,office,subject):
+                  if not self.enabled or not self.notice_approved:raise Denied(503,'NOTICE_NOT_APPROVED')
+                  value=secrets.token_urlsafe(28);expires=int(datetime.now(timezone.utc).timestamp())+120
+                  with self.conn() as db:db.execute('INSERT INTO consent_challenges VALUES(?,?,?,?,?,?,NULL)',(value,office,subject,NOTICE_VERSION,NOTICE_DIGEST,expires))
+                  return {'notice_version':NOTICE_VERSION,'notice_sha256':NOTICE_DIGEST,'challenge':value,'fictional':True}
+              def validate(self,body,office):
+                  if not isinstance(body,dict) or set(body)!=SCHEMA_FIELDS:raise Denied(422,'FIELDS_MISMATCH')
+                  if body['privacy_consent'] is not True:raise Denied(422,'CONSENT_REQUIRED')
+                  if body['privacy_notice_version']!=NOTICE_VERSION or body['privacy_notice_sha256']!=NOTICE_DIGEST:raise Denied(422,'NOTICE_VERSION_MISMATCH')
+                  if not isinstance(body['privacy_challenge'],str) or len(body['privacy_challenge'])>128:raise Denied(422,'CHALLENGE_INVALID')
+                  service=SERVICES.get(body['service_id'])
+                  if not service or service[0]!=office:raise Denied(403,'SERVICE_SCOPE_DENIED')
+                  if body['appointment_channel'] not in service[1]:raise Denied(422,'CHANNEL_INVALID')
+                  start=body['requested_start_at']
+                  if not isinstance(start,str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00\+09:00',start):raise Denied(422,'TIME_INVALID')
+                  try:t=datetime.fromisoformat(start)
+                  except ValueError:raise Denied(422,'TIME_INVALID')
+                  if t.utcoffset()!=timedelta(hours=9) or t.minute not in (0,30) or not (datetime.now(JST)+timedelta(minutes=1)<t<datetime.now(JST)+timedelta(days=180)):
+                      raise Denied(422,'TIME_INVALID')
+                  name=body['requester_name']
+                  if not isinstance(name,str) or not (1<=len(name.strip())<=100):raise Denied(422,'NAME_INVALID')
+                  phone=norm_phone(body['requester_phone'])
+                  email=body['requester_email']
+                  if not isinstance(email,str) or len(email)>160 or (email and not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+',email)):raise Denied(422,'EMAIL_INVALID')
+                  message=body['message']
+                  if not isinstance(message,str) or len(message)>500:raise Denied(422,'MESSAGE_INVALID')
+                  clean={**body,'requester_name':name.strip(),'requester_phone':phone,'requester_email':email.strip(),'message':message.strip()}
+                  return clean
+              def book(self,body,office,subject,key):
+                  if not self.enabled:raise Denied(503,'BRIDGE_DISABLED')
+                  if not self.notice_approved:raise Denied(503,'NOTICE_NOT_APPROVED')
+                  if not self.contact_storage_approved:raise Denied(503,'CONTACT_STORAGE_UNAPPROVED')
+                  if not isinstance(key,str) or not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}',key):raise Denied(422,'KEY_INVALID')
+                  clean=self.validate(body,office)
+                  canonical=json.dumps(clean,ensure_ascii=False,sort_keys=True,separators=(',',':'))
+                  digest=hashlib.sha256(canonical.encode()).hexdigest()
+                  # Lock only for a disposable test DB; not a Cloudflare or distributed lock.
+                  with self.lock, self.conn() as db:
+                      db.execute('BEGIN IMMEDIATE')
+                      existing=db.execute('SELECT id,request_digest FROM booking_requests WHERE office=? AND subject=? AND idempotency_key=?',(office,subject,key)).fetchone()
+                      if existing:
+                          if existing[1]!=digest:raise Denied(409,'IDEMPOTENCY_PAYLOAD_CONFLICT')
+                          return {'ok':True,'status':'pending','request_id':existing[0],'duplicate':True}
+                      challenge=db.execute('SELECT office,subject,notice_version,notice_sha256,expires_at,used_key FROM consent_challenges WHERE challenge=?',(clean['privacy_challenge'],)).fetchone()
+                      now=int(datetime.now(timezone.utc).timestamp())
+                      if not challenge or challenge[:4]!=(office,subject,NOTICE_VERSION,NOTICE_DIGEST) or challenge[4]<now or challenge[5] is not None:
+                          raise Denied(422,'CHALLENGE_UNVERIFIED')
+                      rowid='fixture-'+str(uuid.uuid4())
+                      db.execute('INSERT INTO booking_requests(id,office,subject,service_id,requested_start_at,appointment_channel,idempotency_key,request_digest) VALUES(?,?,?,?,?,?,?,?)',
+                                 (rowid,office,subject,clean['service_id'],clean['requested_start_at'],clean['appointment_channel'],key,digest))
+                      db.execute('INSERT INTO private_contacts VALUES(?,?,?,?,?,?)',(rowid,office,clean['requester_name'],clean['requester_phone'],clean['requester_email'],clean['message']))
+                      db.execute('INSERT INTO consent_events(booking_id,office,subject,notice_version,notice_sha256,challenge,affirmative) VALUES(?,?,?,?,?,?,1)',
+                                 (rowid,office,subject,NOTICE_VERSION,NOTICE_DIGEST,clean['privacy_challenge']))
+                      db.execute('UPDATE consent_challenges SET used_key=? WHERE challenge=?',(key,clean['privacy_challenge']))
+                      return {'ok':True,'status':'pending','request_id':rowid,'duplicate':False}
+              def recover(self,office,subject,key):
+                  if not self.enabled:raise Denied(503,'BRIDGE_DISABLED')
+                  if not isinstance(key,str) or len(key)>128:raise Denied(422,'KEY_INVALID')
+                  with self.conn() as db:r=db.execute('SELECT id,status FROM booking_requests WHERE office=? AND subject=? AND idempotency_key=?',(office,subject,key)).fetchone()
+                  if not r:raise Denied(404,'RECEIPT_NOT_FOUND')
+                  return {'ok':True,'status':r[1],'request_id':r[0]}
+              def counts(self):
+                  with self.conn() as db:return tuple(db.execute(f'SELECT count(*) FROM {t}').fetchone()[0] for t in ('booking_requests','private_contacts','consent_events'))
+          
+          class Handler(BaseHTTPRequestHandler):
+              def log_message(self,*args):pass
+              def response(self,status,data):
+                  out=json.dumps(data,ensure_ascii=False).encode();self.send_response(status)
+                  self.send_header('Content-Type','application/json; charset=utf-8');self.send_header('Cache-Control','no-store')
+                  self.send_header('Content-Length',str(len(out)));self.end_headers();self.wfile.write(out)
+              def do_GET(self):self.route()
+              def do_POST(self):self.route()
+              def route(self):
+                  store=self.server.fixture
+                  try:
+                      if self.path=='/fixture/health' and self.command=='GET':return self.response(200,{'release':'HOLD','fixture':True})
+                      if self.path not in ('/fixture/notice','/fixture/book','/fixture/recover'):raise Denied(404,'NOT_FOUND')
+                      office,subject=store.verified(self.headers.get('Authorization',''))
+                      if self.path=='/fixture/notice' and self.command=='GET':return self.response(200,store.notice(office,subject))
+                      if self.command!='POST':raise Denied(405,'METHOD_NOT_ALLOWED')
+                      if self.headers.get('Content-Type','')!='application/json':raise Denied(415,'CONTENT_TYPE_INVALID')
+                      length=int(self.headers.get('Content-Length','0'))
+                      if length<1 or length>4096:raise Denied(413,'BODY_LIMIT')
+                      raw=self.rfile.read(length)
+                      def unique_pairs(items):
+                          d={}
+                          for k,v in items:
+                              if k in d:raise ValueError('duplicate')
+                              d[k]=v
+                          return d
+                      try:body=json.loads(raw,object_pairs_hook=unique_pairs)
+                      except Exception:raise Denied(400,'JSON_INVALID')
+                      key=self.headers.get('Idempotency-Key','')
+                      if self.path=='/fixture/book':
+                          ans=store.book(body,office,subject,key)
+                          return self.response(200 if ans['duplicate'] else 201,ans)
+                      if body!={}:raise Denied(422,'RECOVER_BODY_FORBIDDEN')
+                      return self.response(200,store.recover(office,subject,key))
+                  except Denied as e:return self.response(e.status,{'ok':False,'error':e.code})
+                  except Exception:return self.response(503,{'ok':False,'error':'REFERENCE_UNAVAILABLE'})
+          
+          def serve(store):
+              h=ThreadingHTTPServer(('127.0.0.1',0),Handler);h.fixture=store
+              t=threading.Thread(target=h.serve_forever,daemon=True);t.start()
+              return h,t,'http://127.0.0.1:'+str(h.server_port)
+          R174_EOF_R174_BOOKING_REFERENCE_DO_NOT_DEPLOY_PY
+          test "$(sha256sum "$RUNNER_TEMP/R174_BOOKING_REFERENCE_DO_NOT_DEPLOY.py" | cut -d' ' -f1)" = "078245496893e0f1989aad8479480e05f9d7a4f9c6a37f8d5c0a5ceffa79c3c6"
+          cat > "$RUNNER_TEMP/R174_BOOKING_REFERENCE_QA.py" <<'R174_EOF_R174_BOOKING_REFERENCE_QA_PY'
+          """R174 contract QA on synthetic HTTP + disposable SQLite only; NOT deployable."""
+          import concurrent.futures, datetime as dt, json, os, sqlite3, tempfile, urllib.error, urllib.request, uuid
+          from pathlib import Path
+          from R174_BOOKING_REFERENCE_DO_NOT_DEPLOY import Fixture, serve, JST, NOTICE_DIGEST
+          
+          CASES=[]
+          def check(label,ok):
+              if not ok:raise AssertionError(f'R174_FAIL_{len(CASES)+1:02d}: {label}')
+              CASES.append(label);print(f'R174_PASS_{len(CASES):02d}: {label}',flush=True)
+          
+          def request(url,method='GET',body=None,token='',key='',ctype='application/json',raw=None):
+              headers={'Content-Type':ctype}
+              if token:headers['Authorization']='Bearer '+token
+              if key:headers['Idempotency-Key']=key
+              data=(raw if isinstance(raw,bytes) else json.dumps(body).encode() if body is not None else None)
+              req=urllib.request.Request(url,data=data,headers=headers,method=method)
+              try:
+                  with urllib.request.urlopen(req,timeout=8) as r:return r.status,json.loads(r.read())
+              except urllib.error.HTTPError as e:return e.code,json.loads(e.read())
+          
+          with tempfile.TemporaryDirectory(prefix='r174_fixture_') as td:
+              store=Fixture(Path(td)/'fixture.db')
+              server,thread,base=serve(store)
+              token=store.token(); token2=store.token('fixture_A2'); tokenB=store.token('fixture_B1')
+              def notice(t=token):return request(base+'/fixture/notice',token=t)
+              def book(b,t=token,k=None,**kw):return request(base+'/fixture/book','POST',body=b,token=t,key=k or str(uuid.uuid4()),**kw)
+              def recover(k,t=token,b=None):return request(base+'/fixture/recover','POST',body={} if b is None else b,token=t,key=k)
+              try:
+                  future=(dt.datetime.now(JST)+dt.timedelta(days=7)).replace(hour=10,minute=0,second=0,microsecond=0).isoformat(timespec='seconds')
+                  check('health explicitly remains HOLD',request(base+'/fixture/health')[1]['release']=='HOLD')
+                  check('real identity disabled by default',notice()[0]==503)
+                  store.identity_enabled=True
+                  check('unknown access without bearer denied',notice('')[0]==401)
+                  check('enabled identity but product disabled denies notice',notice()[0]==503)
+                  check('expired fake identity denied',notice(store.token(exp=1))[0]==401)
+                  check('wrong audience denied',notice(store.token(aud='different'))[0]==401)
+                  check('wrong issuer denied',notice(store.token(iss='wrong'))[0]==401)
+                  check('fake member not in mapping denied',notice(store.token('stranger'))[0]==401)
+                  check('tampered token denied',notice(token[:-3]+'aaa')[0]==401)
+                  check('unapproved notice denied even when feature enabled', (setattr(store,'enabled',True) or notice()[0]==503))
+                  store.notice_approved=True
+                  s,n=notice()
+                  check('fictional notice can be retrieved for authenticated fixture',s==200 and n['fictional'])
+                  check('notice policy digest exactly matches declared fixture',n['notice_sha256']==NOTICE_DIGEST)
+                  s,nb=notice(tokenB)
+                  check('other synthetic office independently obtains consent challenge',s==200 and nb['challenge']!=n['challenge'])
+                  nowtime=dt.datetime.now(JST)
+                  base_body={'service_id':'svc_A','requested_start_at':future,'requester_name':'FICTION_TEST_NAME',
+                             'requester_phone':'+81-90-1234-5678','requester_email':'fixture@example.invalid',
+                             'appointment_channel':'in_person','message':'FICTIONAL ONLY',
+                             'privacy_consent':True,'privacy_notice_version':n['notice_version'],
+                             'privacy_notice_sha256':n['notice_sha256'],'privacy_challenge':n['challenge']}
+                  check('contact storage blocked by default',book(base_body)[0]==503)
+                  check('no row when storage approval missing',store.counts()==(0,0,0))
+                  store.contact_storage_approved=True
+                  check('missing consent rejected',book({**base_body,'privacy_consent':False})[0]==422)
+                  check('consent string rejected',book({**base_body,'privacy_consent':'true'})[0]==422)
+                  check('missing expected form field rejected',book({k:v for k,v in base_body.items() if k!='requester_phone'})[0]==422)
+                  check('unknown office field rejected',book({**base_body,'office':'office_B'})[0]==422)
+                  check('unknown subject field rejected',book({**base_body,'subject':'fixture_B1'})[0]==422)
+                  check('unregistered service rejected',book({**base_body,'service_id':'bad'})[0]==403)
+                  check('cross-office service rejected',book({**base_body,'service_id':'svc_B'})[0]==403)
+                  check('wrong meeting channel rejected',book({**base_body,'appointment_channel':'phone'})[0]==422)
+                  check('invalid name rejected',book({**base_body,'requester_name':''})[0]==422)
+                  check('invalid phone rejected',book({**base_body,'requester_phone':'123'})[0]==422)
+                  check('invalid email rejected',book({**base_body,'requester_email':'invalid'})[0]==422)
+                  check('too long message rejected',book({**base_body,'message':'a'*501})[0]==422)
+                  check('old time rejected',book({**base_body,'requested_start_at':(nowtime-dt.timedelta(days=1)).replace(minute=0,second=0,microsecond=0).isoformat(timespec='seconds')})[0]==422)
+                  check('quarter hour rejected',book({**base_body,'requested_start_at':future.replace('10:00:00','10:15:00')})[0]==422)
+                  check('timezone missing rejected',book({**base_body,'requested_start_at':future.replace('+09:00','')})[0]==422)
+                  check('invalid calendar rejected',book({**base_body,'requested_start_at':'2026-02-30T10:00:00+09:00'})[0]==422)
+                  check('wrong notice version rejected',book({**base_body,'privacy_notice_version':'evil'})[0]==422)
+                  check('wrong digest rejected',book({**base_body,'privacy_notice_sha256':'0'*64})[0]==422)
+                  check('foreign office challenge rejected',book({**base_body,'privacy_challenge':nb['challenge']})[0]==422)
+                  check('missing challenge rejected',book({**base_body,'privacy_challenge':''})[0]==422)
+                  check('bad idempotency key rejected',book(base_body,k='invalid-key')[0]==422)
+                  check('anonymous booking denied',book(base_body,t='invalid')[0]==401)
+                  check('no premature fixture rows after rejected requests',store.counts()==(0,0,0))
+                  k=str(uuid.uuid4())
+                  s,first=book(base_body,k=k)
+                  check('first actual HTTP POST persists pending booking',s==201 and first.get('status')=='pending')
+                  check('response never claims confirmed',first.get('status')!='confirmed')
+                  check('response does not leak name or phone',not any(x in first for x in ('requester_name','requester_phone','office','subject','message')))
+                  check('booking contact and consent inserted atomically',store.counts()==(1,1,1))
+                  with store.conn() as db:
+                      value=db.execute('SELECT requester_name,requester_phone,requester_email,message FROM private_contacts').fetchone()
+                      audit=db.execute('SELECT notice_version,notice_sha256,evidence_kind FROM consent_events').fetchone()
+                  check('fixture name captured in private contact partition',value[0]=='FICTION_TEST_NAME')
+                  check('international phone normalized correctly in private partition',value[1]=='09012345678')
+                  check('optional email preserved instead of silently discarded',value[2]=='fixture@example.invalid')
+                  check('free text message preserved in private partition',value[3]=='FICTIONAL ONLY')
+                  check('consent audit stores policy version digest and assertion label',audit==(n['notice_version'],NOTICE_DIGEST,'CLIENT_ASSERTION_ONLY'))
+                  s,second=book(base_body,k=k)
+                  check('same exact booking key returns duplicate HTTP200',s==200 and second['duplicate'] is True)
+                  check('duplicate preserves original request id',second['request_id']==first['request_id'])
+                  check('duplicate creates no extra contact or audit rows',store.counts()==(1,1,1))
+                  check('changed booking time same key conflicts',book({**base_body,'requested_start_at':future.replace('10:00:00','10:30:00')},k=k)[0]==409)
+                  check('changed phone same key conflicts',book({**base_body,'requester_phone':'09099999999'},k=k)[0]==409)
+                  check('changed channel same key conflicts',book({**base_body,'appointment_channel':'online'},k=k)[0]==409)
+                  check('same challenge with new key not reusable',book(base_body)[0]==422)
+                  check('same user authenticated recovery returns original pending ID',recover(k)[1]['request_id']==first['request_id'])
+                  check('recovery response returns pending only',recover(k)[1]['status']=='pending')
+                  check('different subject cannot recover same receipt',recover(k,token2)[0]==404)
+                  check('different office cannot recover same receipt',recover(k,tokenB)[0]==404)
+                  check('missing key cannot recover',recover('')[0]==404 or recover('')[0]==422)
+                  check('recovery does not accept requester PII in body',recover(k,b={'requester_phone':'09011111111'})[0]==422)
+                  with store.conn() as db:
+                      try:db.execute('UPDATE consent_events SET affirmative=0');forbidden=False
+                      except sqlite3.DatabaseError:forbidden=True
+                  check('consent audit update denied by trigger',forbidden)
+                  check('unrelated URL returns 404',request(base+'/api/admin/appointments')[0]==404)
+                  check('GET booking collection route not exposed',request(base+'/fixture/book',token=token)[0]==405)
+                  check('only synthetic data in current contact table',all('FICTION' in x or x=='09012345678' or x=='fixture@example.invalid' for x in value))
+                  # run concurrency with a NEW server-issued notice, one payload and one key
+                  _,n2=notice(); b2={**base_body,'privacy_challenge':n2['challenge']}; k2=str(uuid.uuid4());before=store.counts()
+                  with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+                      out=list(pool.map(lambda _:book(b2,k=k2),range(8)))
+                  check('eight concurrent posts all return HTTP200/201',all(x[0] in (200,201) for x in out))
+                  check('eight concurrent posts share one request ID',len({x[1]['request_id'] for x in out})==1)
+                  check('exactly one concurrent POST creates new booking',sum(x[0]==201 for x in out)==1)
+                  check('all concurrent responses remain pending',all(x[1]['status']=='pending' for x in out))
+                  check('one concurrent booking and one contact and one audit written',store.counts()==tuple(v+1 for v in before))
+                  server.shutdown();server.server_close();thread.join(timeout=3)
+                  server,thread,base=serve(store)
+                  check('restarted fixture server recovers existing record',recover(k)[1]['request_id']==first['request_id'])
+                  check('restart preserves same three-table row counts',store.counts()==(2,2,2))
+                  check('restart health still HOLD',request(base+'/fixture/health')[1]['release']=='HOLD')
+                  # no customer identities and no contact data is ever real
+                  with store.conn() as db:
+                      aud=db.execute('SELECT * FROM consent_events').fetchall()
+                  check('consent events do not store direct private contacts',not any('fixture@example.invalid' in str(x) or '09012345678' in str(x) for x in aud))
+                  store.enabled=False
+                  check('feature flag OFF refuses new booking',book(b2)[0]==503)
+                  check('feature flag OFF refuses receipt recovery',recover(k)[0]==503)
+                  check('feature flag OFF never deletes reference records',store.counts()==(2,2,2))
+                  print(f'R174_SUMMARY {len(CASES)} / {len(CASES)} PASS',flush=True)
+                  print('R174_LOCALHOST_FICTIONAL_FORM_CONTACT_CONSENT_ATOMICITY_PASS_NOT_DEPLOYABLE_RELEASE_HOLD',flush=True)
+              finally:server.shutdown();server.server_close()
+          R174_EOF_R174_BOOKING_REFERENCE_QA_PY
+          test "$(sha256sum "$RUNNER_TEMP/R174_BOOKING_REFERENCE_QA.py" | cut -d' ' -f1)" = "04aa81bc3a2dc1dd1fd79064ec74aa82df49a2910a10e9da636ed649db46bfdc"
+          cat > "$RUNNER_TEMP/R174_REAL_STAGING_SOURCE_AUDIT.py" <<'R174_EOF_R174_REAL_STAGING_SOURCE_AUDIT_PY'
+          """Read-only contract comparison against the exact SHA-pinned real staging frontend."""
+          from html.parser import HTMLParser
+          from pathlib import Path
+          import hashlib, re, sys
+          root=Path(sys.argv[1] if len(sys.argv)>1 else '.').resolve()
+          app=(root/'app.js').read_text(encoding='utf-8')
+          cfg=(root/'config.js').read_text(encoding='utf-8')
+          html=(root/'index.html').read_text(encoding='utf-8')
+          
+          class BookingForm(HTMLParser):
+              def __init__(self):super().__init__();self.active=False;self.fields=set()
+              def handle_starttag(self,tag,attrs):
+                  v=dict(attrs)
+                  if tag=='form' and v.get('id')=='booking-form':self.active=True
+                  if self.active and v.get('name'):self.fields.add(v['name'])
+              def handle_endtag(self,tag):
+                  if tag=='form' and self.active:self.active=False
+          
+          def git_blob(data):
+              return hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+          
+          def check(label,condition):
+              global count
+              count+=1
+              if not condition:raise AssertionError(f'R174_SOURCE_FAIL_{count:02d}: {label}')
+              print(f'R174_SOURCE_PASS_{count:02d}: {label}',flush=True)
+          
+          count=0
+          for name,sha in [('app.js','4c3475219e5c7fc9203ec5e5143d4f6eb8299423'),('config.js','da1876bae8333a3a10ee13495c0063ded0c2b351'),('index.html','c7f6c0b30d1da913a924a582097d4bfe1570a704')]:
+              check('Git SHA exact current staging '+name,git_blob((root/name).read_bytes())==sha)
+          f=BookingForm();f.feed(html)
+          expected={'service_id','booking_date','requested_start_at','requester_name','requester_phone','requester_email','appointment_channel','message'}
+          check('exact real form eight fields',f.fields==expected)
+          check('client form includes name and phone',{'requester_name','requester_phone'}<=f.fields)
+          check('client form includes optional email and message',{'requester_email','message'}<=f.fields)
+          check('UI has existing service and chosen time fields',{'service_id','requested_start_at'}<=f.fields)
+          check('browser local date must be stripped','delete values.booking_date;' in app)
+          check('current booking POST still uses legacy endpoint','api("/api/public/appointments", { method: "POST"' in app)
+          check('current app lacks idempotency HTTP header','Idempotency-Key' not in app)
+          check('current app lacks approved consent challenge binding','privacy_challenge' not in app)
+          check('current public booking lacks explicit consent checkbox','privacy_consent' not in f.fields)
+          check('current app has no notice version receipt','privacy_notice_sha256' not in app)
+          check('read-only staging guard exists','CONFIG.TAX_R105_STAGING_READ_ONLY === true' in app)
+          check('read-only staging guard is ON','TAX_R105_STAGING_READ_ONLY: true' in cfg)
+          check('not connected to LIFF identity','LIFF_ID: ""' in cfg)
+          check('R167 UI opt-in not configured','TAX_R167_BOOKING_BRIDGE_ENABLED' not in cfg)
+          check('R171 privacy opt-in not configured','TAX_R171_PRIVACY_GATE_ENABLED' not in cfg)
+          check('server-bound office and subject not accepted in visible form',not {'office','subject'}&f.fields)
+          check('fixture form requires consent additions only',len(expected-{'booking_date'})==7)
+          print(f'R174_SOURCE_SUMMARY {count} / {count} PASS; ACTUAL_FRONTEND_STILL_DISCONNECTED_RELEASE_HOLD',flush=True)
+          R174_EOF_R174_REAL_STAGING_SOURCE_AUDIT_PY
+          test "$(sha256sum "$RUNNER_TEMP/R174_REAL_STAGING_SOURCE_AUDIT.py" | cut -d' ' -f1)" = "95debbac5dbd48641f3654ba574dc636fd67baebcab738cfc12037814cdc7c9c"
+          python3 -m py_compile "$RUNNER_TEMP/R174_BOOKING_REFERENCE_DO_NOT_DEPLOY.py"
+          python3 -m py_compile "$RUNNER_TEMP/R174_BOOKING_REFERENCE_QA.py"
+          python3 -m py_compile "$RUNNER_TEMP/R174_REAL_STAGING_SOURCE_AUDIT.py"
+          echo 'R174_INLINE_SOURCE_HASHES 3 / 3 PASS'
+      - name: Audit actual staging booking form and R105 disabled bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B "$RUNNER_TEMP/R174_REAL_STAGING_SOURCE_AUDIT.py" "$GITHUB_WORKSPACE" | tee "$RUNNER_TEMP/r174_source.log"
+          grep -Fx 'R174_SOURCE_SUMMARY 20 / 20 PASS; ACTUAL_FRONTEND_STILL_DISCONNECTED_RELEASE_HOLD' "$RUNNER_TEMP/r174_source.log"
+      - name: Run fictional localhost HTTP and SQLite booking-contact-consent QA
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          python3 -B R174_BOOKING_REFERENCE_QA.py | tee "$RUNNER_TEMP/r174_http.log"
+          grep -Fx 'R174_SUMMARY 76 / 76 PASS' "$RUNNER_TEMP/r174_http.log"
+          grep -Fx 'R174_LOCALHOST_FICTIONAL_FORM_CONTACT_CONSENT_ATOMICITY_PASS_NOT_DEPLOYABLE_RELEASE_HOLD' "$RUNNER_TEMP/r174_http.log"
+          test "$(grep -Ec '^R174_PASS_[0-9]{2}:' "$RUNNER_TEMP/r174_http.log")" = 76
+          echo 'R174_FICTIONAL_QA_76_OF_76_PASS_NONDEPLOYED'
+      - name: Explain reference-only scope and commercial HOLD
+        if: success()
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'R174_SCOPE'
+          ## R174 fictional-only contact/booking/consent split-table reference — COMMERCIAL RELEASE HOLD
+          - Read-only comparison of real staging `index.html`/`app.js`/`config.js`: exact eight booking form fields, missing consent and idempotency integrations; real frontend is NOT modified.
+          - 76 isolated real localhost HTTP + disposable SQLite checks use FICTIONAL name, phone, email and message only; no real customer data. Booking, private contact and consent assertion stored atomically with one ID and eight parallel submissions.
+          - Test-only HMAC signing token is NOT LINE, Supabase, JWT identity verification. SQLite single-process RLock is NOT PostgreSQL production concurrency or distributed Worker idempotency.
+          - Private contact table in this demonstration stores FICTIONAL plaintext as an explicit warning/example only. DO NOT copy schema or source to production. Encryption, access-control/RLS, PII retention/deletion, approved purpose, user consent/legal text and secure identity are UNIMPLEMENTED.
+          - The consent journal is an assertion recorded by a fake verified subject, NOT proof the human read/understood or validly agreed to a real notice.
+          - Default flags block booking. No real staging UI/Worker integration, SQL migrations, external APIs, customer data, LINE notifications, production deploy, main change or CONTROL CENTER operations.
+          - 18 real-customer release gates = 0/18 NOT_TESTED. COMMERCIAL RELEASE HOLD until verified real-stack QA and explicit approval.
+          R174_SCOPE
