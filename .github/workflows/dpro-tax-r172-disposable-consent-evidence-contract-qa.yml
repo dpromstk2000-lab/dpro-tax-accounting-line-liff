@@ -1,0 +1,401 @@
+name: DPRO TAX R172 Disposable Consent Evidence and Verified Guest Contract QA
+
+on:
+  push:
+    branches: [tax-r7-staging-20261010]
+    paths:
+      - '.github/workflows/dpro-tax-r172-disposable-consent-evidence-contract-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dpro-tax-r172-ephemeral-qa-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  synthetic-consent-evidence:
+    if: ${{ github.repository == 'dpromstk2000-lab/dpro-tax-accounting-line-liff' && github.ref == 'refs/heads/tax-r7-staging-20261010' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout only exact staging revision without write credentials
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Lock 24 real source Git blob hashes, no production credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'dpromstk2000-lab/dpro-tax-accounting-line-liff'
+          test "$GITHUB_REF" = 'refs/heads/tax-r7-staging-20261010'
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}" && test -z "${LINE_CHANNEL_SECRET:-}" && test -z "${CLOUDFLARE_API_TOKEN:-}"
+          test "$(git hash-object .github/workflows/dpro-tax-r151-staging-boundary-qa.yml)" = "bd6a075f06f0692ff868067416afb5781faad6c1" || { echo "R172_PIN_MISMATCH .github/workflows/dpro-tax-r151-staging-boundary-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r152-disposable-postgres-booking-qa.yml)" = "8c3ed43f0f1fdc3217382f47b43c5f68763f1f37" || { echo "R172_PIN_MISMATCH .github/workflows/dpro-tax-r152-disposable-postgres-booking-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r153-disposable-direct-dml-qa.yml)" = "d931f63a70a560b7f447fbcef1e6fd25868fb06d" || { echo "R172_PIN_MISMATCH .github/workflows/dpro-tax-r153-disposable-direct-dml-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r154-disposable-auth-role-boundary-qa.yml)" = "3d5964f33675a636bf1f35e90c98d59aaaafd437" || { echo "R172_PIN_MISMATCH .github/workflows/dpro-tax-r154-disposable-auth-role-boundary-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r155-synthetic-trust-boundary-qa.yml)" = "e21797ce5271a949c337b6bcf85d3d1339ce4ffd" || { echo "R172_PIN_MISMATCH .github/workflows/dpro-tax-r155-synthetic-trust-boundary-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r156-disposable-rls-replay-qa.yml)" = "ff6442c6b4d2d0c409b906625a3322cdb16ab47e" || { echo "R172_PIN_MISMATCH .github/workflows/dpro-tax-r156-disposable-rls-replay-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r157-loopback-http-gateway-qa.yml)" = "c6cf3510194b6f3af3474554966f57905fce7224" || { echo "R172_PIN_MISMATCH .github/workflows/dpro-tax-r157-loopback-http-gateway-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r158-public-demo-source-integrity-qa.yml)" = "7590c8417fa940b73ccaf4e65534176e1d643f32" || { echo "R172_PIN_MISMATCH .github/workflows/dpro-tax-r158-public-demo-source-integrity-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r159-release-evidence-contract-qa.yml)" = "b631da2cf67eb198160a0ffd8b88596b020d51e9" || { echo "R172_PIN_MISMATCH .github/workflows/dpro-tax-r159-release-evidence-contract-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r160-staging-commercial-gap-qa.yml)" = "5f359b6ec11b1e119a180302e64c19e68885a637" || { echo "R172_PIN_MISMATCH .github/workflows/dpro-tax-r160-staging-commercial-gap-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r161-disposable-booking-atomicity-qa.yml)" = "7ae80a66d01c45e5bb2a8debfc5d0a4b0be5a838" || { echo "R172_PIN_MISMATCH .github/workflows/dpro-tax-r161-disposable-booking-atomicity-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r162-booking-bridge-contract-qa.yml)" = "ebc86c4e716f79b159cadac3b3b5e115934114f1" || { echo "R172_PIN_MISMATCH .github/workflows/dpro-tax-r162-booking-bridge-contract-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r163-guest-capability-loopback-qa.yml)" = "9a20d807bb0f47f9016e0609f2e04af7e35a2210" || { echo "R172_PIN_MISMATCH .github/workflows/dpro-tax-r163-guest-capability-loopback-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r164-ui-retry-bridge-contract-qa.yml)" = "292100ad0c5fdfa933c1cf3ad252658b6482a50f" || { echo "R172_PIN_MISMATCH .github/workflows/dpro-tax-r164-ui-retry-bridge-contract-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r165-disposable-recovery-http-qa.yml)" = "1ae15008458d07531fe8b784b6de17fa9ae6261f" || { echo "R172_PIN_MISMATCH .github/workflows/dpro-tax-r165-disposable-recovery-http-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r166-offline-booking-ui-contract-qa.yml)" = "a0313ee52c2924ac66ec776a789d10608546c111" || { echo "R172_PIN_MISMATCH .github/workflows/dpro-tax-r166-offline-booking-ui-contract-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r167-real-ui-candidate-isolation-qa.yml)" = "0b5957a015a378002eb81ee271c0880a11ab7cac" || { echo "R172_PIN_MISMATCH .github/workflows/dpro-tax-r167-real-ui-candidate-isolation-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r168-disposable-http-postgres-bridge-qa.yml)" = "aa139b7cb7723ec066310d35fe45888df9933254" || { echo "R172_PIN_MISMATCH .github/workflows/dpro-tax-r168-disposable-http-postgres-bridge-qa.yml"; exit 1; }
+          test "$(git hash-object app.js)" = "4c3475219e5c7fc9203ec5e5143d4f6eb8299423" || { echo "R172_PIN_MISMATCH app.js"; exit 1; }
+          test "$(git hash-object config.js)" = "da1876bae8333a3a10ee13495c0063ded0c2b351" || { echo "R172_PIN_MISMATCH config.js"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r169-archived-worker-booking-fallback-qa.yml)" = "448fdeebdd718d28110771128d22c7cb3dcda602" || { echo "R172_PIN_MISMATCH .github/workflows/dpro-tax-r169-archived-worker-booking-fallback-qa.yml"; exit 1; }
+          test "$(git hash-object index.html)" = "c7f6c0b30d1da913a924a582097d4bfe1570a704" || { echo "R172_PIN_MISMATCH index.html"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r170-cutover-rollback-contract-qa.yml)" = "bf903fb6a2a108e49977780c087eec5d969d3fbe" || { echo "R172_PIN_MISMATCH .github/workflows/dpro-tax-r170-cutover-rollback-contract-qa.yml"; exit 1; }
+          test "$(git hash-object .github/workflows/dpro-tax-r171-privacy-consent-bridge-qa.yml)" = "63d78f54d56b72846c0dd071089d79d37716960d" || { echo "R172_PIN_MISMATCH .github/workflows/dpro-tax-r171-privacy-consent-bridge-qa.yml"; exit 1; }
+          echo 'R172_PIN_SUMMARY 24 / 24 PASS; SOURCE_UNMODIFIED'
+      - name: Materialize isolated fake identity and SQLite reference only in runner temp
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/r172_reference.py" <<'R172_SYNTHETIC_REFERENCE_ONLY'
+          #!/usr/bin/env python3
+          """DPRO TAX R172: synthetic, nondeployable consent evidence + booking HTTP reference.
+          Test fixtures use a PUBLIC signing key. NO actual identity or customer data.
+          """
+          import base64, concurrent.futures, datetime as dt, hashlib, hmac, http.server, json, os, re, secrets, sqlite3, tempfile, threading, urllib.error, urllib.request
+
+          NOW = dt.datetime(2026, 10, 13, 10, 0, tzinfo=dt.timezone(dt.timedelta(hours=9)))
+          JST = dt.timezone(dt.timedelta(hours=9))
+          KEY = b'R172_PUBLIC_SYNTHETIC_ONLY_NEVER_REAL_SECURITY_KEY'
+          DUMMY_NOTICE = b'FICTIONAL_NONLEGAL_PRIVACY_NOTICE_FOR_ISOLATED_QA_ONLY_V1'
+          DB_PATH = None
+
+
+          def raw(obj): return json.dumps(obj, ensure_ascii=False, separators=(',', ':'), sort_keys=True).encode()
+          def digest(obj): return hashlib.sha256(raw(obj)).hexdigest()
+          def b64(b): return base64.urlsafe_b64encode(b).decode().rstrip('=')
+          def ub64(s): return base64.urlsafe_b64decode(s + '=' * (-len(s) % 4))
+
+
+          def issue_token(office='office_A', subject='guest_A', exp=180, **overrides):
+              data = dict(iss='fixture-verifier', aud='booking-service', method='simulated_verified_contact', purpose='booking', office=office, sub=subject, iat=int(NOW.timestamp()), exp=int(NOW.timestamp())+exp)
+              data.update(overrides)
+              m = b64(raw(data)); return m + '.' + b64(hmac.new(KEY,m.encode(),hashlib.sha256).digest())
+
+
+          def verify_identity(token):
+              if not isinstance(token,str) or len(token)>2048 or token.count('.')!=1: raise Bad(401,'IDENTITY_REQUIRED')
+              try:
+                  m,s=token.split('.'); sig=hmac.new(KEY,m.encode(),hashlib.sha256).digest()
+                  if not hmac.compare_digest(sig,ub64(s)): raise ValueError()
+                  d=json.loads(ub64(m))
+              except Exception: raise Bad(401,'IDENTITY_INVALID')
+              if not isinstance(d,dict) or set(d)!={'iss','aud','method','purpose','office','sub','iat','exp'}: raise Bad(401,'IDENTITY_CLAIMS')
+              if d['iss']!='fixture-verifier' or d['aud']!='booking-service' or d['method']!='simulated_verified_contact' or d['purpose']!='booking':raise Bad(401,'IDENTITY_SCOPE')
+              if not all(isinstance(d[x],str) and re.fullmatch(r'[a-zA-Z0-9_-]{3,35}',d[x]) for x in ['office','sub']): raise Bad(401,'IDENTITY_SCOPE')
+              if type(d['iat']) is not int or type(d['exp']) is not int or d['iat']>int(NOW.timestamp())+30 or d['exp']<=int(NOW.timestamp()) or d['exp']-d['iat']>300:raise Bad(401,'IDENTITY_EXPIRED')
+              return d['office'],d['sub']
+
+
+          class Bad(Exception):
+              def __init__(self,status,code): self.status=status;self.code=code;super().__init__(code)
+
+          def connect():
+              c=sqlite3.connect(DB_PATH,timeout=12,isolation_level=None)
+              c.execute('PRAGMA foreign_keys=ON');c.execute('PRAGMA busy_timeout=12000');return c
+
+          def setup(path):
+              global DB_PATH
+              DB_PATH=path
+              c=connect()
+              c.executescript('''
+              PRAGMA journal_mode=WAL;
+              CREATE TABLE policies(office TEXT PRIMARY KEY,version TEXT NOT NULL,digest TEXT NOT NULL,path TEXT NOT NULL,active INTEGER NOT NULL,fictional_approved INTEGER NOT NULL);
+              CREATE TABLE consent_events(seq INTEGER PRIMARY KEY AUTOINCREMENT,kind TEXT NOT NULL CHECK(kind IN ('challenge','revocation')));
+              CREATE TABLE challenges(id TEXT PRIMARY KEY,office TEXT NOT NULL,subject TEXT NOT NULL,version TEXT NOT NULL,digest TEXT NOT NULL,issued_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,issued_seq INTEGER NOT NULL,used_by TEXT);
+              CREATE TABLE bookings(id TEXT PRIMARY KEY,office TEXT NOT NULL,subject TEXT NOT NULL,key TEXT NOT NULL,service TEXT NOT NULL,start TEXT NOT NULL,intent_hash TEXT NOT NULL,status TEXT NOT NULL CHECK(status='pending'),UNIQUE(office,subject,key));
+              CREATE TABLE consent_evidence(id INTEGER PRIMARY KEY AUTOINCREMENT,booking_id TEXT NOT NULL UNIQUE,office TEXT NOT NULL,subject TEXT NOT NULL,policy_version TEXT NOT NULL,policy_digest TEXT NOT NULL,challenge_id TEXT NOT NULL UNIQUE,accepted_at INTEGER NOT NULL,proof_method TEXT NOT NULL CHECK(proof_method='synthetic_verified_contact_plus_explicit_boolean'),FOREIGN KEY(booking_id) REFERENCES bookings(id));
+              CREATE TABLE revocations(id INTEGER PRIMARY KEY,office TEXT NOT NULL,subject TEXT NOT NULL,version TEXT NOT NULL,occurred_at INTEGER NOT NULL,occurred_seq INTEGER NOT NULL);
+              CREATE TRIGGER evidence_no_update BEFORE UPDATE ON consent_evidence BEGIN SELECT RAISE(ABORT,'AUDIT_APPEND_ONLY');END;
+              CREATE TRIGGER evidence_no_delete BEFORE DELETE ON consent_evidence BEGIN SELECT RAISE(ABORT,'AUDIT_APPEND_ONLY');END;
+              ''')
+              for office in ['office_A','office_B']:
+                  c.execute('INSERT INTO policies VALUES(?,?,?,?,1,1)',(office,'2026-10-v1',hashlib.sha256(DUMMY_NOTICE).hexdigest(),'/tax-privacy-v1.html'))
+              c.close()
+
+          def active_policy(c,office):
+              row=c.execute('SELECT version,digest,path,active,fictional_approved FROM policies WHERE office=?',(office,)).fetchone()
+              if not row or row[3]!=1 or row[4]!=1:raise Bad(503,'POLICY_UNAVAILABLE')
+              if not re.fullmatch(r'20\d{2}-\d{2}-v\d{1,2}',row[0]) or not re.fullmatch('[0-9a-f]{64}',row[1]) or not re.fullmatch(r'/[a-zA-Z0-9/_-]+\.html',row[2]):raise Bad(503,'POLICY_INVALID')
+              return row
+
+          def issue_challenge(token):
+              office,subject=verify_identity(token)
+              c=connect()
+              try:
+                  c.execute('BEGIN IMMEDIATE')
+                  policy=active_policy(c,office)
+                  challenge=secrets.token_urlsafe(24)
+                  seq=c.execute("INSERT INTO consent_events(kind) VALUES('challenge')").lastrowid
+                  c.execute('INSERT INTO challenges(id,office,subject,version,digest,issued_at,expires_at,issued_seq) VALUES(?,?,?,?,?,?,?,?)',(challenge,office,subject,policy[0],policy[1],int(NOW.timestamp()),int(NOW.timestamp())+120,seq))
+                  c.execute('COMMIT')
+                  return 200,dict(ok=True,challenge_id=challenge,notice_version=policy[0],notice_digest=policy[1],notice_path=policy[2],expires_in=120)
+              finally:c.close()
+
+
+          def check_slot(start):
+              if not isinstance(start,str) or len(start)!=25 or not re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:(00|30):00\+09:00',start):raise Bad(422,'INVALID_SLOT')
+              try:t=dt.datetime.fromisoformat(start)
+              except Exception:raise Bad(422,'INVALID_SLOT')
+              if not NOW<t<=NOW+dt.timedelta(days=365):raise Bad(422,'INVALID_SLOT')
+
+          def make_booking(token,data,key):
+              office,subject=verify_identity(token)
+              if not isinstance(key,str) or not re.fullmatch(r'[a-zA-Z0-9_-]{20,100}',key):raise Bad(422,'IDEMPOTENCY_REQUIRED')
+              if not isinstance(data,dict) or set(data)!={'service','requested_start_at','privacy_consent','privacy_notice_version','challenge_id'}:raise Bad(422,'BODY_INVALID')
+              if data['privacy_consent'] is not True:raise Bad(422,'CONSENT_REQUIRED')
+              if not isinstance(data['service'],str) or not re.fullmatch(r'service_[a-zA-Z0-9_-]{1,30}',data['service']):raise Bad(422,'SERVICE_INVALID')
+              check_slot(data['requested_start_at'])
+              if not isinstance(data['privacy_notice_version'],str) or not re.fullmatch(r'20\d{2}-\d{2}-v\d{1,2}',data['privacy_notice_version']):raise Bad(422,'VERSION_INVALID')
+              if not isinstance(data['challenge_id'],str) or not re.fullmatch('[a-zA-Z0-9_-]{25,80}',data['challenge_id']):raise Bad(422,'CHALLENGE_INVALID')
+              intent=digest({k:data[k] for k in ('service','requested_start_at','privacy_notice_version')})
+              c=connect()
+              try:
+                  c.execute('BEGIN IMMEDIATE')
+                  prior=c.execute('SELECT id,intent_hash FROM bookings WHERE office=? AND subject=? AND key=?',(office,subject,key)).fetchone()
+                  if prior:
+                      if prior[1]!=intent:raise Bad(409,'IDEMPOTENCY_CONFLICT')
+                      c.execute('COMMIT')
+                      return 200,dict(ok=True,id=prior[0],status='pending',replayed=True)
+                  policy=active_policy(c,office)
+                  if data['privacy_notice_version']!=policy[0]:raise Bad(409,'POLICY_CHANGED')
+                  challenge=c.execute('SELECT office,subject,version,digest,issued_at,expires_at,used_by,issued_seq FROM challenges WHERE id=?',(data['challenge_id'],)).fetchone()
+                  if not challenge:raise Bad(403,'CHALLENGE_NOT_FOUND')
+                  if challenge[0:2]!=(office,subject):raise Bad(403,'CHALLENGE_SCOPE')
+                  if challenge[2:4]!=(policy[0],policy[1]):raise Bad(409,'POLICY_CHANGED')
+                  if not challenge[4]<=int(NOW.timestamp())<challenge[5]:raise Bad(403,'CHALLENGE_EXPIRED')
+                  if challenge[6] is not None:raise Bad(409,'CHALLENGE_USED')
+                  last=c.execute('SELECT MAX(occurred_seq) FROM revocations WHERE office=? AND subject=? AND version=?',(office,subject,policy[0])).fetchone()[0]
+                  if last is not None and challenge[7]<=last:raise Bad(403,'CONSENT_REVOKED_RECONSENT_REQUIRED')
+                  booking_id='req_'+secrets.token_hex(12)
+                  c.execute('INSERT INTO bookings VALUES(?,?,?,?,?,?,?,?)',(booking_id,office,subject,key,data['service'],data['requested_start_at'],intent,'pending'))
+                  c.execute('INSERT INTO consent_evidence(booking_id,office,subject,policy_version,policy_digest,challenge_id,accepted_at,proof_method) VALUES(?,?,?,?,?,?,?,?)',(booking_id,office,subject,policy[0],policy[1],data['challenge_id'],int(NOW.timestamp()),'synthetic_verified_contact_plus_explicit_boolean'))
+                  c.execute('UPDATE challenges SET used_by=? WHERE id=?',(booking_id,data['challenge_id']))
+                  c.execute('COMMIT')
+                  return 201,dict(ok=True,id=booking_id,status='pending',replayed=False)
+              except Exception:
+                  if c.in_transaction:c.execute('ROLLBACK')
+                  raise
+              finally:c.close()
+
+          def revoke(token,version):
+              office,subject=verify_identity(token)
+              if not isinstance(version,str) or not re.fullmatch(r'20\d{2}-\d{2}-v\d{1,2}',version):raise Bad(422,'VERSION_INVALID')
+              c=connect()
+              try:
+                  c.execute('BEGIN IMMEDIATE')
+                  pol=active_policy(c,office)
+                  if pol[0]!=version:raise Bad(409,'VERSION_MISMATCH')
+                  seq=c.execute("INSERT INTO consent_events(kind) VALUES('revocation')").lastrowid
+                  c.execute('INSERT INTO revocations(office,subject,version,occurred_at,occurred_seq) VALUES(?,?,?,?,?)',(office,subject,version,int(NOW.timestamp()),seq))
+                  c.execute('COMMIT')
+                  return 200,dict(ok=True,revoked=True)
+              finally:c.close()
+
+          class Handler(http.server.BaseHTTPRequestHandler):
+              def log_message(self,*args):pass
+              def do_POST(self):
+                  try:
+                      if self.path not in ['/qa/challenge','/qa/book','/qa/revoke']:raise Bad(404,'NOT_FOUND')
+                      n=self.headers.get('Content-Length')
+                      if n is None or not n.isdigit() or int(n)>4096:raise Bad(413,'PAYLOAD_LIMIT')
+                      payload=self.rfile.read(int(n))
+                      try:d=json.loads(payload)
+                      except Exception:raise Bad(400,'INVALID_JSON')
+                      if not isinstance(d,dict):raise Bad(422,'BODY_INVALID')
+                      auth=self.headers.get('Authorization','')
+                      if not auth.startswith('Bearer '):raise Bad(401,'IDENTITY_REQUIRED')
+                      token=auth[7:]
+                      if self.path=='/qa/challenge':
+                          if d:raise Bad(422,'BODY_INVALID')
+                          status,out=issue_challenge(token)
+                      elif self.path=='/qa/book': status,out=make_booking(token,d,self.headers.get('Idempotency-Key',''))
+                      else:
+                          if set(d)!={'privacy_notice_version'}:raise Bad(422,'BODY_INVALID')
+                          status,out=revoke(token,d['privacy_notice_version'])
+                  except Bad as e:status,out=e.status,dict(ok=False,error=e.code)
+                  except sqlite3.Error:status,out=503,dict(ok=False,error='DATABASE_UNAVAILABLE')
+                  except Exception:status,out=500,dict(ok=False,error='REFERENCE_ERROR')
+                  outbytes=raw(out)
+                  self.send_response(status);self.send_header('Content-Type','application/json; charset=utf-8');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(outbytes)));self.end_headers();self.wfile.write(outbytes)
+
+          def request(url,path,token=None,data=None,key=None,raw_body=None):
+              h={'Content-Type':'application/json'}
+              if token is not None:h['Authorization']='Bearer '+token
+              if key is not None:h['Idempotency-Key']=key
+              b=raw_body if raw_body is not None else raw({} if data is None else data)
+              req=urllib.request.Request(url+path,data=b,headers=h,method='POST')
+              try:
+                  with urllib.request.urlopen(req,timeout=15) as resp:return resp.status,json.loads(resp.read())
+              except urllib.error.HTTPError as e:return e.code,json.loads(e.read())
+
+          class Test:
+              def __init__(self,url):self.url=url;self.count=0
+              def check(self,name,yes):
+                  if not yes:raise AssertionError('R172_FAIL_'+name)
+                  self.count+=1;print(f'R172_PASS_{self.count:02d}: {name}',flush=True)
+              def call(self,path,token=None,data=None,key=None,raw_body=None):return request(self.url,path,token,data,key,raw_body)
+              def error(self,name,path,status,code,token=None,data=None,key=None,raw_body=None):
+                  s,o=self.call(path,token,data,key,raw_body);self.check(name,s==status and o=={'ok':False,'error':code})
+
+          def tests(url):
+              t=Test(url);A=issue_token();B=issue_token(subject='guest_B');C=issue_token(office='office_B')
+              when='2026-10-14T10:00:00+09:00'
+              def challenge(tok=A):
+                  s,o=t.call('/qa/challenge',tok);assert s==200;return o
+              def body(ch,**kw):
+                  d=dict(service='service_tax',requested_start_at=when,privacy_consent=True,privacy_notice_version=ch['notice_version'],challenge_id=ch['challenge_id']);d.update(kw);return d
+              def key(i):return 'idempotency_key_r172_'+str(i).zfill(6)
+              s,ch=t.call('/qa/challenge',A)
+              t.check('verified subject receives policy challenge',s==200 and ch['ok'] and ch['notice_version']=='2026-10-v1')
+              t.check('server supplies notice digest',ch['notice_digest']==hashlib.sha256(DUMMY_NOTICE).hexdigest())
+              t.check('same-site policy document path',ch['notice_path']=='/tax-privacy-v1.html')
+              t.check('short capability lifetime',ch['expires_in']==120)
+              t.error('anonymous challenge denied','/qa/challenge',401,'IDENTITY_REQUIRED')
+              t.error('invalid signed identity denied','/qa/challenge',401,'IDENTITY_INVALID',token=A[:-1]+'*')
+              t.error('wrong identity issuer denied','/qa/challenge',401,'IDENTITY_SCOPE',token=issue_token(iss='other'))
+              t.error('wrong identity audience denied','/qa/challenge',401,'IDENTITY_SCOPE',token=issue_token(aud='other'))
+              t.error('wrong identity purpose denied','/qa/challenge',401,'IDENTITY_SCOPE',token=issue_token(purpose='profile'))
+              t.error('wrong identity method denied','/qa/challenge',401,'IDENTITY_SCOPE',token=issue_token(method='unverified'))
+              t.error('expired identity denied','/qa/challenge',401,'IDENTITY_EXPIRED',token=issue_token(exp=-1))
+              t.error('overlong identity validity denied','/qa/challenge',401,'IDENTITY_EXPIRED',token=issue_token(exp=900))
+              t.error('identity with extra claims denied','/qa/challenge',401,'IDENTITY_CLAIMS',token=issue_token(role='admin'))
+              t.error('challenge rejects arbitrary body','/qa/challenge',422,'BODY_INVALID',token=A,data={'office':'office_B'})
+              t.error('unrecognized HTTP path not exposed','/qa/admin',404,'NOT_FOUND',token=A)
+              t.error('anonymous booking denied','/qa/book',401,'IDENTITY_REQUIRED',data=body(ch),key=key(1))
+              t.error('client boolean alone is insufficient','/qa/book',422,'BODY_INVALID',token=A,data={k:v for k,v in body(ch).items() if k!='challenge_id'},key=key(1))
+              t.error('consent unchecked rejected','/qa/book',422,'CONSENT_REQUIRED',token=A,data=body(ch,privacy_consent=False),key=key(1))
+              t.error('consent string is not consent','/qa/book',422,'CONSENT_REQUIRED',token=A,data=body(ch,privacy_consent='true'),key=key(1))
+              t.error('untrusted office in body refused','/qa/book',422,'BODY_INVALID',token=A,data=dict(body(ch),office='office_B'),key=key(1))
+              t.error('untrusted subject in body refused','/qa/book',422,'BODY_INVALID',token=A,data=dict(body(ch),subject='guest_B'),key=key(1))
+              t.error('untrusted confirmed status refused','/qa/book',422,'BODY_INVALID',token=A,data=dict(body(ch),status='confirmed'),key=key(1))
+              t.error('request phone refused by minimized adapter','/qa/book',422,'BODY_INVALID',token=A,data=dict(body(ch),phone='09000000000'),key=key(1))
+              t.error('empty request key denied','/qa/book',422,'IDEMPOTENCY_REQUIRED',token=A,data=body(ch),key='')
+              try: make_booking(A,body(ch),'unsafe\nkey');crlf_refused=False
+              except Bad as e:crlf_refused=e.status==422 and e.code=='IDEMPOTENCY_REQUIRED'
+              t.check('unsafe CRLF request key denied before HTTP header parsing',crlf_refused)
+              t.error('unknown challenge denied','/qa/book',403,'CHALLENGE_NOT_FOUND',token=A,data=body(ch,challenge_id='fake_invalid_challenge_0123456789'),key=key(1))
+              t.error('other subject cannot use challenge','/qa/book',403,'CHALLENGE_SCOPE',token=B,data=body(ch),key=key(1))
+              t.error('other office cannot use challenge','/qa/book',403,'CHALLENGE_SCOPE',token=C,data=body(ch),key=key(1))
+              t.error('wrong version refused','/qa/book',409,'POLICY_CHANGED',token=A,data=body(ch,privacy_notice_version='2026-10-v2'),key=key(1))
+              t.error('quarter-hour appointment denied','/qa/book',422,'INVALID_SLOT',token=A,data=body(ch,requested_start_at='2026-10-14T10:15:00+09:00'),key=key(1))
+              t.error('past appointment denied','/qa/book',422,'INVALID_SLOT',token=A,data=body(ch,requested_start_at='2026-10-12T10:00:00+09:00'),key=key(1))
+              t.error('no timezone refused','/qa/book',422,'INVALID_SLOT',token=A,data=body(ch,requested_start_at='2026-10-14T10:00:00'),key=key(1))
+              t.error('wrong service denied','/qa/book',422,'SERVICE_INVALID',token=A,data=body(ch,service='unknown'),key=key(1))
+              t.error('JSON array rejected','/qa/book',422,'BODY_INVALID',token=A,data=['bad'],key=key(1))
+              t.error('invalid JSON rejected','/qa/book',400,'INVALID_JSON',token=A,raw_body=b'{invalid',key=key(1))
+              s,o=t.call('/qa/book',A,body(ch),key(1));first=o.get('id')
+              t.check('first verified booking is pending',s==201 and o.get('ok') and o.get('status')=='pending' and first.startswith('req_'))
+              s,o=t.call('/qa/book',A,body(ch),key(1))
+              t.check('same key replays identical pending receipt',s==200 and o.get('id')==first and o.get('replayed') is True)
+              t.error('reused challenge with new key rejected','/qa/book',409,'CHALLENGE_USED',token=A,data=body(ch),key=key(2))
+              t.error('changed service with same key rejected','/qa/book',409,'IDEMPOTENCY_CONFLICT',token=A,data=body(ch,service='service_new'),key=key(1))
+              t.error('changed time with same key rejected','/qa/book',409,'IDEMPOTENCY_CONFLICT',token=A,data=body(ch,requested_start_at='2026-10-14T10:30:00+09:00'),key=key(1))
+              c=connect();num=c.execute('SELECT COUNT(*) FROM consent_evidence WHERE booking_id=?',(first,)).fetchone()[0]
+              t.check('one immutable evidence record per booking',num==1)
+              try:c.execute('UPDATE consent_evidence SET policy_version=? WHERE booking_id=?',('tampered',first));changed=True
+              except sqlite3.DatabaseError:changed=False
+              t.check('evidence UPDATE forbidden',not changed)
+              try:c.execute('DELETE FROM consent_evidence WHERE booking_id=?',(first,));deleted=True
+              except sqlite3.DatabaseError:deleted=False
+              t.check('evidence DELETE forbidden',not deleted)
+              r=c.execute('SELECT policy_digest,policy_version,proof_method FROM consent_evidence WHERE booking_id=?',(first,)).fetchone()
+              t.check('evidence binds immutable policy digest and method',r==(hashlib.sha256(DUMMY_NOTICE).hexdigest(),'2026-10-v1','synthetic_verified_contact_plus_explicit_boolean'))
+              t.check('evidence schema stores no contact details',all(w not in ' '.join(x[1] for x in c.execute('PRAGMA table_info(consent_evidence)')).lower() for w in ('phone','email','message','line_id')))
+              c.close()
+              late=challenge();c=connect();c.execute('UPDATE challenges SET expires_at=issued_at WHERE id=?',(late['challenge_id'],));c.close()
+              t.error('expired challenge refused','/qa/book',403,'CHALLENGE_EXPIRED',token=A,data=body(late),key=key(3))
+              before_revoke=challenge()
+              s,o=t.call('/qa/revoke',A,{'privacy_notice_version':'2026-10-v1'})
+              t.check('verified subject can record consent revocation',s==200 and o.get('revoked') is True)
+              t.error('pre-revocation challenge refused','/qa/book',403,'CONSENT_REVOKED_RECONSENT_REQUIRED',token=A,data=body(before_revoke),key=key(4))
+              after=challenge();s,o=t.call('/qa/book',A,body(after),key(4))
+              t.check('fresh express consent after revocation accepted',s==201 and o.get('status')=='pending')
+              s,o=t.call('/qa/book',A,body(ch),key(1))
+              t.check('same authenticated original receipt can be recovered without new consent',s==200 and o.get('id')==first)
+              c=connect();c.execute('UPDATE policies SET version=?,digest=? WHERE office=?',('2026-10-v2',hashlib.sha256(b'FICTIONAL_POLICY_V2').hexdigest(),'office_A'));c.close()
+              old=after
+              t.error('rotated policy rejects old challenge for new key','/qa/book',409,'POLICY_CHANGED',token=A,data=body(old),key=key(5))
+              t.error('wrong policy version after rotation refused','/qa/book',409,'POLICY_CHANGED',token=A,data=body(ch),key=key(5))
+              s,o=t.call('/qa/book',A,body(ch),key(1))
+              t.check('rotation cannot erase old pending receipt',s==200 and o.get('id')==first)
+              fresh=challenge();t.check('new challenge has rotated version and digest',fresh['notice_version']=='2026-10-v2' and fresh['notice_digest']==hashlib.sha256(b'FICTIONAL_POLICY_V2').hexdigest())
+              c=connect();c.execute('UPDATE policies SET active=0 WHERE office=?',('office_A',));c.close()
+              t.error('inactive policy prevents new challenges','/qa/challenge',503,'POLICY_UNAVAILABLE',token=A)
+              t.error('inactive policy prevents new booking','/qa/book',503,'POLICY_UNAVAILABLE',token=A,data=body(fresh),key=key(5))
+              c=connect();c.execute('UPDATE policies SET active=1 WHERE office=?',('office_A',));c.close()
+              # Race separate verified office subject and fresh single-use challenge.
+              race_ch=challenge(C);race_body=body(race_ch);race_key=key(800)
+              with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+                  vals=list(pool.map(lambda i:t.call('/qa/book',C,race_body,race_key),range(8)))
+              ids={v[1].get('id') for v in vals};states=[v[0] for v in vals]
+              t.check('eight parallel verified attempts return HTTP success',len(states)==8 and all(x in (200,201) for x in states))
+              t.check('eight parallel retry attempts return one ID',len(ids)==1)
+              t.check('exactly one first insert and seven replays',states.count(201)==1 and states.count(200)==7)
+              c=connect();n=c.execute('SELECT COUNT(*) FROM bookings WHERE office=? AND subject=? AND key=?',('office_B','guest_A',race_key)).fetchone()[0]
+              e=c.execute('SELECT COUNT(*) FROM consent_evidence WHERE booking_id=?',(next(iter(ids)),)).fetchone()[0]
+              t.check('single durable database booking exists',n==1)
+              t.check('single durable evidence row exists',e==1)
+              t.check('booking table only contains pending',c.execute("SELECT COUNT(*) FROM bookings WHERE status!='pending'").fetchone()[0]==0)
+              t.check('audit never stores typed phone email or free-text message',all(f not in ' '.join(y[1] for table in ['bookings','consent_evidence','challenges'] for y in c.execute('PRAGMA table_info('+table+')')).lower() for f in ('phone','email','message','line_user_id')))
+              c.close()
+              t.error('unverified subject cannot revoke','/qa/revoke',401,'IDENTITY_REQUIRED',data={'privacy_notice_version':'2026-10-v2'})
+              t.error('malformed revocation version refused','/qa/revoke',422,'VERSION_INVALID',token=A,data={'privacy_notice_version':'../../../secrets'})
+              t.error('old version cannot revoke new version','/qa/revoke',409,'VERSION_MISMATCH',token=A,data={'privacy_notice_version':'2026-10-v1'})
+              print(f'R172_SUMMARY {t.count} / {t.count} PASS: SYNTHETIC_CONSENT_EVIDENCE_RELEASE_HOLD',flush=True)
+              return t.count
+
+
+          def main():
+              with tempfile.TemporaryDirectory(prefix='r172_fake_only_') as tmp:
+                  path=os.path.join(tmp,'reference.sqlite');setup(path)
+                  server=http.server.ThreadingHTTPServer(('127.0.0.1',0),Handler)
+                  thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+                  try:
+                      count=tests(f'http://127.0.0.1:{server.server_port}')
+                      print(f'R172_LOCAL_HTTP_SQLITE_PASS: {count} VERIFIED_CASES; FAKE_IDENTITY_ONLY; COMMERCIAL_RELEASE_HOLD',flush=True)
+                  finally:server.shutdown();server.server_close();thread.join(timeout=3)
+          if __name__=='__main__':main()
+          R172_SYNTHETIC_REFERENCE_ONLY
+          echo 'e9660095616d1b9f1720294c9197f397480cba0ca864faefae877cab49b48430  '"$RUNNER_TEMP/r172_reference.py" | sha256sum -c -
+          python3 -m py_compile "$RUNNER_TEMP/r172_reference.py"
+      - name: Run actual loopback HTTP and disposable SQLite consent evidence and concurrency QA
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -I "$RUNNER_TEMP/r172_reference.py" | tee "$RUNNER_TEMP/r172_results.log"
+          test "$(grep -Ec '^R172_PASS_[0-9]{2}:' "$RUNNER_TEMP/r172_results.log")" -eq 66
+          grep -Fx 'R172_SUMMARY 66 / 66 PASS: SYNTHETIC_CONSENT_EVIDENCE_RELEASE_HOLD' "$RUNNER_TEMP/r172_results.log"
+          grep -Fx 'R172_LOCAL_HTTP_SQLITE_PASS: 66 VERIFIED_CASES; FAKE_IDENTITY_ONLY; COMMERCIAL_RELEASE_HOLD' "$RUNNER_TEMP/r172_results.log"
+      - name: Mark no production integration and commercial release hold
+        if: success()
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'R172_RELEASE_SCOPE'
+          ## R172 synthetic server-side consent evidence reference: 66/66 PASS, RELEASE HOLD
+          - Real localhost HTTP requests and *disposable SQLite* only. Token signing key is an intentionally public test literal and is NOT authentication.
+          - Synthetic verifier claims are assumed, never connected to actual LINE/SMS/email, auth or Cloudflare Worker.
+          - Simulated notice version + SHA256, office/verified-subject bound one-time challenge, transactional pending booking and append-only SQLite audit trigger.
+          - Challenge ordering versus revocation uses durable SQLite INTEGER AUTOINCREMENT sequence, not wall-clock seconds; policy rotation invalidates old challenges.
+          - Client `privacy_consent=true` is easily spoofed. These tests validate only the server-side **recording protocol**, not a real person's understanding or legally valid consent.
+          - A privileged DB admin can bypass an SQLite trigger; real immutable audit, tenant RLS, retention/deletion request compliance, real policy approval and abuse controls are NOT proven.
+          - Request data intentionally excludes name/phone/email/message. Existing live public form DOES collect these; real consent purpose and data mapping require review.
+          - R171 UI candidate, R167 retry bridge and this R172 server protocol are **three independent nondeployable references**, NOT integrated. Staging R105 read-only ON; flags default OFF.
+          - Do NOT copy any synthetic signing key, reference tables, pseudonymous IDs or dummy notices to real Worker/Supabase.
+          - No production Worker, Supabase, LINE, main, control center, external writes, customer data, migrations or deploy.
+          - Real customer acceptance 0/18 NOT_TESTED. Commercial release **HOLD**, explicit owner approval and independent real-stack QA required.
+          R172_RELEASE_SCOPE
