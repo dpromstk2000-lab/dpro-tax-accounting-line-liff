@@ -1,0 +1,181 @@
+name: DPRO TAX R238 Isolated PG17 BYPASSRLS and SECURITY DEFINER Boundary QA
+
+on:
+  push:
+    branches: ['qa/r225-synthetic-pg17-backup-restore-20261014']
+    paths:
+      - '.github/workflows/dpro-tax-r238-bypassrls-security-definer-isolated-pg17-qa.yml'
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches: [main]
+    paths:
+      - '.github/workflows/dpro-tax-r238-bypassrls-security-definer-isolated-pg17-qa.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  r238-ephemeral-pg17-only:
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/qa/r225-synthetic-pg17-backup-restore-20261014') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: r238_ephemeral_fake_only
+          POSTGRES_DB: r238_disposable_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d r238_disposable_only"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: r238_ephemeral_fake_only
+      PGDATABASE: r238_disposable_only
+      PGCONNECT_TIMEOUT: '5'
+    steps:
+      - name: Create imaginary roles, FORCE RLS and two fictional tenants
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$PGHOST" = '127.0.0.1'
+          test "$PGDATABASE" = 'r238_disposable_only'
+          test "$PGUSER" = 'postgres'
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+          psql -qAtX -v ON_ERROR_STOP=1 -c 'SHOW server_version;' | grep -E '^17\.'
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE qa_r238_owner NOLOGIN;
+          CREATE ROLE qa_r238_staff NOLOGIN;
+          CREATE ROLE qa_r238_anon NOLOGIN;
+          CREATE ROLE qa_r238_bypass NOLOGIN BYPASSRLS;
+          CREATE SCHEMA qa_r238;
+          GRANT USAGE, CREATE ON SCHEMA qa_r238 TO qa_r238_owner, qa_r238_bypass;
+          GRANT USAGE ON SCHEMA qa_r238 TO qa_r238_staff, qa_r238_anon;
+          SET ROLE qa_r238_owner;
+          CREATE TABLE qa_r238.fake_rows (
+            id integer PRIMARY KEY, tenant_label text NOT NULL
+          );
+          RESET ROLE;
+          INSERT INTO qa_r238.fake_rows VALUES
+            (1,'qa_r238_staff'), (2,'fictional_other_tenant');
+          GRANT SELECT ON qa_r238.fake_rows TO qa_r238_staff, qa_r238_bypass;
+          ALTER TABLE qa_r238.fake_rows ENABLE ROW LEVEL SECURITY;
+          ALTER TABLE qa_r238.fake_rows FORCE ROW LEVEL SECURITY;
+          CREATE POLICY qa_r238_staff_only ON qa_r238.fake_rows
+            FOR SELECT TO qa_r238_staff USING (tenant_label = current_user);
+          DO $check$
+          BEGIN
+            IF NOT (SELECT rolbypassrls FROM pg_roles WHERE rolname='qa_r238_bypass') THEN
+              RAISE EXCEPTION 'Imaginary bypass role lacks BYPASSRLS';
+            END IF;
+            IF NOT (SELECT relrowsecurity AND relforcerowsecurity
+                    FROM pg_class WHERE oid='qa_r238.fake_rows'::regclass) THEN
+              RAISE EXCEPTION 'Imaginary FORCE RLS is not enabled';
+            END IF;
+          END $check$;
+          SQL
+          echo 'PASS: disposable PG17 fake roles, tenant rows and FORCE RLS created'
+
+      - name: Prove FORCE RLS restricts owner but not BYPASSRLS role
+        shell: bash
+        run: |
+          set -euo pipefail
+          owner_count=$(psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE qa_r238_owner; SELECT count(*) FROM qa_r238.fake_rows;' | tail -n 1)
+          staff_count=$(psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE qa_r238_staff; SELECT count(*) FROM qa_r238.fake_rows;' | tail -n 1)
+          bypass_count=$(psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE qa_r238_bypass; SELECT count(*) FROM qa_r238.fake_rows;' | tail -n 1)
+          test "$owner_count" = '0'
+          test "$staff_count" = '1'
+          test "$bypass_count" = '2'
+          if psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE qa_r238_anon; SELECT count(*) FROM qa_r238.fake_rows;' >/dev/null 2>&1; then
+            echo 'FAIL: fictional anonymous role unexpectedly has table SELECT'; exit 1
+          fi
+          echo 'PASS: FORCE RLS owner=0, staff=1, BYPASSRLS=2 fictional rows; anon denied'
+
+      - name: Reproduce PUBLIC EXECUTE risk for a bypass-role definer function
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          SET ROLE qa_r238_bypass;
+          CREATE FUNCTION qa_r238.count_fake_rows() RETURNS integer
+            LANGUAGE sql SECURITY DEFINER
+            SET search_path = pg_catalog, qa_r238, pg_temp
+            AS $$ SELECT count(*)::integer FROM qa_r238.fake_rows $$;
+          RESET ROLE;
+          DO $check$
+          BEGIN
+            IF has_table_privilege('qa_r238_anon','qa_r238.fake_rows','SELECT') THEN
+              RAISE EXCEPTION 'Anonymous direct table SELECT unexpectedly allowed';
+            END IF;
+            IF NOT has_function_privilege('qa_r238_anon','qa_r238.count_fake_rows()','EXECUTE') THEN
+              RAISE EXCEPTION 'Expected default PUBLIC EXECUTE of imaginary function';
+            END IF;
+          END $check$;
+          SQL
+          count_from_anon=$(psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE qa_r238_anon; SELECT qa_r238.count_fake_rows();' | tail -n 1)
+          test "$count_from_anon" = '2'
+          echo 'PASS: fake anon without table SELECT could invoke default-PUBLIC bypass-role SECURITY DEFINER function'
+
+      - name: Revoke PUBLIC EXECUTE and compare definer vs invoker semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          REVOKE ALL ON FUNCTION qa_r238.count_fake_rows() FROM PUBLIC;
+          GRANT EXECUTE ON FUNCTION qa_r238.count_fake_rows() TO qa_r238_staff;
+          DO $check$
+          BEGIN
+            IF has_function_privilege('qa_r238_anon','qa_r238.count_fake_rows()','EXECUTE') THEN
+              RAISE EXCEPTION 'Anonymous still has EXECUTE on imaginary function';
+            END IF;
+          END $check$;
+          SQL
+          if psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE qa_r238_anon; SELECT qa_r238.count_fake_rows();' >/dev/null 2>&1; then
+            echo 'FAIL: anonymous function call succeeded after REVOKE'; exit 1
+          fi
+          as_definer=$(psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE qa_r238_staff; SELECT qa_r238.count_fake_rows();' | tail -n 1)
+          test "$as_definer" = '2'
+          psql -X -v ON_ERROR_STOP=1 -c 'ALTER FUNCTION qa_r238.count_fake_rows() SECURITY INVOKER;'
+          as_invoker=$(psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE qa_r238_staff; SELECT qa_r238.count_fake_rows();' | tail -n 1)
+          test "$as_invoker" = '1'
+          echo 'PASS: PUBLIC EXECUTE revoked; staff definer=2 vs invoker=1 imaginary rows'
+
+      - name: Revoke table permission and confirm BYPASSRLS is not SELECT privilege
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          REVOKE SELECT ON qa_r238.fake_rows FROM qa_r238_bypass;
+          DO $check$
+          BEGIN
+            IF has_table_privilege('qa_r238_bypass','qa_r238.fake_rows','SELECT') THEN
+              RAISE EXCEPTION 'Imaginary BYPASSRLS role still has table SELECT';
+            END IF;
+            IF NOT (SELECT rolbypassrls FROM pg_roles WHERE rolname='qa_r238_bypass') THEN
+              RAISE EXCEPTION 'Synthetic BYPASSRLS role attribute unexpectedly removed';
+            END IF;
+            IF (SELECT prosecdef FROM pg_proc WHERE oid='qa_r238.count_fake_rows()'::regprocedure) THEN
+              RAISE EXCEPTION 'Imaginary function should now be SECURITY INVOKER';
+            END IF;
+          END $check$;
+          SQL
+          if psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE qa_r238_bypass; SELECT count(*) FROM qa_r238.fake_rows;' >/dev/null 2>&1; then
+            echo 'FAIL: imaginary BYPASSRLS role read table without SELECT'; exit 1
+          fi
+          staff_count=$(psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE qa_r238_staff; SELECT qa_r238.count_fake_rows();' | tail -n 1)
+          test "$staff_count" = '1'
+          test "$PGHOST" = '127.0.0.1'
+          test "$PGDATABASE" = 'r238_disposable_only'
+          echo 'PASS: BYPASSRLS cannot replace table SELECT; invoker function remains staff-scoped'
+          echo 'This is a synthetic PostgreSQL RLS test, not evidence that current Supabase roles or APIs are exposed.'
+          echo 'NO_GO / HOLD / NO MERGE / NO DEPLOY; Worker7 KEEP; production Supabase never contacted'
