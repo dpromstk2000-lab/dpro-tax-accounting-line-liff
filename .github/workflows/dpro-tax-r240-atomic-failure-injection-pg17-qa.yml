@@ -1,0 +1,227 @@
+name: DPRO TAX R240 Isolated PG17 Atomic Failure Injection Gate QA
+
+on:
+  push:
+    branches: ['qa/r225-synthetic-pg17-backup-restore-20261014']
+    paths: ['.github/workflows/dpro-tax-r240-atomic-failure-injection-pg17-qa.yml']
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches: [main]
+    paths: ['.github/workflows/dpro-tax-r240-atomic-failure-injection-pg17-qa.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  r240-atomic-disposable-only:
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/qa/r225-synthetic-pg17-backup-restore-20261014') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: r240_synthetic_only_local
+          POSTGRES_DB: r240_disposable_only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d r240_disposable_only"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: r240_synthetic_only_local
+      PGDATABASE: r240_disposable_only
+      PGCONNECT_TIMEOUT: '5'
+    steps:
+      - name: Prepare synthetic schema with unsafe grants and default ACL
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$PGHOST" = '127.0.0.1'
+          test "$PGDATABASE" = 'r240_disposable_only'
+          test "$PGUSER" = 'postgres'
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+          psql -AtX -v ON_ERROR_STOP=1 -c 'SHOW server_version;' | grep -E '^17\.'
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE r240_anon NOLOGIN;
+          CREATE ROLE r240_staff NOLOGIN;
+          CREATE ROLE r240_creator NOLOGIN;
+          CREATE SCHEMA r240_lab;
+          GRANT USAGE ON SCHEMA r240_lab TO r240_anon, r240_staff, r240_creator;
+          GRANT CREATE ON SCHEMA r240_lab TO r240_creator;
+          ALTER DEFAULT PRIVILEGES FOR ROLE r240_creator
+            GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON TABLES TO r240_anon;
+          SET ROLE r240_creator;
+          CREATE TABLE r240_lab.fake_clients (id integer PRIMARY KEY, tenant_label text NOT NULL);
+          CREATE TABLE r240_lab.fake_tasks (id integer PRIMARY KEY, client_id integer NOT NULL);
+          RESET ROLE;
+          INSERT INTO r240_lab.fake_clients VALUES (1,'fake-A'),(2,'fake-B');
+          INSERT INTO r240_lab.fake_tasks VALUES (11,1);
+          GRANT SELECT ON r240_lab.fake_clients TO r240_staff;
+          DO $verify$
+          BEGIN
+           IF NOT has_table_privilege('r240_anon','r240_lab.fake_clients','TRUNCATE') OR
+              NOT has_table_privilege('r240_anon','r240_lab.fake_tasks','SELECT') THEN
+             RAISE EXCEPTION 'Synthetic overgrant fixture not initialized';
+           END IF;
+           IF (SELECT relrowsecurity FROM pg_class WHERE oid='r240_lab.fake_clients'::regclass) THEN
+             RAISE EXCEPTION 'Synthetic baseline unexpectedly already has RLS';
+           END IF;
+          END $verify$;
+          SQL
+          echo 'PASS: fake PG17 tables, rows, excess ACL and inherited future table grant fixtures ready'
+
+      - name: Inject a late SQL error and prove the entire transaction rolled back
+        shell: bash
+        run: |
+          set -euo pipefail
+          log_file=$(mktemp)
+          if psql -qAtX -v ON_ERROR_STOP=1 >"$log_file" 2>&1 <<'SQL'
+          BEGIN;
+          ALTER DEFAULT PRIVILEGES FOR ROLE r240_creator
+           REVOKE SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON TABLES FROM r240_anon;
+          REVOKE SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON r240_lab.fake_clients,r240_lab.fake_tasks FROM r240_anon;
+          ALTER TABLE r240_lab.fake_clients ENABLE ROW LEVEL SECURITY;
+          ALTER TABLE r240_lab.fake_clients FORCE ROW LEVEL SECURITY;
+          CREATE POLICY r240_fake_staff_read ON r240_lab.fake_clients
+           FOR SELECT TO r240_staff USING (tenant_label = current_setting('r240.fake_tenant',true));
+          DO $inject$
+          BEGIN
+           RAISE EXCEPTION 'R240_EXPECTED_FAILURE_AFTER_MULTIPLE_CHANGES';
+          END $inject$;
+          COMMIT;
+          SQL
+          then
+           echo 'FAIL: intentional synthetic SQL failure did not abort'; cat "$log_file"; exit 1
+          fi
+          grep -q 'R240_EXPECTED_FAILURE_AFTER_MULTIPLE_CHANGES' "$log_file"
+          rm "$log_file"
+          psql -qAtX -v ON_ERROR_STOP=1 <<'SQL'
+          DO $verify$
+          BEGIN
+           IF NOT has_table_privilege('r240_anon','r240_lab.fake_clients','TRUNCATE') OR
+              NOT has_table_privilege('r240_anon','r240_lab.fake_tasks','SELECT') THEN
+            RAISE EXCEPTION 'Synthetic failed transaction partially revoked existing ACL';
+           END IF;
+           IF (SELECT relrowsecurity OR relforcerowsecurity FROM pg_class
+               WHERE oid='r240_lab.fake_clients'::regclass) THEN
+            RAISE EXCEPTION 'Synthetic failed transaction partially enabled RLS';
+           END IF;
+           IF EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='r240_lab' AND tablename='fake_clients') THEN
+            RAISE EXCEPTION 'Synthetic failed transaction unexpectedly retained policy';
+           END IF;
+          END $verify$;
+          SQL
+          SET_ROLLBACK_COUNT=$(psql -qAtX -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_default_acl d, LATERAL aclexplode(d.defaclacl) acl WHERE d.defaclrole='r240_creator'::regrole AND d.defaclobjtype='r' AND acl.grantee='r240_anon'::regrole;")
+          test "$SET_ROLLBACK_COUNT" -ge 1
+          echo 'PASS: injected late error rolled back default ACL, table grants, RLS flags and policy atomically'
+
+      - name: Apply full fake remediation in one committed transaction
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -qAtX -v ON_ERROR_STOP=1 <<'SQL'
+          BEGIN;
+          ALTER DEFAULT PRIVILEGES FOR ROLE r240_creator
+           REVOKE SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON TABLES FROM r240_anon;
+          REVOKE SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON r240_lab.fake_clients,r240_lab.fake_tasks FROM r240_anon;
+          ALTER TABLE r240_lab.fake_clients ENABLE ROW LEVEL SECURITY;
+          ALTER TABLE r240_lab.fake_clients FORCE ROW LEVEL SECURITY;
+          ALTER TABLE r240_lab.fake_tasks ENABLE ROW LEVEL SECURITY;
+          ALTER TABLE r240_lab.fake_tasks FORCE ROW LEVEL SECURITY;
+          CREATE POLICY r240_fake_staff_read ON r240_lab.fake_clients
+           FOR SELECT TO r240_staff USING (tenant_label = current_setting('r240.fake_tenant',true));
+          COMMIT;
+          DO $verify$
+          BEGIN
+           IF has_table_privilege('r240_anon','r240_lab.fake_clients','TRUNCATE') OR
+              has_table_privilege('r240_anon','r240_lab.fake_tasks','SELECT') OR
+              has_table_privilege('r240_anon','r240_lab.fake_clients','DELETE') THEN
+             RAISE EXCEPTION 'Fake committed remediation still has anonymous grants';
+           END IF;
+           IF NOT (SELECT relrowsecurity AND relforcerowsecurity FROM pg_class
+                    WHERE oid='r240_lab.fake_clients'::regclass) THEN
+             RAISE EXCEPTION 'Committed fictional RLS/FORCE missing';
+           END IF;
+           IF (SELECT count(*) FROM pg_policies
+               WHERE schemaname='r240_lab' AND tablename='fake_clients') <> 1 THEN
+             RAISE EXCEPTION 'Committed fictional policy missing';
+           END IF;
+          END $verify$;
+          SQL
+          echo 'PASS: successful fake transaction atomically committed minimal grants, RLS and future ACL closure'
+
+      - name: Probe unauthorized operations, tenant reads, and future objects
+        shell: bash
+        run: |
+          set -euo pipefail
+          if psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE r240_anon; SELECT count(*) FROM r240_lab.fake_clients;' >/dev/null 2>&1; then
+           echo 'FAIL: fake anonymous role can still SELECT'; exit 1
+          fi
+          if psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE r240_anon; TRUNCATE r240_lab.fake_clients;' >/dev/null 2>&1; then
+           echo 'FAIL: fake anonymous role can still TRUNCATE'; exit 1
+          fi
+          for tenant in fake-A fake-B; do
+           n=$(psql -qAtX -v ON_ERROR_STOP=1 -c "BEGIN; SET LOCAL ROLE r240_staff; SET LOCAL r240.fake_tenant = '$tenant'; SELECT count(*) FROM r240_lab.fake_clients; COMMIT;" | grep -E '^[0-9]+$' | tail -n 1)
+           test "$n" = 1
+          done
+          missing=$(psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE r240_staff; SELECT count(*) FROM r240_lab.fake_clients;' | tail -n 1)
+          test "$missing" = '0'
+          psql -qAtX -v ON_ERROR_STOP=1 <<'SQL'
+          SET ROLE r240_creator;
+          CREATE TABLE r240_lab.future_fake (id integer PRIMARY KEY);
+          RESET ROLE;
+          DO $verify$
+          BEGIN
+           IF has_table_privilege('r240_anon','r240_lab.future_fake','SELECT') OR
+              has_table_privilege('r240_anon','r240_lab.future_fake','TRUNCATE') THEN
+            RAISE EXCEPTION 'Synthetic default grants still expose future table';
+           END IF;
+           IF (SELECT count(*) FROM r240_lab.fake_clients) <> 2 OR
+              (SELECT count(*) FROM r240_lab.fake_tasks) <> 1 THEN
+            RAISE EXCEPTION 'Synthetic remediation mutated original fake business rows';
+           END IF;
+          END $verify$;
+          SQL
+          echo 'PASS: fake anon SELECT and TRUNCATE denied; fake tenant A/B each 1, missing 0; future grants closed'
+
+      - name: Prove post-commit rollback and immutable production boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -qAtX -v ON_ERROR_STOP=1 <<'SQL'
+          BEGIN;
+          GRANT SELECT, TRUNCATE ON r240_lab.fake_clients TO r240_anon;
+          ALTER TABLE r240_lab.fake_clients DISABLE ROW LEVEL SECURITY;
+          DO $check$
+          BEGIN
+           IF NOT has_table_privilege('r240_anon','r240_lab.fake_clients','TRUNCATE') OR
+              (SELECT relrowsecurity FROM pg_class WHERE oid='r240_lab.fake_clients'::regclass) THEN
+             RAISE EXCEPTION 'Expected temporary fake unsafe state not present';
+           END IF;
+          END $check$;
+          ROLLBACK;
+          DO $check$
+          BEGIN
+           IF has_table_privilege('r240_anon','r240_lab.fake_clients','TRUNCATE') OR
+              has_table_privilege('r240_anon','r240_lab.fake_clients','SELECT') OR
+              NOT (SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE oid='r240_lab.fake_clients'::regclass) THEN
+              RAISE EXCEPTION 'Fake rollback lost committed security baseline';
+           END IF;
+          END $check$;
+          SQL
+          test "$PGHOST" = '127.0.0.1'
+          test "$PGUSER" = 'postgres'
+          test "$PGDATABASE" = 'r240_disposable_only'
+          echo 'PASS: synthetic failed future attempt rolled back without changing committed security baseline'
+          echo 'R240 simulates atomicity, NOT production dependency checks, full backup or live restore.'
+          echo 'NO_GO / HOLD / NO MERGE / NO DEPLOY; no Supabase mutations, Worker7 KEEP.'
+
