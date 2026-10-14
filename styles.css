@@ -499,3 +499,32 @@ tbody tr:hover { background: #fbfdfd; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation-duration: .001ms !important; }
 }
+/* R246 QA-branch only: owner settings intrinsic grid sizing.
+   Preserve desktop two-column layout; reflow business hours within the side card.
+   NO_GO / HOLD: not approved for main or production deployment. */
+.settings-layout {
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, .85fr);
+}
+.settings-layout > *,
+.settings-side,
+.settings-main { min-width: 0; }
+.hours-row {
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+.hours-row > strong { grid-column: 1 / 3; grid-row: 1; }
+.hours-row > .hours-closed {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
+  white-space: nowrap;
+}
+.hours-row > select[data-hour-open] { grid-column: 1; grid-row: 2; }
+.hours-row > span { grid-column: 2; grid-row: 2; }
+.hours-row > select[data-hour-close] { grid-column: 3; grid-row: 2; }
+.hours-row > select { min-width: 0; max-width: 100%; width: 100%; padding-inline: 8px; }
+.hours-row input[type="checkbox"] { width: 20px; min-height: 20px; height: 20px; flex: 0 0 20px; }
+@media (max-width: 1120px) {
+  .settings-layout { grid-template-columns: minmax(0, 1fr); }
+}
