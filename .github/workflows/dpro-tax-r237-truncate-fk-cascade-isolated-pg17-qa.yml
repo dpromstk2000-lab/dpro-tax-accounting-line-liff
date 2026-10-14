@@ -1,0 +1,152 @@
+name: DPRO TAX R237 Isolated PG17 TRUNCATE RLS and FK Cascade QA
+
+on:
+  push:
+    branches: ['qa/r225-synthetic-pg17-backup-restore-20261014']
+    paths:
+      - '.github/workflows/dpro-tax-r237-truncate-fk-cascade-isolated-pg17-qa.yml'
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches: [main]
+    paths:
+      - '.github/workflows/dpro-tax-r237-truncate-fk-cascade-isolated-pg17-qa.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  r237-synthetic-truncate-only:
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/qa/r225-synthetic-pg17-backup-restore-20261014') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: r237_fake_local_only
+          POSTGRES_DB: r237_disposable_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d r237_disposable_only"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: r237_fake_local_only
+      PGDATABASE: r237_disposable_only
+      PGCONNECT_TIMEOUT: '5'
+    steps:
+      - name: Set up PG17 fictional FK-linked data and RLS-denied role
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$PGHOST" = '127.0.0.1'
+          test "$PGDATABASE" = 'r237_disposable_only'
+          test "$PGUSER" = 'postgres'
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+          psql -qAtX -v ON_ERROR_STOP=1 -c 'SHOW server_version;' | grep -E '^17\.'
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE qa_r237_anon NOLOGIN;
+          CREATE SCHEMA qa_r237;
+          CREATE TABLE qa_r237.fake_parents (id integer PRIMARY KEY, fake_owner text NOT NULL);
+          CREATE TABLE qa_r237.fake_children (id integer PRIMARY KEY, parent_id integer NOT NULL REFERENCES qa_r237.fake_parents(id));
+          INSERT INTO qa_r237.fake_parents VALUES (1,'fictional-A'),(2,'fictional-B');
+          INSERT INTO qa_r237.fake_children VALUES (11,1),(22,2);
+          GRANT USAGE ON SCHEMA qa_r237 TO qa_r237_anon;
+          GRANT TRUNCATE ON qa_r237.fake_parents TO qa_r237_anon;
+          ALTER TABLE qa_r237.fake_parents ENABLE ROW LEVEL SECURITY;
+          ALTER TABLE qa_r237.fake_parents FORCE ROW LEVEL SECURITY;
+          ALTER TABLE qa_r237.fake_children ENABLE ROW LEVEL SECURITY;
+          ALTER TABLE qa_r237.fake_children FORCE ROW LEVEL SECURITY;
+          DO $check$
+          BEGIN
+            IF has_table_privilege('qa_r237_anon','qa_r237.fake_parents','SELECT') THEN
+              RAISE EXCEPTION 'Fake anonymous role unexpectedly has SELECT';
+            END IF;
+            IF NOT has_table_privilege('qa_r237_anon','qa_r237.fake_parents','TRUNCATE') THEN
+              RAISE EXCEPTION 'Expected synthetic TRUNCATE grant missing';
+            END IF;
+            IF has_table_privilege('qa_r237_anon','qa_r237.fake_children','TRUNCATE') THEN
+              RAISE EXCEPTION 'FK child should initially deny TRUNCATE';
+            END IF;
+          END $check$;
+          SQL
+          if psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE qa_r237_anon; SELECT count(*) FROM qa_r237.fake_parents;' >/dev/null 2>&1; then
+            echo 'FAIL: anonymous role could SELECT rows'; exit 1
+          fi
+          echo 'PASS: RLS protected synthetic FK-linked tables; anonymous role has TRUNCATE but not SELECT'
+
+      - name: Verify child-table privilege blocks unauthorized TRUNCATE CASCADE
+        shell: bash
+        run: |
+          set -euo pipefail
+          if psql -qAtX -v ON_ERROR_STOP=1 -c 'BEGIN; SET LOCAL ROLE qa_r237_anon; TRUNCATE qa_r237.fake_parents CASCADE; COMMIT;' >/dev/null 2>&1; then
+            echo 'FAIL: anonymous TRUNCATE CASCADE worked without child-table TRUNCATE'; exit 1
+          fi
+          parents=$(psql -qAtX -v ON_ERROR_STOP=1 -c 'SELECT count(*) FROM qa_r237.fake_parents;' | tail -n 1)
+          children=$(psql -qAtX -v ON_ERROR_STOP=1 -c 'SELECT count(*) FROM qa_r237.fake_children;' | tail -n 1)
+          test "$parents" = 2
+          test "$children" = 2
+          echo 'PASS: lacking TRUNCATE on referencing fake child blocks cascade; rows untouched'
+
+      - name: Show RLS does not gate TRUNCATE and rollback restores both fake tables
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 -c 'GRANT TRUNCATE ON qa_r237.fake_children TO qa_r237_anon;'
+          psql -X -v ON_ERROR_STOP=1 -c 'BEGIN; SET LOCAL ROLE qa_r237_anon; TRUNCATE qa_r237.fake_parents CASCADE; ROLLBACK;'
+          parents=$(psql -qAtX -v ON_ERROR_STOP=1 -c 'SELECT count(*) FROM qa_r237.fake_parents;' | tail -n 1)
+          children=$(psql -qAtX -v ON_ERROR_STOP=1 -c 'SELECT count(*) FROM qa_r237.fake_children;' | tail -n 1)
+          test "$parents" = 2
+          test "$children" = 2
+          echo 'PASS: RLS does not prohibit privileged synthetic TRUNCATE CASCADE; ROLLBACK recovered 2+2 fake rows'
+
+      - name: Commit fictional cascade then revoke and test defense-in-depth
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 -c 'BEGIN; SET LOCAL ROLE qa_r237_anon; TRUNCATE qa_r237.fake_parents CASCADE; COMMIT;'
+          parents=$(psql -qAtX -v ON_ERROR_STOP=1 -c 'SELECT count(*) FROM qa_r237.fake_parents;' | tail -n 1)
+          children=$(psql -qAtX -v ON_ERROR_STOP=1 -c 'SELECT count(*) FROM qa_r237.fake_children;' | tail -n 1)
+          test "$parents" = 0
+          test "$children" = 0
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO qa_r237.fake_parents VALUES (3,'fictional-C');
+          INSERT INTO qa_r237.fake_children VALUES (33,3);
+          REVOKE TRUNCATE ON qa_r237.fake_parents, qa_r237.fake_children FROM qa_r237_anon;
+          DO $check$
+          BEGIN
+            IF has_table_privilege('qa_r237_anon','qa_r237.fake_parents','TRUNCATE')
+               OR has_table_privilege('qa_r237_anon','qa_r237.fake_children','TRUNCATE') THEN
+              RAISE EXCEPTION 'Synthetic role still has TRUNCATE privilege';
+            END IF;
+          END $check$;
+          SQL
+          if psql -qAtX -v ON_ERROR_STOP=1 -c 'BEGIN; SET LOCAL ROLE qa_r237_anon; TRUNCATE qa_r237.fake_parents CASCADE; COMMIT;' >/dev/null 2>&1; then
+            echo 'FAIL: fake anonymous TRUNCATE still allowed after REVOKE'; exit 1
+          fi
+          parents=$(psql -qAtX -v ON_ERROR_STOP=1 -c 'SELECT count(*) FROM qa_r237.fake_parents;' | tail -n 1)
+          children=$(psql -qAtX -v ON_ERROR_STOP=1 -c 'SELECT count(*) FROM qa_r237.fake_children;' | tail -n 1)
+          test "$parents" = 1
+          test "$children" = 1
+          echo 'PASS: committed synthetic CASCADE removed both fake tables; explicit REVOKE blocked repeat'
+
+      - name: Verify synthetic only and preserve release HOLD
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$PGHOST" = '127.0.0.1'
+          test "$PGDATABASE" = 'r237_disposable_only'
+          test "$PGUSER" = 'postgres'
+          echo 'PASS: disposable GitHub PostgreSQL 17; no production Supabase, secrets, data, Workers, LINE or deployment'
+          echo 'TRUNCATE requires a separate privilege gate: RLS alone does not block it.'
+          echo 'This is a synthetic example; FK topology and API reachability of the actual shared database are not proven.'
+          echo 'NO_GO / HOLD / NO MERGE / NO DEPLOY; Worker7 KEEP'
