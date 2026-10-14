@@ -1,4 +1,4 @@
-name: DPRO TAX R245 Real Owner Logged-in Synthetic Browser QA
+name: DPRO TAX R245C Owner Settings CSS Candidate Isolated Browser QA
 
 on:
   push:
@@ -43,7 +43,7 @@ jobs:
           done
           curl --fail --silent --show-error --noproxy '*' http://127.0.0.1:8765/owner.html -o /dev/null
           echo 'PASS: isolated localhost-only source ready' 
-      - name: Run real owner login and nine-panel UI checks with synthetic-only GET responses
+      - name: Compare original owner settings overflow against disposable CSS candidate and check nine menus
         shell: bash
         run: |
           set -euo pipefail
@@ -93,10 +93,11 @@ jobs:
            '/api/public/office':{'ok':True,'office':{
                'security_notice':'架空データのみ','booking_open_days':90},'services':[]}
           }
+          CANDIDATE_CSS='/* R245C: candidate only: test in a disposable browser, NOT deployed */\n.settings-layout { grid-template-columns: minmax(0, 1fr) !important; }\n.settings-layout > *, .settings-side, .settings-main { min-width: 0; }\n.hours-row {\n  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) !important;\n  align-items: center;\n  gap: 8px;\n}\n.hours-row > strong { grid-column: 1 / 3; grid-row: 1; }\n.hours-row > .hours-closed { grid-column: 3; grid-row: 1; justify-self: end; }\n.hours-row > select[data-hour-open] { grid-column: 1; grid-row: 2; }\n.hours-row > span { grid-column: 2; grid-row: 2; }\n.hours-row > select[data-hour-close] { grid-column: 3; grid-row: 2; }\n.hours-row > select { min-width: 0; max-width: 100%; width: 100%; }\n.hours-row input[type="checkbox"] { width: 20px; min-height: 20px; height: 20px; flex: 0 0 20px; }\n'
           report={'suite':'R245 real owner logged-in UI with synthetic-only API fixtures',
                   'main_modified':False,'production_requests':0,'attempted_mutations':0,
                   'screenshots':[],'view_checks':{},'searches':{},'blocked_requests':0,
-                  'mock_reads':0,'browser_errors':[],'release':'NO_GO/HOLD'}
+                  'mock_reads':0,'browser_errors':[],'settings_css_comparison':{},'release':'NO_GO/HOLD'}
           with sync_playwright() as p:
               browser=p.chromium.launch(headless=True,args=['--no-sandbox'])
               for preset,w,h in [('desktop',1280,800),('mobile',390,844)]:
@@ -164,12 +165,31 @@ jobs:
                       if preset=='mobile':
                           assert 'open' not in (page.locator('#admin-sidebar').get_attribute('class') or ''),(
                               preset,view,'sidebar did not auto-close')
+                      # R245C: real product CSS is intentionally unmodified. Record the
+                      # baseline regression, then apply a candidate stylesheet ONLY to this
+                      # isolated browser page. This is not proof the product has been fixed.
+                      initial_overflow=page.evaluate('Math.max(document.documentElement.scrollWidth,document.body.scrollWidth)-innerWidth')
+                      if view=='settings':
+                          baseline_name=f'{preset}-owner-settings-BEFORE-CANDIDATE.png'
+                          panel.screenshot(path=str(EVIDENCE/baseline_name),animations='disabled',timeout=15000)
+                          report['screenshots'].append(baseline_name)
+                          if preset=='desktop':
+                              assert initial_overflow>16,(preset,'known settings baseline overflow unexpectedly absent',initial_overflow)
+                          page.add_style_tag(content=CANDIDATE_CSS)
+                          geom=page.evaluate('Math.max(document.documentElement.scrollWidth,document.body.scrollWidth)-innerWidth')
+                          assert geom<=16,(preset,'settings candidate failed to remove overflow',initial_overflow,geom)
+                          # Validate that the business-hour editor remains usable, not clipped.
+                          for selector in ('#business-hours-editor [data-business-day]','[data-hour-open]','[data-hour-close]'):
+                              assert page.locator(selector).count()>=7,(preset,'business hours controls missing',selector)
+                          report['settings_css_comparison'][preset]={'original_page_overflow_px':initial_overflow,
+                              'candidate_page_overflow_px':geom,'product_css_modified':False,
+                              'review_required_before_real_code_change':True}
+                      else:
+                          geom=initial_overflow
+                          assert geom<=16,(preset,view,'page horizontal overflow',geom)
                       fname=f'{preset}-owner-{view}.png'
                       panel.screenshot(path=str(EVIDENCE/fname),animations='disabled',timeout=15000)
                       report['screenshots'].append(fname)
-                      geom=page.evaluate('Math.max(document.documentElement.scrollWidth,document.body.scrollWidth)-innerWidth')
-                      # A desktop admin data grid may scroll within a table wrapper; page-wide overflow is forbidden.
-                      assert geom<=16,(preset,view,'page horizontal overflow',geom)
                       report['view_checks'][f'{preset}/{view}']={'visible':True,'other_panels_hidden':True,
                                             'sidebar_closes':True,'page_overflow_px':geom}
                   # Exercise fuzzy/normalized phone search without any write request.
@@ -194,16 +214,18 @@ jobs:
                   report['blocked_requests']+=events['blocked']
                   page.close();ctx.close()
               browser.close()
-          assert len(report['screenshots'])==18,len(report['screenshots'])
+          assert len(report['screenshots'])==20,len(report['screenshots'])
           assert len(report['view_checks'])==18
+          assert report['settings_css_comparison']['desktop']['original_page_overflow_px']>16
+          assert all(v['candidate_page_overflow_px']<=16 for v in report['settings_css_comparison'].values())
           assert len(report['searches'])==2
           assert report['attempted_mutations']==0
           assert report['production_requests']==0
           (EVIDENCE/'qa-results.json').write_text(json.dumps(report,ensure_ascii=False,indent=2,sort_keys=True),encoding='utf-8')
           print('R245_OWNER_QA='+json.dumps(report,ensure_ascii=False,sort_keys=True))
-          print('PASS: offline logged-in owner nine panels, desktop/mobile, phone search and 18 screenshots; 0 business mutations')
+          print('PASS: owner 9x2 panels plus real CSS overflow BEFORE/AFTER isolated-only candidate; no business mutations')
           PY_R245_BROWSER
-      - name: Check evidence screenshot inventory and sealed side-effect boundary
+      - name: Verify candidate-only before-after evidence and sealed side-effect boundary
         shell: bash
         run: |
           set -euo pipefail
@@ -213,13 +235,15 @@ jobs:
           d=Path('r245-owner-browser-evidence')
           report=json.loads((d/'qa-results.json').read_text(encoding='utf8'))
           shots=list(d.glob('*.png'))
-          assert len(shots)==18,('9 owner panels x 2 viewports',len(shots))
-          assert len(report['view_checks'])==18 and len(report['searches'])==2
+          assert len(shots)==20,('18 owner panels + 2 original overflow baselines',len(shots))
+          assert len(report['view_checks'])==18
+          assert report['settings_css_comparison']['desktop']['original_page_overflow_px']>16
+          assert all(v['candidate_page_overflow_px']<=16 for v in report['settings_css_comparison'].values()) and len(report['searches'])==2
           assert all(p.stat().st_size>500 for p in shots)
           assert report['attempted_mutations']==0
           assert report['production_requests']==0
           assert all(x['page_overflow_px']<=16 for x in report['view_checks'].values())
-          print('PASS: 18 real Chromium owner panel screenshots, fake phone search desktop/mobile, 0 production changes')
+          print('PASS: 20 owner screenshots (including 2 ORIGINAL baseline defects), candidate-only CSS tested, 0 product writes')
           PY_R245_INVENTORY
       - name: Keep screenshot evidence in GitHub Actions only
         if: always()
@@ -229,10 +253,11 @@ jobs:
           path: r245-owner-browser-evidence/
           if-no-files-found: warn
           retention-days: 7
-      - name: Enforce commercial HOLD and no product deployment
+      - name: Declare unfixed product defect and enforce HOLD no product deployment
         shell: bash
         run: |
           set -euo pipefail
           echo 'PASS: owner UI tests exercised read-only fake API GETs, no real API responses or business mutations.'
           echo 'No Supabase backup or live restore was performed. No production identity, LINE auth, Worker deployment or product modifications.'
+          echo 'R245C candidate CSS injected in disposable browser only; REAL styles.css NOT fixed. Product bug remains OPEN until separately patched and retested.'
           echo 'NO_GO / HOLD / NO_MERGE; GitHub main unchanged; Worker7 KEEP.' 
