@@ -222,7 +222,6 @@ jobs:
           print('PASS: 18 real Chromium owner panel screenshots, fake phone search desktop/mobile, 0 production changes')
           PY_R245_INVENTORY
       - name: Keep screenshot evidence in GitHub Actions only
-        shell: bash
         if: always()
         uses: actions/upload-artifact@v4
         with:
