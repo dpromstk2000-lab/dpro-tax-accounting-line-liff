@@ -1,0 +1,197 @@
+name: DPRO TAX R239 Synthetic PG17 P0 Remediation Gate Rehearsal
+
+on:
+  push:
+    branches: ['qa/r225-synthetic-pg17-backup-restore-20261014']
+    paths:
+      - '.github/workflows/dpro-tax-r239-p0-security-remediation-rehearsal-pg17-qa.yml'
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches: [main]
+    paths:
+      - '.github/workflows/dpro-tax-r239-p0-security-remediation-rehearsal-pg17-qa.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  r239-disposable-release-gate-rehearsal:
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/qa/r225-synthetic-pg17-backup-restore-20261014') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: r239_disposable_synthetic_only
+          POSTGRES_DB: r239_disposable_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d r239_disposable_only"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: r239_disposable_synthetic_only
+      PGDATABASE: r239_disposable_only
+      PGCONNECT_TIMEOUT: '5'
+    steps:
+      - name: Prepare two fake shared tables and reproduce overbroad existing and future grants
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$PGHOST" = '127.0.0.1'
+          test "$PGDATABASE" = 'r239_disposable_only'
+          test "$PGUSER" = 'postgres'
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+          psql -AtX -v ON_ERROR_STOP=1 -c 'SHOW server_version;' | grep -E '^17\.'
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE r239_anon NOLOGIN;
+          CREATE ROLE r239_authenticated NOLOGIN;
+          CREATE ROLE r239_creator NOLOGIN;
+          CREATE SCHEMA r239_only;
+          GRANT USAGE ON SCHEMA r239_only TO r239_anon, r239_authenticated;
+          GRANT USAGE, CREATE ON SCHEMA r239_only TO r239_creator;
+          ALTER DEFAULT PRIVILEGES FOR ROLE r239_creator
+            GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON TABLES
+            TO r239_anon, r239_authenticated;
+          SET ROLE r239_creator;
+          CREATE TABLE r239_only.fake_customers (id integer PRIMARY KEY, tenant_label text NOT NULL);
+          CREATE TABLE r239_only.fake_reservations (id integer PRIMARY KEY, customer_id integer NOT NULL);
+          RESET ROLE;
+          INSERT INTO r239_only.fake_customers VALUES (1,'fake-a'),(2,'fake-b');
+          INSERT INTO r239_only.fake_reservations VALUES (11,1);
+          DO $check$
+          BEGIN
+            IF NOT has_table_privilege('r239_anon','r239_only.fake_customers','TRUNCATE')
+               OR NOT has_table_privilege('r239_anon','r239_only.fake_customers','SELECT')
+               OR NOT has_table_privilege('r239_authenticated','r239_only.fake_reservations','DELETE') THEN
+              RAISE EXCEPTION 'Synthetic overbroad grant baseline missing';
+            END IF;
+          END $check$;
+          SQL
+          echo 'PASS: disposable PG17 reproduced synthetic existing overgrant and future defaults'
+
+      - name: Apply synthetic least privilege RLS and prevent future overgrants
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          ALTER DEFAULT PRIVILEGES FOR ROLE r239_creator
+            REVOKE SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON TABLES
+            FROM r239_anon, r239_authenticated;
+          REVOKE SELECT, INSERT, UPDATE, DELETE, TRUNCATE
+            ON r239_only.fake_customers, r239_only.fake_reservations
+            FROM r239_anon, r239_authenticated;
+          ALTER TABLE r239_only.fake_customers ENABLE ROW LEVEL SECURITY;
+          ALTER TABLE r239_only.fake_customers FORCE ROW LEVEL SECURITY;
+          ALTER TABLE r239_only.fake_reservations ENABLE ROW LEVEL SECURITY;
+          ALTER TABLE r239_only.fake_reservations FORCE ROW LEVEL SECURITY;
+          CREATE POLICY r239_authenticated_read_own ON r239_only.fake_customers
+            FOR SELECT TO r239_authenticated
+            USING (tenant_label = current_setting('r239.fake_tenant', true));
+          GRANT SELECT ON r239_only.fake_customers TO r239_authenticated;
+          DO $check$
+          BEGIN
+            IF has_table_privilege('r239_anon','r239_only.fake_customers','TRUNCATE')
+               OR has_table_privilege('r239_anon','r239_only.fake_customers','SELECT')
+               OR has_table_privilege('r239_authenticated','r239_only.fake_customers','UPDATE')
+               OR has_table_privilege('r239_authenticated','r239_only.fake_reservations','DELETE') THEN
+              RAISE EXCEPTION 'Synthetic current-state grant removal incomplete';
+            END IF;
+            IF (SELECT count(*) FROM pg_policies
+                WHERE schemaname='r239_only' AND tablename='fake_customers') <> 1 THEN
+              RAISE EXCEPTION 'Synthetic RLS read policy missing';
+            END IF;
+          END $check$;
+          SQL
+          echo 'PASS: synthetic REVOKE, RLS/FORCE RLS, restricted read policy, default ACL closure'
+
+      - name: Verify anonymous denial and fake tenant-scoped authenticated reads
+        shell: bash
+        run: |
+          set -euo pipefail
+          if psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE r239_anon; SELECT count(*) FROM r239_only.fake_customers;' >/dev/null 2>&1; then
+            echo 'FAIL: fake anonymous role still reads private synthetic rows'; exit 1
+          fi
+          read_for() {
+            psql -qAtX -v ON_ERROR_STOP=1 -c "BEGIN; SET LOCAL ROLE r239_authenticated; SET LOCAL r239.fake_tenant = '$1'; SELECT count(*) FROM r239_only.fake_customers; COMMIT;" | grep -E '^[0-9]+$' | tail -n 1
+          }
+          test "$(read_for fake-a)" = '1'
+          test "$(read_for fake-b)" = '1'
+          missing=$(psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE r239_authenticated; SELECT count(*) FROM r239_only.fake_customers;' | tail -n 1)
+          test "$missing" = '0'
+          if psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE r239_authenticated; TRUNCATE r239_only.fake_customers;' >/dev/null 2>&1; then
+            echo 'FAIL: fake authenticated TRUNCATE unexpectedly succeeded'; exit 1
+          fi
+          if psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE r239_authenticated; DELETE FROM r239_only.fake_reservations;' >/dev/null 2>&1; then
+            echo 'FAIL: fake authenticated DELETE unexpectedly succeeded'; exit 1
+          fi
+          echo 'PASS: fake anonymous denied; restricted reads A=1 B=1 no claim=0; destructive verbs denied'
+
+      - name: Verify new objects do not inherit synthetic anonymous data grants
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          SET ROLE r239_creator;
+          CREATE TABLE r239_only.future_fake_only(id integer PRIMARY KEY);
+          RESET ROLE;
+          DO $check$
+          BEGIN
+            IF has_table_privilege('r239_anon','r239_only.future_fake_only','SELECT')
+               OR has_table_privilege('r239_anon','r239_only.future_fake_only','TRUNCATE')
+               OR has_table_privilege('r239_authenticated','r239_only.future_fake_only','DELETE') THEN
+              RAISE EXCEPTION 'Synthetic creator future grants remain overbroad';
+            END IF;
+            IF NOT has_table_privilege('r239_authenticated','r239_only.fake_customers','SELECT') THEN
+              RAISE EXCEPTION 'Intended synthetic scoped SELECT was lost';
+            END IF;
+          END $check$;
+          SQL
+          echo 'PASS: new fictional table has no unexpected anon or authenticated CRUD/TRUNCATE privileges'
+
+      - name: Exercise transaction rollback and verify remediation remains in fake database
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          BEGIN;
+          GRANT SELECT, TRUNCATE ON r239_only.fake_customers TO r239_anon;
+          ALTER TABLE r239_only.fake_customers DISABLE ROW LEVEL SECURITY;
+          DO $check$
+          BEGIN
+            IF NOT has_table_privilege('r239_anon','r239_only.fake_customers','TRUNCATE') THEN
+              RAISE EXCEPTION 'Expected temporary fictional risky grant absent';
+            END IF;
+            IF (SELECT relrowsecurity FROM pg_class WHERE oid='r239_only.fake_customers'::regclass) THEN
+              RAISE EXCEPTION 'Expected temporary fictional RLS-off state absent';
+            END IF;
+          END $check$;
+          ROLLBACK;
+          DO $check$
+          BEGIN
+            IF has_table_privilege('r239_anon','r239_only.fake_customers','SELECT')
+               OR has_table_privilege('r239_anon','r239_only.fake_customers','TRUNCATE') THEN
+              RAISE EXCEPTION 'Fictional grant rollback did not restore restrictions';
+            END IF;
+            IF NOT (SELECT relrowsecurity AND relforcerowsecurity
+                    FROM pg_class WHERE oid='r239_only.fake_customers'::regclass) THEN
+              RAISE EXCEPTION 'Fictional RLS rollback did not restore restrictions';
+            END IF;
+          END $check$;
+          SQL
+          test "$PGHOST" = '127.0.0.1'
+          test "$PGDATABASE" = 'r239_disposable_only'
+          test "$PGUSER" = 'postgres'
+          echo 'PASS: synthetic rollback restored least-privilege RLS and table grants'
+          echo 'This is NOT a production migration or real Supabase backup/restore test.'
+          echo 'NO_GO / HOLD / NO MERGE / NO DEPLOY; Worker7 KEEP; no production credentials used'
