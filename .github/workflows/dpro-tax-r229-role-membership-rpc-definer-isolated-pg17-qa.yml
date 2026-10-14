@@ -1,0 +1,184 @@
+name: DPRO TAX R229 Isolated PG17 Role Membership and RPC Definer QA
+
+on:
+  push:
+    branches: ['qa/r225-synthetic-pg17-backup-restore-20261014']
+    paths:
+      - '.github/workflows/dpro-tax-r229-role-membership-rpc-definer-isolated-pg17-qa.yml'
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches: [main]
+    paths:
+      - '.github/workflows/dpro-tax-r229-role-membership-rpc-definer-isolated-pg17-qa.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-r229:
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/qa/r225-synthetic-pg17-backup-restore-20261014') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: r229_disposable_test_only
+          POSTGRES_DB: r229_disposable_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d r229_disposable_only"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: r229_disposable_test_only
+      PGDATABASE: r229_disposable_only
+      PGCONNECT_TIMEOUT: '5'
+    steps:
+      - name: Verify localhost disposable PostgreSQL 17 and create fake roles
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+          test "$PGHOST" = 127.0.0.1
+          test "$PGDATABASE" = r229_disposable_only
+          psql -AtX -v ON_ERROR_STOP=1 -c 'SHOW server_version;' | grep -E '^17\.'
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE r229_anon NOLOGIN;
+          CREATE ROLE r229_read_group NOLOGIN;
+          CREATE ROLE r229_staff NOLOGIN;
+          CREATE SCHEMA r229_only;
+          CREATE TABLE r229_only.fake_records(id integer PRIMARY KEY, tenant_id text NOT NULL);
+          INSERT INTO r229_only.fake_records VALUES(1,'r229_anon'),(2,'r229_staff');
+          GRANT USAGE ON SCHEMA r229_only TO r229_anon,r229_staff,r229_read_group;
+          GRANT SELECT ON r229_only.fake_records TO r229_read_group;
+          GRANT r229_read_group TO r229_anon;
+          SQL
+          echo 'PASS: PG17 localhost synthetic roles and two fake rows created'
+
+      - name: Test inherited grants and revocation through role membership
+        shell: bash
+        run: |
+          set -euo pipefail
+          inherited=$(psql -AtX -v ON_ERROR_STOP=1 -c "SELECT has_table_privilege('r229_anon','r229_only.fake_records','SELECT')")
+          test "$inherited" = t
+          readable=$(psql -AtX -v ON_ERROR_STOP=1 -c 'SET ROLE r229_anon; SELECT count(*) FROM r229_only.fake_records' | tail -n 1)
+          test "$readable" = 2
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          REVOKE SELECT ON r229_only.fake_records FROM r229_anon;
+          DO $check$
+          BEGIN
+            IF NOT has_table_privilege('r229_anon','r229_only.fake_records','SELECT') THEN
+              RAISE EXCEPTION 'Revoking nonexistent direct grant should not remove inherited grant';
+            END IF;
+          END $check$;
+          REVOKE r229_read_group FROM r229_anon;
+          DO $check$
+          BEGIN
+            IF has_table_privilege('r229_anon','r229_only.fake_records','SELECT') THEN
+              RAISE EXCEPTION 'Inherited SELECT remains after membership removal';
+            END IF;
+          END $check$;
+          SQL
+          echo 'PASS: indirect membership can expose fake data; removing the membership removes inherited SELECT'
+
+      - name: Test RLS default deny and tenant-scoped read after explicit grant
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          GRANT SELECT ON r229_only.fake_records TO r229_anon;
+          ALTER TABLE r229_only.fake_records ENABLE ROW LEVEL SECURITY;
+          SQL
+          before=$(psql -AtX -v ON_ERROR_STOP=1 -c 'SET ROLE r229_anon; SELECT count(*) FROM r229_only.fake_records' | tail -n 1)
+          test "$before" = 0
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE POLICY fake_owner_read ON r229_only.fake_records
+            FOR SELECT TO r229_anon USING (tenant_id = current_user);
+          SQL
+          after=$(psql -AtX -v ON_ERROR_STOP=1 -c 'SET ROLE r229_anon; SELECT count(*) FROM r229_only.fake_records' | tail -n 1)
+          test "$after" = 1
+          echo 'PASS: RLS default deny zero fake rows then tenant-only fake row'
+
+      - name: Show function PUBLIC EXECUTE default and strict function grants
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE FUNCTION r229_only.fake_admin_count() RETURNS integer
+            LANGUAGE sql SECURITY DEFINER
+            SET search_path = pg_catalog, r229_only
+            AS $$ SELECT count(*)::integer FROM r229_only.fake_records $$;
+          DO $check$
+          BEGIN
+            IF NOT has_function_privilege('r229_staff','r229_only.fake_admin_count()','EXECUTE') THEN
+              RAISE EXCEPTION 'Expected default PUBLIC EXECUTE for a new synthetic function';
+            END IF;
+          END $check$;
+          REVOKE ALL ON FUNCTION r229_only.fake_admin_count() FROM PUBLIC;
+          GRANT EXECUTE ON FUNCTION r229_only.fake_admin_count() TO r229_staff;
+          DO $check$
+          BEGIN
+            IF has_function_privilege('r229_anon','r229_only.fake_admin_count()','EXECUTE') THEN
+              RAISE EXCEPTION 'An anonymous role still has function EXECUTE';
+            END IF;
+            IF NOT has_function_privilege('r229_staff','r229_only.fake_admin_count()','EXECUTE') THEN
+              RAISE EXCEPTION 'Synthetic staff EXECUTE grant missing';
+            END IF;
+            IF has_table_privilege('r229_staff','r229_only.fake_records','SELECT') THEN
+              RAISE EXCEPTION 'Staff should not have direct fake table SELECT';
+            END IF;
+          END $check$;
+          SQL
+          value=$(psql -AtX -v ON_ERROR_STOP=1 -c 'SET ROLE r229_staff; SELECT r229_only.fake_admin_count();' | tail -n 1)
+          test "$value" = 2
+          echo 'PASS: SECURITY DEFINER function returns two fake rows while caller lacks direct table SELECT'
+
+      - name: Revoke function EXECUTE and rollback unrelated synthetic permissions
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          REVOKE EXECUTE ON FUNCTION r229_only.fake_admin_count() FROM r229_staff;
+          DO $check$
+          BEGIN
+            IF has_function_privilege('r229_staff','r229_only.fake_admin_count()','EXECUTE') THEN
+              RAISE EXCEPTION 'Synthetic staff RPC EXECUTE still active';
+            END IF;
+          END $check$;
+          BEGIN;
+          GRANT EXECUTE ON FUNCTION r229_only.fake_admin_count() TO r229_anon;
+          DO $check$
+          BEGIN
+            IF NOT has_function_privilege('r229_anon','r229_only.fake_admin_count()','EXECUTE') THEN
+              RAISE EXCEPTION 'Transaction-level synthetic grant did not become visible';
+            END IF;
+          END $check$;
+          ROLLBACK;
+          DO $check$
+          BEGIN
+            IF has_function_privilege('r229_anon','r229_only.fake_admin_count()','EXECUTE') THEN
+              RAISE EXCEPTION 'RPC EXECUTE grant survived synthetic ROLLBACK';
+            END IF;
+          END $check$;
+          SQL
+          echo 'PASS: revoking function EXECUTE prevents unintended synthetic RPC privilege; rollback restores prior state'
+
+      - name: Preserve NO GO NO MERGE production isolation boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$PGHOST" = '127.0.0.1'
+          test "$PGDATABASE" = 'r229_disposable_only'
+          test "$PGUSER" = 'postgres'
+          echo 'PASS: all R229 tests operate on ephemeral PostgreSQL 17 synthetic data'
+          echo 'NO_GO / HOLD / NO MERGE; no shared Supabase, Cloudflare, LINE or deployed Workers'
