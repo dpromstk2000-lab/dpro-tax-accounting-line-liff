@@ -1,0 +1,171 @@
+name: DPRO TAX R225 Isolated Branch and PR Synthetic PG17 QA
+
+on:
+  push:
+    branches: ['qa/r225-synthetic-pg17-backup-restore-20261014']
+    paths:
+      - '.github/workflows/dpro-tax-r225-isolated-pr-pg17-qa.yml'
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches: [main]
+    paths:
+      - '.github/workflows/dpro-tax-r225-isolated-pr-pg17-qa.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-pg17:
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/qa/r225-synthetic-pg17-backup-restore-20261014') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: r204_disposable_local_only
+          POSTGRES_DB: r204_synthetic_qa
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d r204_synthetic_qa"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: r204_disposable_local_only
+      PGDATABASE: r204_synthetic_qa
+      PGCONNECT_TIMEOUT: '5'
+    steps:
+      - name: Install PostgreSQL client
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+          psql --version
+          psql -AtX -v ON_ERROR_STOP=1 -c 'SHOW server_version;' | grep -E '^17\.'
+
+      - name: Create disposable synthetic schema and simulate current overgrant
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE r204_anon NOLOGIN;
+          CREATE ROLE r204_authenticated NOLOGIN;
+          CREATE ROLE r204_service NOLOGIN;
+          CREATE SCHEMA r204_only;
+          CREATE TABLE r204_only.customers (id integer PRIMARY KEY, owner_uid text NOT NULL);
+          CREATE TABLE r204_only.izakaya_reservations (id integer PRIMARY KEY, owner_uid text NOT NULL);
+          INSERT INTO r204_only.customers VALUES (1,'r204_anon'),(2,'different_synthetic_user');
+          INSERT INTO r204_only.izakaya_reservations VALUES (10,'r204_anon');
+          GRANT USAGE ON SCHEMA r204_only TO r204_anon, r204_authenticated, r204_service;
+          GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON ALL TABLES IN SCHEMA r204_only
+            TO r204_anon, r204_authenticated, r204_service;
+          DO $verify$
+          BEGIN
+            IF NOT has_table_privilege('r204_anon','r204_only.customers','TRUNCATE') THEN
+              RAISE EXCEPTION 'Expected synthetic TRUNCATE overgrant';
+            END IF;
+            IF NOT has_table_privilege('r204_anon','r204_only.izakaya_reservations','SELECT') THEN
+              RAISE EXCEPTION 'Expected synthetic reservation overgrant';
+            END IF;
+          END $verify$;
+          SQL
+          result="$(psql -AtX -v ON_ERROR_STOP=1 -c 'SET ROLE r204_anon; SELECT count(*) FROM r204_only.customers;' | tail -n 1)"
+          test "$result" = '2'
+          echo 'PASS: baseline anon overgrant can read 2 fake rows; no production rows'
+
+      - name: Verify table-scoped revocation and authenticated-role gap
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          REVOKE ALL PRIVILEGES ON TABLE r204_only.customers FROM r204_anon;
+          DO $verify$
+          BEGIN
+            IF has_table_privilege('r204_anon','r204_only.customers','SELECT') THEN
+              RAISE EXCEPTION 'anon SELECT was not revoked';
+            END IF;
+            IF has_table_privilege('r204_anon','r204_only.customers','TRUNCATE') THEN
+              RAISE EXCEPTION 'anon TRUNCATE was not revoked';
+            END IF;
+            IF NOT has_table_privilege('r204_authenticated','r204_only.customers','SELECT') THEN
+              RAISE EXCEPTION 'Expected authenticated-role residual exposure';
+            END IF;
+            IF NOT has_table_privilege('r204_anon','r204_only.izakaya_reservations','SELECT') THEN
+              RAISE EXCEPTION 'Unrelated table changed unexpectedly';
+            END IF;
+          END $verify$;
+          SQL
+          echo 'PASS: scoped revoke only; authenticated risk remains; unrelated table untouched'
+
+      - name: Verify RLS default deny, residual TRUNCATE grant and scoped read policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON r204_only.customers TO r204_anon;
+          ALTER TABLE r204_only.customers ENABLE ROW LEVEL SECURITY;
+          DO $verify$
+          BEGIN
+            IF NOT has_table_privilege('r204_anon','r204_only.customers','TRUNCATE') THEN
+              RAISE EXCEPTION 'RLS unexpectedly revoked TRUNCATE';
+            END IF;
+          END $verify$;
+          SQL
+          count0="$(psql -AtX -v ON_ERROR_STOP=1 -c 'SET ROLE r204_anon; SELECT count(*) FROM r204_only.customers;' | tail -n 1)"
+          test "$count0" = '0'
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE POLICY r204_anon_own_only ON r204_only.customers
+            FOR SELECT TO r204_anon USING (owner_uid = current_user);
+          SQL
+          count1="$(psql -AtX -v ON_ERROR_STOP=1 -c 'SET ROLE r204_anon; SELECT count(*) FROM r204_only.customers;' | tail -n 1)"
+          test "$count1" = '1'
+          echo 'PASS: RLS default deny then synthetic owner-only policy; TRUNCATE privilege remains separate'
+
+      - name: Disposable PostgreSQL 17 backup and restore (synthetic data only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v docker >/dev/null
+          # postgres:17 supplies matching pg_dump/pg_restore binaries for the synthetic PG17 server.
+          docker run --rm --network host \
+            -e PGHOST -e PGPORT -e PGUSER -e PGPASSWORD -e PGDATABASE \
+            postgres:17 bash -euc '
+              test "$PGHOST" = "127.0.0.1"
+              test "$PGDATABASE" = "r204_synthetic_qa"
+              test "$PGUSER" = "postgres"
+              test "$PGPORT" = "5432"
+              pg_dump --version | grep -E "^pg_dump \(PostgreSQL\) 17\."
+              pg_dump --format=custom --no-owner --no-acl \
+                --schema=r204_only --file=/tmp/r224_synthetic.dump
+              test -s /tmp/r224_synthetic.dump
+              pg_restore --list /tmp/r224_synthetic.dump > /tmp/r224_catalog.txt
+              grep -F "r204_only" /tmp/r224_catalog.txt >/dev/null
+              createdb r224_synthetic_restore_only
+              pg_restore --exit-on-error --single-transaction \
+                --no-owner --no-acl --dbname=r224_synthetic_restore_only \
+                /tmp/r224_synthetic.dump
+              export PGDATABASE=r224_synthetic_restore_only
+              customers=$(psql -AtX -v ON_ERROR_STOP=1 -c "SELECT COUNT(*) FROM r204_only.customers")
+              reservations=$(psql -AtX -v ON_ERROR_STOP=1 -c "SELECT COUNT(*) FROM r204_only.izakaya_reservations")
+              test "$customers" = "2"
+              test "$reservations" = "1"
+              echo "PASS: SYNTHETIC_DUMP_RESTORE_ROWS_MATCH (2 customers; 1 reservation)"
+              echo "SYNTHETIC_ARCHIVE_SHA256=$(sha256sum /tmp/r224_synthetic.dump | cut -d" " -f1)"
+              echo "No production connection, no production schema, no external backup uploaded."
+            '
+
+      - name: Show verification boundary
+        shell: bash
+        run: |
+          echo 'PASS: ALL TESTS ARE SYNTHETIC IN GITHUB HOSTED POSTGRESQL 17'
+          echo 'No SUPABASE_URL / service role key / Cloudflare token / production database used.'
+          echo 'Workflow performs no deployments, database migrations to shared Supabase, or LINE dispatch.'
