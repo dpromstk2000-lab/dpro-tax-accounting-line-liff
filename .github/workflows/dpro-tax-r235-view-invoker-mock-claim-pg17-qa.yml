@@ -1,0 +1,156 @@
+name: DPRO TAX R235 Isolated PG17 View Invoker and Mock Claim Trust QA
+
+on:
+  push:
+    branches: ['qa/r225-synthetic-pg17-backup-restore-20261014']
+    paths:
+      - '.github/workflows/dpro-tax-r235-view-invoker-mock-claim-pg17-qa.yml'
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches: [main]
+    paths:
+      - '.github/workflows/dpro-tax-r235-view-invoker-mock-claim-pg17-qa.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  r235-local-postgres-only:
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/qa/r225-synthetic-pg17-backup-restore-20261014') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: r235_ephemeral_fake_only
+          POSTGRES_DB: r235_disposable_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d r235_disposable_only"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: r235_ephemeral_fake_only
+      PGDATABASE: r235_disposable_only
+      PGCONNECT_TIMEOUT: '5'
+    steps:
+      - name: Create fake PG17 table RLS and an owner-executed legacy view
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$PGHOST" = '127.0.0.1'
+          test "$PGDATABASE" = 'r235_disposable_only'
+          test "$PGUSER" = 'postgres'
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+          psql -AtX -v ON_ERROR_STOP=1 -c 'SHOW server_version;' | grep -E '^17\.'
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE qa_r235_anon NOLOGIN;
+          CREATE ROLE qa_r235_member NOLOGIN;
+          CREATE ROLE qa_r235_owner NOLOGIN;
+          CREATE SCHEMA qa_r235;
+          GRANT USAGE ON SCHEMA qa_r235 TO qa_r235_member,qa_r235_owner;
+          GRANT CREATE ON SCHEMA qa_r235 TO qa_r235_owner;
+          SET ROLE qa_r235_owner;
+          CREATE TABLE qa_r235.fake_rows(id integer PRIMARY KEY, owner_label text NOT NULL);
+          RESET ROLE;
+          INSERT INTO qa_r235.fake_rows VALUES
+            (1,'qa_r235_member'),(2,'other_fake_tenant');
+          GRANT SELECT ON qa_r235.fake_rows TO qa_r235_member;
+          ALTER TABLE qa_r235.fake_rows ENABLE ROW LEVEL SECURITY;
+          CREATE POLICY qa_r235_owner_only ON qa_r235.fake_rows
+            FOR SELECT TO qa_r235_member USING (owner_label = current_user);
+          SET ROLE qa_r235_owner;
+          CREATE VIEW qa_r235.legacy_view AS SELECT id,owner_label FROM qa_r235.fake_rows;
+          RESET ROLE;
+          GRANT SELECT ON qa_r235.legacy_view TO qa_r235_member;
+          SQL
+          direct=$(psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE qa_r235_member; SELECT count(*) FROM qa_r235.fake_rows;' | tail -n 1)
+          via_view=$(psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE qa_r235_member; SELECT count(*) FROM qa_r235.legacy_view;' | tail -n 1)
+          test "$direct" = 1
+          test "$via_view" = 2
+          echo 'PASS: synthetic legacy view owned by table owner bypassed table RLS (2 fake rows versus 1)'
+
+      - name: Prove PG17 security_invoker view preserves invoker RLS boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          SET ROLE qa_r235_owner;
+          ALTER VIEW qa_r235.legacy_view SET (security_invoker=true);
+          RESET ROLE;
+          SQL
+          view_count=$(psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE qa_r235_member; SELECT count(*) FROM qa_r235.legacy_view;' | tail -n 1)
+          test "$view_count" = 1
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          DO $check$
+          DECLARE
+            options text[];
+          BEGIN
+            SELECT reloptions INTO options FROM pg_class
+              WHERE oid='qa_r235.legacy_view'::regclass;
+            IF NOT ('security_invoker=true'=ANY(options)) THEN
+              RAISE EXCEPTION 'security_invoker not set on synthetic view';
+            END IF;
+            IF has_table_privilege('qa_r235_anon','qa_r235.legacy_view','SELECT') THEN
+              RAISE EXCEPTION 'Synthetic anonymous view SELECT should be denied';
+            END IF;
+          END $check$;
+          SQL
+          echo 'PASS: security_invoker view respects synthetic member RLS and anonymous view SELECT remains denied'
+
+      - name: Verify view and base table grants remain separate
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 -c 'REVOKE SELECT ON qa_r235.fake_rows FROM qa_r235_member;'
+          if psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE qa_r235_member; SELECT count(*) FROM qa_r235.legacy_view;' >/dev/null 2>&1; then
+            echo 'FAIL: security_invoker view did not require member base-table SELECT'; exit 1
+          fi
+          psql -X -v ON_ERROR_STOP=1 -c 'GRANT SELECT ON qa_r235.fake_rows TO qa_r235_member;'
+          psql -X -v ON_ERROR_STOP=1 -c 'REVOKE SELECT ON qa_r235.legacy_view FROM qa_r235_member;'
+          if psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE qa_r235_member; SELECT count(*) FROM qa_r235.legacy_view;' >/dev/null 2>&1; then
+            echo 'FAIL: synthetic view call succeeded after view SELECT revoke'; exit 1
+          fi
+          echo 'PASS: invoker view requires both view SELECT and underlying table permissions'
+
+      - name: Demonstrate an untrusted SQL client can spoof a mock JWT claim
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE TABLE qa_r235.mock_claim_rows(id integer PRIMARY KEY, tenant_uid text NOT NULL);
+          INSERT INTO qa_r235.mock_claim_rows VALUES(10,'fake-tenant-a'),(20,'fake-tenant-b');
+          GRANT SELECT ON qa_r235.mock_claim_rows TO qa_r235_member;
+          ALTER TABLE qa_r235.mock_claim_rows ENABLE ROW LEVEL SECURITY;
+          CREATE POLICY mock_claim_own ON qa_r235.mock_claim_rows FOR SELECT TO qa_r235_member
+            USING (tenant_uid = current_setting('request.jwt.claim.sub',true));
+          SQL
+          no_claim=$(psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE qa_r235_member; SELECT count(*) FROM qa_r235.mock_claim_rows;' | tail -n 1)
+          tenant_a=$(psql -qAtX -v ON_ERROR_STOP=1 -c "BEGIN; SET LOCAL ROLE qa_r235_member; SET LOCAL request.jwt.claim.sub = 'fake-tenant-a'; SELECT count(*) FROM qa_r235.mock_claim_rows; COMMIT;" | grep -E '^[0-9]+$' | tail -n 1)
+          tenant_b=$(psql -qAtX -v ON_ERROR_STOP=1 -c "BEGIN; SET LOCAL ROLE qa_r235_member; SET LOCAL request.jwt.claim.sub = 'fake-tenant-b'; SELECT count(*) FROM qa_r235.mock_claim_rows; COMMIT;" | grep -E '^[0-9]+$' | tail -n 1)
+          test "$no_claim" = 0
+          test "$tenant_a" = 1
+          test "$tenant_b" = 1
+          echo 'PASS: direct SQL role can set a fake claim to impersonate either fake tenant; signed JWT verification NOT tested'
+
+      - name: Final isolation and production release gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$PGHOST" = '127.0.0.1'
+          test "$PGDATABASE" = 'r235_disposable_only'
+          test "$PGUSER" = 'postgres'
+          echo 'PASS: ephemeral PostgreSQL 17 only; no real Supabase data, secrets, migrations, Workers or LINE'
+          echo 'Production implication: signed JWT verification and a trusted claim-injection boundary are REQUIRED; bare SQL claim GUC is not authentication.'
+          echo 'R235 view test is synthetic and does NOT demonstrate exposure from the 48 current public views.'
+          echo 'NO_GO / HOLD / NO MERGE / NO DEPLOY; Worker7 KEEP'
