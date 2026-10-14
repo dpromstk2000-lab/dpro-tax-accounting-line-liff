@@ -1,0 +1,207 @@
+name: DPRO TAX R231 Isolated PG17 Full ACL RLS Restore Fidelity QA
+
+on:
+  push:
+    branches: ['qa/r225-synthetic-pg17-backup-restore-20261014']
+    paths:
+      - '.github/workflows/dpro-tax-r231-pg17-acl-rls-restore-fidelity-qa.yml'
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches: [main]
+    paths:
+      - '.github/workflows/dpro-tax-r231-pg17-acl-rls-restore-fidelity-qa.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  r231-synthetic-restore-only:
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/qa/r225-synthetic-pg17-backup-restore-20261014') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: r231_fake_ephemeral_only
+          POSTGRES_DB: r231_source_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d r231_source_only"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: r231_fake_ephemeral_only
+      PGDATABASE: r231_source_only
+      PGCONNECT_TIMEOUT: '5'
+
+    steps:
+      - name: Prepare localhost fake PostgreSQL roles and source data
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$PGHOST" = '127.0.0.1'
+          test "$PGDATABASE" = 'r231_source_only'
+          test "$PGUSER" = 'postgres'
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+          psql -AtX -v ON_ERROR_STOP=1 -c 'SHOW server_version;' | grep -E '^17\.'
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE r231_anon NOLOGIN;
+          CREATE ROLE r231_staff NOLOGIN;
+          CREATE SCHEMA r231_lab;
+          CREATE TABLE r231_lab.fake_customers (
+            id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            owner_label text NOT NULL
+          );
+          CREATE TABLE r231_lab.fake_reservations (
+            id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            customer_id bigint NOT NULL REFERENCES r231_lab.fake_customers(id),
+            status text NOT NULL DEFAULT 'pending'
+          );
+          INSERT INTO r231_lab.fake_customers(owner_label) VALUES
+            ('r231_anon'), ('r231_staff');
+          INSERT INTO r231_lab.fake_reservations(customer_id) VALUES (1);
+          GRANT USAGE ON SCHEMA r231_lab TO r231_anon, r231_staff;
+          GRANT SELECT ON r231_lab.fake_customers TO r231_anon, r231_staff;
+          GRANT SELECT ON r231_lab.fake_reservations TO r231_staff;
+          ALTER TABLE r231_lab.fake_customers ENABLE ROW LEVEL SECURITY;
+          ALTER TABLE r231_lab.fake_customers FORCE ROW LEVEL SECURITY;
+          CREATE POLICY r231_anon_read ON r231_lab.fake_customers
+            FOR SELECT TO r231_anon USING (owner_label = current_user);
+          CREATE POLICY r231_staff_read ON r231_lab.fake_customers
+            FOR SELECT TO r231_staff USING (owner_label = current_user);
+          CREATE FUNCTION r231_lab.safe_fake_count() RETURNS bigint
+            LANGUAGE sql SECURITY DEFINER
+            SET search_path = pg_catalog, r231_lab, pg_temp
+            AS $$ SELECT count(*) FROM r231_lab.fake_customers $$;
+          REVOKE ALL ON FUNCTION r231_lab.safe_fake_count() FROM PUBLIC;
+          GRANT EXECUTE ON FUNCTION r231_lab.safe_fake_count() TO r231_staff;
+          DO $check$
+          BEGIN
+            IF has_function_privilege('r231_anon','r231_lab.safe_fake_count()','EXECUTE') THEN
+              RAISE EXCEPTION 'Synthetic anon should not EXECUTE protected function';
+            END IF;
+            IF NOT has_function_privilege('r231_staff','r231_lab.safe_fake_count()','EXECUTE') THEN
+              RAISE EXCEPTION 'Synthetic staff EXECUTE missing';
+            END IF;
+          END $check$;
+          SQL
+          before=$(psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE r231_anon; SELECT count(*) FROM r231_lab.fake_customers;' | tail -n 1)
+          test "$before" = '1'
+          echo 'PASS: source fake rows, ACL, forced RLS and restricted function configured'
+
+      - name: Back up synthetic schema with ACL and restore into two disposable databases
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$PGHOST" = '127.0.0.1'
+          test "$PGDATABASE" = 'r231_source_only'
+          mkdir -p r231_fake_artifacts
+          docker run --rm --network host \
+            -v "$PWD/r231_fake_artifacts:/out:rw" \
+            -e PGHOST -e PGPORT -e PGUSER -e PGPASSWORD -e PGDATABASE \
+            postgres:17 sh -euc '
+              test "$PGHOST" = 127.0.0.1
+              test "$PGDATABASE" = r231_source_only
+              pg_dump --version | grep -E "^pg_dump \(PostgreSQL\) 17\."
+              pg_dump -Fc --no-owner --schema=r231_lab \
+                --file=/out/r231_synthetic_with_acl.dump
+              test -s /out/r231_synthetic_with_acl.dump
+              pg_restore --list /out/r231_synthetic_with_acl.dump > /out/catalog.txt
+              grep -F r231_lab /out/catalog.txt >/dev/null
+              createdb r231_restore_with_acl
+              pg_restore --exit-on-error --single-transaction --no-owner \
+                --dbname=r231_restore_with_acl /out/r231_synthetic_with_acl.dump
+              createdb r231_restore_without_acl
+              pg_restore --exit-on-error --single-transaction --no-owner --no-acl \
+                --dbname=r231_restore_without_acl /out/r231_synthetic_with_acl.dump
+              echo "SYNTHETIC_ARCHIVE_SHA256=$(sha256sum /out/r231_synthetic_with_acl.dump | cut -d " " -f1)"
+            '
+          echo 'PASS: synthetic PG17 archive restored with and without ACL into separate test DBs'
+
+      - name: Verify restored data, forced RLS, policies, ACL and function permissions
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -d r231_restore_with_acl -X -v ON_ERROR_STOP=1 <<'SQL'
+          DO $check$
+          DECLARE
+            r record;
+          BEGIN
+            SELECT relrowsecurity,relforcerowsecurity INTO r
+            FROM pg_class WHERE oid='r231_lab.fake_customers'::regclass;
+            IF NOT r.relrowsecurity OR NOT r.relforcerowsecurity THEN
+              RAISE EXCEPTION 'Synthetic restore lost RLS or FORCE RLS';
+            END IF;
+            IF (SELECT count(*) FROM pg_policies WHERE schemaname='r231_lab' AND tablename='fake_customers') <> 2 THEN
+              RAISE EXCEPTION 'Synthetic restore lost RLS policies';
+            END IF;
+            IF (SELECT count(*) FROM r231_lab.fake_customers) <> 2 OR
+               (SELECT count(*) FROM r231_lab.fake_reservations) <> 1 THEN
+              RAISE EXCEPTION 'Synthetic restore row counts differ';
+            END IF;
+            IF NOT has_schema_privilege('r231_anon','r231_lab','USAGE') OR
+               NOT has_table_privilege('r231_anon','r231_lab.fake_customers','SELECT') THEN
+              RAISE EXCEPTION 'Synthetic restore lost ACL on schema or table';
+            END IF;
+            IF has_function_privilege('r231_anon','r231_lab.safe_fake_count()','EXECUTE') OR
+               NOT has_function_privilege('r231_staff','r231_lab.safe_fake_count()','EXECUTE') THEN
+              RAISE EXCEPTION 'Synthetic restore changed protected function ACL';
+            END IF;
+          END $check$;
+          SQL
+          anon=$(psql -qAtX -d r231_restore_with_acl -v ON_ERROR_STOP=1 -c 'SET ROLE r231_anon; SELECT count(*) FROM r231_lab.fake_customers;' | tail -n 1)
+          staff=$(psql -qAtX -d r231_restore_with_acl -v ON_ERROR_STOP=1 -c 'SET ROLE r231_staff; SELECT count(*) FROM r231_lab.fake_customers;' | tail -n 1)
+          test "$anon" = '1'
+          test "$staff" = '1'
+          nextid=$(psql -qAtX -d r231_restore_with_acl -v ON_ERROR_STOP=1 -c "INSERT INTO r231_lab.fake_customers(owner_label) VALUES ('post_restore_fake') RETURNING id;" | tail -n 1)
+          test "$nextid" = '3'
+          echo 'PASS: fake counts, restored identity, ACL, policies and FORCE RLS match source'
+
+      - name: Negative control demonstrates --no-acl restores unsafe function default
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -d r231_restore_without_acl -X -v ON_ERROR_STOP=1 <<'SQL'
+          DO $check$
+          DECLARE
+            r record;
+          BEGIN
+            SELECT relrowsecurity,relforcerowsecurity INTO r
+            FROM pg_class WHERE oid='r231_lab.fake_customers'::regclass;
+            IF NOT r.relrowsecurity OR NOT r.relforcerowsecurity THEN
+              RAISE EXCEPTION 'Negative control unexpectedly lost RLS flags';
+            END IF;
+            IF NOT has_function_privilege('r231_anon','r231_lab.safe_fake_count()','EXECUTE') THEN
+              RAISE EXCEPTION 'Expected default PUBLIC function EXECUTE when ACL omitted';
+            END IF;
+            IF has_schema_privilege('r231_anon','r231_lab','USAGE') THEN
+              RAISE EXCEPTION 'Negative control unexpectedly retained source schema USAGE';
+            END IF;
+            IF has_table_privilege('r231_anon','r231_lab.fake_customers','SELECT') THEN
+              RAISE EXCEPTION 'Negative control unexpectedly retained source table SELECT';
+            END IF;
+          END $check$;
+          SQL
+          echo 'PASS: --no-acl synthetic negative control shows missing grants and PUBLIC EXECUTE regression'
+
+      - name: State real-backup limitations and immutable NO GO boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$PGHOST" = '127.0.0.1'
+          test "$PGDATABASE" = 'r231_source_only'
+          test "$PGUSER" = 'postgres'
+          echo 'PASS: isolated GitHub PostgreSQL 17 only; no external database login or production records'
+          echo 'This schema-only selected dump does NOT include cluster globals, roles, passwords, Auth/Storage or external dependencies.'
+          echo 'Actual shared Supabase backup, independent restore and production security remediation remain NOT DONE.'
+          echo 'NO_GO / HOLD / NO MERGE. Never apply this workflow or its fake roles to production.'
