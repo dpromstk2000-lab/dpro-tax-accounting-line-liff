@@ -63,7 +63,7 @@ jobs:
           OUT = Path('r244-browser-evidence')
           OUT.mkdir(exist_ok=True)
           SCREENS = ['index.html','owner.html','member.html','owner-ipad.html','system-check.html','guide-center.html','demo-guide.html']
-          report={'suite':'R243 OFFLINE ACTUAL CHROMIUM synthetic UI','screens':{},'interactions':[],
+          report={'suite':'R244 OFFLINE ACTUAL CHROMIUM synthetic UI','screens':{},'interactions':[],
                   'blocked_requests':0,'synthetic_get_fixtures':0,'attempted_mutations':0,
                   'real_api_responses':0,'production_deploy':False,'commercial_release':'NO_GO/HOLD'}
 
@@ -234,7 +234,7 @@ jobs:
               page=ctx.new_page()
               response=page.goto(ROOT+'/index.html',wait_until='domcontentloaded',timeout=15000)
               assert response and response.status==200,(preset,'local page unavailable')
-              page.locator('#booking-service option[value="r244-fake-onsite"]').wait_for(timeout=10000)
+              page.locator('#booking-service option[value="r244-fake-onsite"]').wait_for(state='attached',timeout=10000)
               assert not page.locator('#booking-form').evaluate('(e)=>e.checkValidity()'),(preset,'empty form should be invalid')
               open_button=page.locator('[data-open-modal="register-modal"]')
               open_button.click()
@@ -319,7 +319,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo 'PASS: R243 browser UI verification is localhost-only with synthetic read-only fixture GETs.'
+          echo 'PASS: R244 browser UI verification is localhost-only with synthetic read-only fixture GETs.'
           echo 'No real API egress, no booking POST, no LINE dispatch, no Supabase connection, no Worker Deploy.'
           echo 'This is not a signed LINE/JWT test, accessibility certification, production reservation test, or full UI acceptance.'
           echo 'R244 adds desktop/mobile interaction screenshots and safe booking reselection guards; actual bookings remain untested.'
