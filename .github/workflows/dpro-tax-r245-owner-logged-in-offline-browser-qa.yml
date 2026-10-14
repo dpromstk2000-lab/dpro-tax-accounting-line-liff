@@ -1,0 +1,239 @@
+name: DPRO TAX R245 Real Owner Logged-in Synthetic Browser QA
+
+on:
+  push:
+    branches: ['qa/r225-synthetic-pg17-backup-restore-20261014']
+    paths: ['.github/workflows/dpro-tax-r245-owner-logged-in-offline-browser-qa.yml']
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches: [main]
+    paths: ['.github/workflows/dpro-tax-r245-owner-logged-in-offline-browser-qa.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  r245-owner-isolated-browser-only:
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/qa/r225-synthetic-pg17-backup-restore-20261014') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out protected QA branch source without write token
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Install isolated Playwright Chromium for synthetic owner tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv .r245-browser-venv
+          .r245-browser-venv/bin/python -m pip install --disable-pip-version-check playwright==1.56.0
+          .r245-browser-venv/bin/python -m playwright install --with-deps chromium
+          echo 'PASS: disposable local browser ready; no product mutation' 
+      - name: Start localhost static site without any proxy to production
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s owner.html && test -s app.js && test -s styles.css && test -s config.js
+          python3 -m http.server 8765 --bind 127.0.0.1 > r245-http.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl --silent --fail --noproxy '*' http://127.0.0.1:8765/owner.html -o /dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent --show-error --noproxy '*' http://127.0.0.1:8765/owner.html -o /dev/null
+          echo 'PASS: isolated localhost-only source ready' 
+      - name: Run real owner login and nine-panel UI checks with synthetic-only GET responses
+        shell: bash
+        run: |
+          set -euo pipefail
+          .r245-browser-venv/bin/python - <<'PY_R245_BROWSER'
+          from pathlib import Path
+          from urllib.parse import urlsplit
+          import json
+          from playwright.sync_api import sync_playwright
+          
+          ROOT='http://127.0.0.1:8765'
+          REMOTE='dpro-tax-accounting-line-api.dpromstk2000.workers.dev'
+          EVIDENCE=Path('r245-owner-browser-evidence')
+          EVIDENCE.mkdir(exist_ok=True)
+          VIEWS=['dashboard','clients','cases','documents','appointments','inquiries','tasks','staff','settings']
+          FAKE_CLIENT={
+           'id':'r245-c1','legal_name':'架空会計テスト株式会社','client_code':'TX-FAKE-001',
+           'client_type':'corporation','status':'active','representative_name':'架空担当者',
+           'phone':'090-1111-2201','phone_normalized':'09011112201',
+           'assigned_staff_id':None
+          }
+          FAKE_CASE={
+           'id':'r245-case1','title':'架空の確定申告案件','case_code':'FAKE-CASE-001',
+           'client_id':'r245-c1','case_type':'tax_return','status':'in_progress',
+           'deadline_date':'2027-03-31','progress_percent':30,'deadline_is_confirmed':True,
+           'next_action':'架空の確認作業','public_summary':'架空のテスト案件'
+          }
+          DASH={
+           'ok':True,'office':{'office_name':'R245架空税理士事務所'},
+           'counts':{'clients':1,'open_cases':1,'new_documents':0,'open_inquiries':0},
+           'urgent_cases':[],'due_tasks':[],'documents_to_review':[],
+           'active_appointments':[],'open_inquiries':[]
+          }
+          FIXTURES={
+           '/api/admin/dashboard':DASH,
+           '/api/admin/clients':{'ok':True,'clients':[FAKE_CLIENT]},
+           '/api/admin/cases':{'ok':True,'cases':[FAKE_CASE]},
+           '/api/admin/document-requests':{'ok':True,'document_requests':[]},
+           '/api/admin/documents':{'ok':True,'documents':[]},
+           '/api/admin/appointments':{'ok':True,'appointments':[]},
+           '/api/admin/inquiries':{'ok':True,'inquiries':[]},
+           '/api/admin/tasks':{'ok':True,'tasks':[]},
+           '/api/admin/staff':{'ok':True,'staff':[]},
+           '/api/admin/settings':{'ok':True,'office':{
+               'office_name':'R245架空税理士事務所','phone':'','email':'',
+               'booking_open_days':90,'security_notice':'架空データのみ'} ,
+               'services':[],'business_hours':[],'closed_dates':[]},
+           '/api/public/office':{'ok':True,'office':{
+               'security_notice':'架空データのみ','booking_open_days':90},'services':[]}
+          }
+          report={'suite':'R245 real owner logged-in UI with synthetic-only API fixtures',
+                  'main_modified':False,'production_requests':0,'attempted_mutations':0,
+                  'screenshots':[],'view_checks':{},'searches':{},'blocked_requests':0,
+                  'mock_reads':0,'browser_errors':[],'release':'NO_GO/HOLD'}
+          with sync_playwright() as p:
+              browser=p.chromium.launch(headless=True,args=['--no-sandbox'])
+              for preset,w,h in [('desktop',1280,800),('mobile',390,844)]:
+                  ctx=browser.new_context(viewport={'width':w,'height':h},
+                          device_scale_factor=1,is_mobile=preset=='mobile',
+                          has_touch=preset=='mobile',reduced_motion='reduce',
+                          service_workers='block',java_script_enabled=True)
+                  events={'requests':0,'blocked':0,'mutations':0,'api':0}
+                  def offline(route):
+                      req=route.request
+                      u=urlsplit(req.url)
+                      if u.scheme=='http' and u.hostname=='127.0.0.1' and u.port==8765:
+                          return route.continue_()
+                      if u.hostname==REMOTE and req.method=='OPTIONS' and u.path in FIXTURES:
+                          # Explicitly mock browser CORS preflight for synthetic admin X-Admin-Key GETs.
+                          # This never reaches the Cloudflare Worker.
+                          return route.fulfill(status=204,headers={
+                              'Access-Control-Allow-Origin':'*',
+                              'Access-Control-Allow-Methods':'GET, OPTIONS',
+                              'Access-Control-Allow-Headers':'X-Admin-Key, X-Line-User-Id, Content-Type, Accept',
+                              'Access-Control-Max-Age':'0'})
+                      if u.hostname==REMOTE and req.method=='GET' and u.path in FIXTURES:
+                          if u.path.startswith('/api/admin/') and req.headers.get('x-admin-key')!='1234':
+                              events['blocked']+=1
+                              return route.fulfill(status=403,content_type='application/json',
+                                  headers={'Access-Control-Allow-Origin':'*'},
+                                  body=json.dumps({'ok':False,'error':'SYNTHETIC_INVALID_CODE'}))
+                          events['api']+=1
+                          return route.fulfill(status=200,content_type='application/json',
+                              headers={'Access-Control-Allow-Origin':'*'},
+                              body=json.dumps(FIXTURES[u.path],ensure_ascii=False))
+                      events['blocked']+=1
+                      if req.method not in ('GET','HEAD','OPTIONS'):
+                          events['mutations']+=1
+                      return route.abort('blockedbyclient')
+                  ctx.route('**/*',offline)
+                  page=ctx.new_page()
+                  errs=[]
+                  page.on('pageerror',lambda e:errs.append(str(e)))
+                  response=page.goto(ROOT+'/owner.html?demo=1',wait_until='domcontentloaded',timeout=15000)
+                  assert response and response.status==200,(preset,'local source not loaded')
+                  page.locator('#owner-app').wait_for(state='visible',timeout=15000)
+                  page.locator('#owner-content').wait_for(state='visible',timeout=15000)
+                  assert page.locator('#owner-auth').is_hidden(),(preset,'login form still visible')
+                  assert page.locator('#owner-office-name').inner_text()=='R245架空税理士事務所'
+                  assert page.locator('#metric-clients').inner_text()=='1'
+                  assert page.locator('#metric-cases').inner_text()=='1'
+                  assert page.locator('button[data-admin-view]').count()==9,(preset,'nine menus missing')
+                  assert page.locator('#clients-table-body tr').count()==1,(preset,'fake client row absent')
+                  assert page.locator('#cases-table-body tr').count()==1,(preset,'fake case row absent')
+                  assert page.locator('#clients-table-body').inner_text().find('架空会計テスト株式会社')>=0
+                  assert page.locator('#cases-table-body').inner_text().find('架空の確定申告案件')>=0
+                  for view in VIEWS:
+                      # A mobile sidebar is initially hidden; open it via the actual user control.
+                      if preset=='mobile':
+                          page.locator('#sidebar-toggle').click()
+                          assert 'open' in (page.locator('#admin-sidebar').get_attribute('class') or ''),(
+                              preset,view,'sidebar did not open')
+                      button=page.locator('button[data-admin-view="'+view+'"]')
+                      button.click(timeout=10000)
+                      panel=page.locator('[data-admin-panel="'+view+'"]')
+                      assert panel.is_visible(),(preset,view,'selected panel not visible')
+                      assert button.evaluate('(e)=>e.classList.contains("active")'),(preset,view,'active nav state missing')
+                      assert page.locator('[data-admin-panel]:visible').count()==1,(preset,view,'other panels unexpectedly visible')
+                      if preset=='mobile':
+                          assert 'open' not in (page.locator('#admin-sidebar').get_attribute('class') or ''),(
+                              preset,view,'sidebar did not auto-close')
+                      fname=f'{preset}-owner-{view}.png'
+                      panel.screenshot(path=str(EVIDENCE/fname),animations='disabled',timeout=15000)
+                      report['screenshots'].append(fname)
+                      geom=page.evaluate('Math.max(document.documentElement.scrollWidth,document.body.scrollWidth)-innerWidth')
+                      # A desktop admin data grid may scroll within a table wrapper; page-wide overflow is forbidden.
+                      assert geom<=16,(preset,view,'page horizontal overflow',geom)
+                      report['view_checks'][f'{preset}/{view}']={'visible':True,'other_panels_hidden':True,
+                                            'sidebar_closes':True,'page_overflow_px':geom}
+                  # Exercise fuzzy/normalized phone search without any write request.
+                  if preset=='mobile':page.locator('#sidebar-toggle').click()
+                  page.locator('button[data-admin-view="clients"]').click()
+                  search=page.locator('#client-search')
+                  search.fill('+81 90-1111-2201')
+                  assert page.locator('#clients-table-body tr').count()==1,(preset,'phone search did not match')
+                  assert '架空会計テスト株式会社' in page.locator('#clients-table-body').inner_text()
+                  search.fill('not-a-fake-client')
+                  assert '一致する顧問先がありません' in page.locator('#clients-table-body').inner_text(),(
+                      preset,'no-results state missing')
+                  search.fill('')
+                  assert '架空会計テスト株式会社' in page.locator('#clients-table-body').inner_text()
+                  report['searches'][preset]={'international_phone_normalization':True,
+                                              'no_results_message':True,'clear_restores_rows':True}
+                  assert not errs,(preset,'uncaught UI JavaScript exceptions',errs)
+                  assert events['mutations']==0,(preset,'mutating request emitted')
+                  assert events['api']>=12,(preset,'synthetic endpoints not exercised',events)
+                  report['attempted_mutations']+=events['mutations']
+                  report['mock_reads']+=events['api']
+                  report['blocked_requests']+=events['blocked']
+                  page.close();ctx.close()
+              browser.close()
+          assert len(report['screenshots'])==18,len(report['screenshots'])
+          assert len(report['view_checks'])==18
+          assert len(report['searches'])==2
+          assert report['attempted_mutations']==0
+          assert report['production_requests']==0
+          (EVIDENCE/'qa-results.json').write_text(json.dumps(report,ensure_ascii=False,indent=2,sort_keys=True),encoding='utf-8')
+          print('R245_OWNER_QA='+json.dumps(report,ensure_ascii=False,sort_keys=True))
+          print('PASS: offline logged-in owner nine panels, desktop/mobile, phone search and 18 screenshots; 0 business mutations')
+          PY_R245_BROWSER
+      - name: Check evidence screenshot inventory and sealed side-effect boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY_R245_INVENTORY'
+          from pathlib import Path
+          import json
+          d=Path('r245-owner-browser-evidence')
+          report=json.loads((d/'qa-results.json').read_text(encoding='utf8'))
+          shots=list(d.glob('*.png'))
+          assert len(shots)==18,('9 owner panels x 2 viewports',len(shots))
+          assert len(report['view_checks'])==18 and len(report['searches'])==2
+          assert all(p.stat().st_size>500 for p in shots)
+          assert report['attempted_mutations']==0
+          assert report['production_requests']==0
+          assert all(x['page_overflow_px']<=16 for x in report['view_checks'].values())
+          print('PASS: 18 real Chromium owner panel screenshots, fake phone search desktop/mobile, 0 production changes')
+          PY_R245_INVENTORY
+      - name: Keep screenshot evidence in GitHub Actions only
+        shell: bash
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r245-synthetic-owner-ux-${{ github.run_id }}-${{ github.run_attempt }}
+          path: r245-owner-browser-evidence/
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Enforce commercial HOLD and no product deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'PASS: owner UI tests exercised read-only fake API GETs, no real API responses or business mutations.'
+          echo 'No Supabase backup or live restore was performed. No production identity, LINE auth, Worker deployment or product modifications.'
+          echo 'NO_GO / HOLD / NO_MERGE; GitHub main unchanged; Worker7 KEEP.' 
