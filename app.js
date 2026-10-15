@@ -179,6 +179,8 @@
     const serviceSelect = $("#booking-service");
     serviceSelect.innerHTML = `<option value="">選択してください</option>${officeData.services.map((service) => `<option value="${esc(service.id)}" data-duration="${service.duration_minutes}" data-channels="${esc((service.channel_options || []).join(","))}">${esc(service.service_name)}（${service.duration_minutes}分）</option>`).join("")}`;
     $("#security-notice-text").textContent = office.security_notice;
+    // R262 QA-only: announce loading, failure, and successful slot messages to assistive technology.
+    $("#slot-message").setAttribute("role", "status");
     const dateInput = $("#booking-date");
     dateInput.min = todayJst();
     const max = new Date(`${todayJst()}T12:00:00+09:00`);
@@ -218,7 +220,14 @@
     });
     dateInput.addEventListener("change", loadSlots);
     $("#slot-grid").addEventListener("click", (event) => {
-      if (event.target.closest("[data-retry-slots]")) { loadSlots(); return; }
+      if (event.target.closest("[data-retry-slots]")) {
+        // Restore keyboard focus after the retry replaces the original button with available times.
+        const retrySeq = slotRequestSeq + 1;
+        loadSlots().then(() => {
+          if (retrySeq === slotRequestSeq) $("#slot-grid [data-slot]:not(:disabled)")?.focus();
+        });
+        return;
+      }
       const button = event.target.closest("[data-slot]");
       if (!button) return;
       $$(".slot-button", $("#slot-grid")).forEach((node) => {
