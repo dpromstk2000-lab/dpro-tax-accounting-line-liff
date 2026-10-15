@@ -640,8 +640,14 @@
     $("#appointment-client-search-button").addEventListener("click", () => {
       const raw = $("#appointment-client-search").value.trim();
       if (!raw) { $("#appointment-client-results").innerHTML = alertBox("名前・電話番号・顧問先コードのいずれかを入力してください。"); return; }
-      const normalized = normalizePhone(raw); const q = (normalized.length >= 10 ? normalized : raw.normalize("NFKC")).toLowerCase();
-      const results = adminState.clients.filter((item) => item.status !== "ended" && [item.legal_name, item.trade_name, item.representative_name, item.client_code, item.phone, item.phone_normalized, item.email].some((value) => String(value || "").normalize("NFKC").toLowerCase().includes(q))).slice(0, 8);
+      // R255B QA-only: search organization names/codes as text, phone fields as normalized digits.
+      const normalizedRaw = raw.normalize("NFKC");
+      const phoneOnly = /^[+0-9\s()\-]+$/.test(normalizedRaw) && /[0-9]/.test(normalizedRaw);
+      const q = phoneOnly ? normalizePhone(normalizedRaw) : normalizedRaw.toLowerCase();
+      const results = adminState.clients.filter((item) => item.status !== "ended" && [item.legal_name, item.trade_name, item.representative_name, item.client_code, item.phone, item.phone_normalized, item.email].some((value, index) => {
+        const candidate = String(value || "").normalize("NFKC").toLowerCase();
+        return candidate.includes(q) || (phoneOnly && (index === 4 || index === 5) && normalizePhone(candidate).includes(q));
+      })).slice(0, 8);
       $("#appointment-client-results").innerHTML = results.length ? results.map((item) => `<button class="client-result" type="button" data-select-appointment-client="${item.id}"><span><strong>${esc(item.legal_name)}</strong><small>${esc(item.client_code)} ／ ${esc(item.representative_name || "代表者未登録")}</small></span><span class="client-result-phone">${esc(item.phone || "電話未登録")}</span></button>`).join("") : `<div class="empty">一致する顧問先がありません。未登録の相談者として予約者情報を入力できます。</div>`;
     });
     $("#appointment-client-results").addEventListener("click", async (event) => {
