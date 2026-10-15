@@ -617,6 +617,17 @@
     ];
     forms.forEach(([selector, path, transform, message]) => $(selector).addEventListener("submit", async (event) => {
       event.preventDefault(); const form = event.currentTarget; const button = $("button[type=submit]", form);
+      // R254 QA-only: do not send a booking request when the page was left open
+      // beyond midnight, or when the requested start is not on a 30-minute boundary.
+      if (selector === "#admin-appointment-form") {
+        const localStart = String(form.querySelector('[name="requested_start_at"]')?.value || "");
+        if (!/^\d{4}-\d{2}-\d{2}T\d{2}:(00|30)$/.test(localStart) ||
+            !Number.isFinite(new Date(toIso(localStart)).getTime()) ||
+            new Date(toIso(localStart)) <= new Date()) {
+          toast("予約日時は未来の30分単位で指定してください。", "error");
+          return;
+        }
+      }
       try { setButtonBusy(button, true, "登録中..."); await api(path, { method: "POST", body: transform(formObject(form)), adminKey: adminState.key }); toast(message); closeModal(form); form.reset(); if (selector === "#admin-appointment-form") clearAppointmentClientSelection(); await refreshOwner(); }
       catch (error) { toast(error.message, "error"); } finally { setButtonBusy(button, false); }
     }));
