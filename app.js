@@ -148,6 +148,11 @@
 
   function closeModal(modal) {
     const target = typeof modal === "string" ? document.getElementById(modal) : modal?.closest?.(".modal-backdrop") || modal;
+    if (target?.id === "appointment-create-modal") {
+      // R257C QA-only: reset form and invalidate pending selection on every close.
+      $("#admin-appointment-form")?.reset();
+      clearAppointmentClientSelection();
+    }
     if (target) target.hidden = true;
     document.body.style.overflow = "";
   }
