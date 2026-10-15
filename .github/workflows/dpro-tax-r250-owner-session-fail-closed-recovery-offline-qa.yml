@@ -1,0 +1,295 @@
+name: DPRO TAX R250 Owner Stale Session and Outage Fail-Closed Offline QA
+
+on:
+  push:
+    branches: ['qa/r225-synthetic-pg17-backup-restore-20261014']
+    paths: ['.github/workflows/dpro-tax-r250-owner-session-fail-closed-recovery-offline-qa.yml']
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches: [main]
+    paths: ['.github/workflows/dpro-tax-r250-owner-session-fail-closed-recovery-offline-qa.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  r250-owner-session-recovery-isolated:
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/qa/r225-synthetic-pg17-backup-restore-20261014') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout QA source without write token
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Install disposable offline Playwright Chromium
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv .r250-browser-venv
+          .r250-browser-venv/bin/python -m pip install --disable-pip-version-check playwright==1.56.0
+          .r250-browser-venv/bin/python -m playwright install --with-deps chromium
+      - name: Serve checked-out static UI on loopback only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s owner.html && test -s app.js && test -s styles.css && test -s config.js
+          python3 -m http.server 8765 --bind 127.0.0.1 > r250-http.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl --silent --fail --noproxy '*' http://127.0.0.1:8765/owner.html -o /dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent --show-error --noproxy '*' http://127.0.0.1:8765/owner.html -o /dev/null
+      - name: Test stale credentials, synthetic outage and safe recovery without any external writes
+        shell: bash
+        run: |
+          set -euo pipefail
+          .r250-browser-venv/bin/python - <<'PY_R250_BROWSER'
+          from pathlib import Path
+          from urllib.parse import urlsplit
+          from playwright.sync_api import sync_playwright
+          import json
+          ROOT='http://127.0.0.1:8765'
+          REMOTE='dpro-tax-accounting-line-api.dpromstk2000.workers.dev'
+          EVIDENCE=Path('r250-owner-session-recovery-evidence')
+          EVIDENCE.mkdir(exist_ok=True)
+          FAKE_CLIENT={
+           'id':'r245-c1','legal_name':'架空会計テスト株式会社','client_code':'TX-FAKE-001',
+           'client_type':'corporation','status':'active','representative_name':'架空担当者',
+           'phone':'090-1111-2201','phone_normalized':'09011112201',
+           'assigned_staff_id':None
+          }
+          FAKE_CASE={
+           'id':'r245-case1','title':'架空の確定申告案件','case_code':'FAKE-CASE-001',
+           'client_id':'r245-c1','case_type':'tax_return','status':'in_progress',
+           'deadline_date':'2027-03-31','progress_percent':30,'deadline_is_confirmed':True,
+           'next_action':'架空の確認作業','public_summary':'架空のテスト案件'
+          }
+          DASH={
+           'ok':True,'office':{'office_name':'R246架空税理士事務所'},
+           'counts':{'clients':1,'open_cases':1,'new_documents':0,'open_inquiries':0},
+           'urgent_cases':[],'due_tasks':[],'documents_to_review':[],
+           'active_appointments':[],'open_inquiries':[]
+          }
+          FAKE_DOC={
+           'id':'r249-doc1','client_id':'r245-c1','original_filename':'架空_領収書.pdf',
+           'submission_code':'DOC-R248-001','status':'new',
+           'submitted_at':'2026-10-01T09:00:00+09:00','file_size_bytes':2048,
+           'mime_type':'application/pdf','submitted_by_type':'client',
+           'reviewed_at':None,'reviewed_by':None,'rejection_reason':''
+          }
+          FAKE_REQUEST={
+           'id':'r249-request1','client_id':'r245-c1','title':'架空の月次資料提出依頼',
+           'request_code':'REQ-R248-001','due_on':'2027-03-30',
+           'status':'open','items':[{'item_name':'領収書'}]
+          }
+          FAKE_STAFF={
+           'id':'r249-staff1','display_name':'架空事務所スタッフ','staff_code':'FAKE-STAFF-01',
+           'role':'staff','email':'','phone':'','can_review_documents':True,'is_active':True
+          }
+          FAKE_TASK={
+           'id':'r249-task1','title':'架空の申告書確認','task_type':'document_check',
+           'client_id':'r245-c1','due_at':'2027-03-15T10:00:00+09:00',
+           'priority':'normal','status':'open'
+          }
+          FAKE_APPOINTMENT={
+           'id':'r249-appt1','requester_name':'架空予約者','requester_phone':'090-1111-2201',
+           'appointment_channel':'phone','assigned_staff_id':'r249-staff1',
+           'requested_start_at':'2027-03-20T09:00:00+09:00',
+           'duration_minutes':30,'status':'requested'
+          }
+          FAKE_CLIENT_DETAIL={
+           'ok':True,'client':FAKE_CLIENT,
+           'contacts':[{'id':'r249-contact1','full_name':'架空の電話担当',
+                        'phone':'090-1111-2201','email':'demo@example.invalid',
+                        'position_title':'担当'}],
+           'cases':[FAKE_CASE],'document_requests':[FAKE_REQUEST],
+           'appointments':[FAKE_APPOINTMENT],'inquiries':[]
+          }
+          DOCUMENT_DETAIL={
+           'ok':True,'document':FAKE_DOC,'client':FAKE_CLIENT,
+           'contact':{'full_name':'架空の提出者'},'request':FAKE_REQUEST,
+           'request_item':{'item_name':'領収書'},'reviewers':[FAKE_STAFF],
+           'file':{'available':False},'access_logs':[]
+          }
+          FIXTURES={
+           '/api/admin/dashboard':DASH,
+           '/api/admin/clients':{'ok':True,'clients':[FAKE_CLIENT]},
+           '/api/admin/clients/r245-c1':FAKE_CLIENT_DETAIL,
+           '/api/admin/cases':{'ok':True,'cases':[FAKE_CASE]},
+           '/api/admin/document-requests':{'ok':True,'document_requests':[FAKE_REQUEST]},
+           '/api/admin/documents':{'ok':True,'documents':[FAKE_DOC]},
+           '/api/admin/documents/r249-doc1':DOCUMENT_DETAIL,
+           '/api/admin/appointments':{'ok':True,'appointments':[FAKE_APPOINTMENT]},
+           '/api/admin/inquiries':{'ok':True,'inquiries':[]},
+           '/api/admin/tasks':{'ok':True,'tasks':[FAKE_TASK]},
+           '/api/admin/staff':{'ok':True,'staff':[FAKE_STAFF]},
+           '/api/admin/settings':{'ok':True,'office':{
+               'office_name':'R246架空税理士事務所','phone':'','email':'',
+               'booking_open_days':90,'security_notice':'架空データのみ'} ,
+               'services':[],'business_hours':[],'closed_dates':[]},
+           '/api/public/office':{'ok':True,'office':{
+               'security_notice':'架空データのみ','booking_open_days':90},'services':[]}
+          }
+          report={'suite':'R250 real owner stale-session/outage fail-closed recovery; synthetic-only',
+                  'screenshots':[],'cases':{},'business_mutations':0,'production_requests':0,
+                  'browser_errors':[],'mock_reads':0,'blocked_other_requests':0,
+                  'source_product_changed':False,'release':'NO_GO/HOLD'}
+          with sync_playwright() as p:
+              browser=p.chromium.launch(headless=True,args=['--no-sandbox'])
+              for preset,w,h in [('desktop',1280,800),('tablet',1024,800),('compact',768,900),('mobile',390,844)]:
+                  ctx=browser.new_context(viewport={'width':w,'height':h},
+                      device_scale_factor=1,is_mobile=preset=='mobile',has_touch=preset=='mobile',
+                      reduced_motion='reduce',service_workers='block',java_script_enabled=True)
+                  state={'outage':False,'mock_reads':0,'invalid_codes':0,'errors':0,'external_mutations':0}
+                  def offline(route):
+                      req=route.request
+                      u=urlsplit(req.url)
+                      if u.scheme=='http' and u.hostname=='127.0.0.1' and u.port==8765:
+                          return route.continue_()
+                      if u.hostname==REMOTE and req.method=='OPTIONS' and u.path in FIXTURES:
+                          return route.fulfill(status=204,headers={
+                              'Access-Control-Allow-Origin':'*',
+                              'Access-Control-Allow-Methods':'GET, OPTIONS',
+                              'Access-Control-Allow-Headers':'X-Admin-Key, X-Line-User-Id, Content-Type, Accept',
+                              'Access-Control-Max-Age':'0'})
+                      if u.hostname==REMOTE and req.method=='GET' and u.path in FIXTURES:
+                          if state['outage']:
+                              state['errors']+=1
+                              return route.fulfill(status=503,content_type='application/json',
+                                  headers={'Access-Control-Allow-Origin':'*'},
+                                  body=json.dumps({'ok':False,'error':'R250_SYNTHETIC_API_OUTAGE','message':'架空通信障害'}))
+                          if u.path.startswith('/api/admin/') and req.headers.get('x-admin-key')!='1234':
+                              state['invalid_codes']+=1
+                              return route.fulfill(status=403,content_type='application/json',
+                                  headers={'Access-Control-Allow-Origin':'*'},
+                                  body=json.dumps({'ok':False,'error':'R250_SYNTHETIC_DENIED','message':'架空認証拒否'}))
+                          state['mock_reads']+=1
+                          return route.fulfill(status=200,content_type='application/json',
+                              headers={'Access-Control-Allow-Origin':'*'},
+                              body=json.dumps(FIXTURES[u.path],ensure_ascii=False))
+                      state['errors']+=1
+                      if req.method not in ('GET','HEAD','OPTIONS'):
+                          state['external_mutations']+=1
+                      return route.abort('blockedbyclient')
+                  ctx.route('**/*',offline)
+                  page=ctx.new_page()
+                  errs=[]
+                  page.on('pageerror',lambda error:errs.append(str(error)))
+                  page.goto(ROOT+'/owner.html',wait_until='domcontentloaded',timeout=15000)
+                  page.locator('#owner-auth').wait_for(state='visible',timeout=15000)
+                  assert page.locator('#owner-app').is_hidden()
+                  assert page.evaluate('sessionStorage.getItem("dpro_tax_admin")') is None
+                  before_requests=state['mock_reads']
+                  page.locator('#owner-login-form button[type=submit]').click()
+                  assert page.locator('#owner-app').is_hidden()
+                  assert state['mock_reads']==before_requests, (preset,'required code unexpectedly attempted API')
+                  # Simulate a stale unauthorized session, matching normal browser reload behavior.
+                  page.evaluate('sessionStorage.setItem("dpro_tax_admin","9999")')
+                  page.reload(wait_until='domcontentloaded')
+                  page.locator('#owner-login-alert .alert').wait_for(state='visible',timeout=15000)
+                  assert page.locator('#owner-app').is_hidden(),(preset,'invalid persisted key opened app')
+                  assert page.evaluate('sessionStorage.getItem("dpro_tax_admin")') is None
+                  assert state['invalid_codes']>=1
+                  name=f'{preset}-stale-invalid-session-rejected.png'
+                  page.locator('#owner-auth').screenshot(path=str(EVIDENCE/name),animations='disabled')
+                  report['screenshots'].append(name)
+                  # Simulate a previously accepted key while the API responds 503.
+                  state['outage']=True
+                  page.evaluate('sessionStorage.setItem("dpro_tax_admin","1234")')
+                  page.reload(wait_until='domcontentloaded')
+                  page.locator('#owner-login-alert .alert').wait_for(state='visible',timeout=15000)
+                  assert page.locator('#owner-app').is_hidden(),(preset,'outage exposed cached owner UI')
+                  assert page.evaluate('sessionStorage.getItem("dpro_tax_admin")') is None
+                  assert state['errors']>=1
+                  name=f'{preset}-offline-failure-keeps-app-hidden.png'
+                  page.locator('#owner-auth').screenshot(path=str(EVIDENCE/name),animations='disabled')
+                  report['screenshots'].append(name)
+                  # Restore synthetic mock availability, then login again normally.
+                  state['outage']=False
+                  page.locator('#owner-admin-code').fill('1234')
+                  page.locator('#owner-login-form button[type=submit]').click()
+                  page.locator('#owner-content').wait_for(state='visible',timeout=15000)
+                  page.locator('#owner-app').wait_for(state='visible',timeout=15000)
+                  assert page.locator('#owner-auth').is_hidden()
+                  assert page.locator('#owner-office-name').inner_text()=='R246架空税理士事務所'
+                  assert page.locator('button[data-admin-view]').count()==9
+                  assert page.evaluate('sessionStorage.getItem("dpro_tax_admin")')=='1234'
+                  assert state['mock_reads']>=12,(preset,'mock data not loaded')
+                  name=f'{preset}-synthetic-recovery-owner-visible.png'
+                  page.locator('[data-admin-panel="dashboard"]').screenshot(path=str(EVIDENCE/name),animations='disabled')
+                  report['screenshots'].append(name)
+                  # Log out and reload: no old authenticated content appears.
+                  page.locator('#owner-logout').click()
+                  page.locator('#owner-auth').wait_for(state='visible',timeout=15000)
+                  assert page.locator('#owner-app').is_hidden()
+                  assert page.evaluate('sessionStorage.getItem("dpro_tax_admin")') is None
+                  page.reload(wait_until='domcontentloaded')
+                  page.locator('#owner-auth').wait_for(state='visible',timeout=15000)
+                  assert page.locator('#owner-app').is_hidden()
+                  assert page.evaluate('sessionStorage.getItem("dpro_tax_admin")') is None
+                  name=f'{preset}-logout-reload-stays-locked.png'
+                  page.locator('#owner-auth').screenshot(path=str(EVIDENCE/name),animations='disabled')
+                  report['screenshots'].append(name)
+                  assert state['external_mutations']==0,(preset,'attempted external write')
+                  assert not errs,(preset,'page script error',errs)
+                  assert page.evaluate('Math.max(document.documentElement.scrollWidth,document.body.scrollWidth)-innerWidth')<=1
+                  report['cases'][preset]={
+                      'empty_code_native_required':True,
+                      'stale_invalid_session_rejected':True,
+                      'invalid_session_storage_cleared':True,
+                      'synthetic_503_fail_closed':True,
+                      'api_outage_clears_session':True,
+                      'mock_service_recovery_works':True,
+                      'logout_followed_by_reload_stays_locked':True,
+                      'no_business_mutation':True,'mock_read_count':state['mock_reads'],
+                      'invalid_code_events':state['invalid_codes'],'outage_events':state['errors']}
+                  report['business_mutations']+=state['external_mutations']
+                  report['mock_reads']+=state['mock_reads']
+                  report['blocked_other_requests']+=0
+                  report['browser_errors']+=errs
+                  page.close();ctx.close()
+              browser.close()
+          assert len(report['cases'])==4
+          assert len(report['screenshots'])==16
+          assert report['business_mutations']==0
+          assert report['production_requests']==0
+          assert report['mock_reads']>=48
+          assert not report['browser_errors']
+          (EVIDENCE/'qa-results.json').write_text(json.dumps(report,ensure_ascii=False,indent=2,sort_keys=True),encoding='utf-8')
+          print('R250_OWNER_QA='+json.dumps(report,ensure_ascii=False,sort_keys=True))
+          print('PASS: R250 auth stale session, API 503, recovery, logout reload; 16 screenshots; synthetic-only')
+          PY_R250_BROWSER
+      - name: Confirm 16 R250 screenshots and no production interaction
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY_R250_INVENTORY'
+          from pathlib import Path
+          import json
+          folder=Path('r250-owner-session-recovery-evidence')
+          report=json.loads((folder/'qa-results.json').read_text(encoding='utf-8'))
+          screenshots=list(folder.glob('*.png'))
+          assert len(screenshots)==16 and len(report['screenshots'])==16
+          assert len(report['cases'])==4
+          assert all(f.stat().st_size>500 for f in screenshots)
+          assert report['business_mutations']==0 and report['production_requests']==0
+          assert not report['browser_errors']
+          print('PASS: 16 real owner session/recovery screenshots; synthetic-only requests; no production changes')
+          PY_R250_INVENTORY
+      - name: Upload temporary synthetic screenshots to Actions only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r250-owner-session-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: r250-owner-session-recovery-evidence/
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Assert release gate remains CLOSED
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'R250 localhost-only auth/session recovery smoke test; no production credentials, database, LINE dispatch, or Cloudflare changes.'
+          echo 'Never use synthetic 1234 mock acceptance as evidence of production authentication security.'
+          echo 'NO_GO / HOLD / NO_MERGE; Draft PR remains open; 7 Workers KEEP.'
