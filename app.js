@@ -225,6 +225,19 @@
       const submit = $("button[type=submit]", form);
       const values = formObject(form);
       if (!values.requested_start_at) { $("#public-alert").innerHTML = alertBox("希望時間を選択してください。"); return; }
+      // R259 QA-only: allow submission only for currently selected, available, future half-hour slot.
+const requestedSlot = new Date(values.requested_start_at);
+const selectedButton = $("#slot-grid .slot-button.selected:not(:disabled)");
+const requestedDateJst = Number.isFinite(requestedSlot.getTime())
+  ? new Intl.DateTimeFormat("en-CA", { timeZone: CONFIG.TIMEZONE, year: "numeric", month: "2-digit", day: "2-digit" }).format(requestedSlot) : "";
+if (!serviceSelect.value || !dateInput.value || !dateInput.checkValidity() ||
+    !selectedButton || selectedButton.dataset.slot !== values.requested_start_at ||
+    !Number.isFinite(requestedSlot.getTime()) || requestedSlot <= new Date() ||
+    requestedSlot.getMinutes() % 30 !== 0 || requestedSlot.getSeconds() !== 0 ||
+    requestedDateJst !== dateInput.value) {
+  $("#public-alert").innerHTML = alertBox("希望日時を選び直してください。");
+  return;
+}
       delete values.booking_date;
       if (lineUserId) values.line_user_id = lineUserId;
       try {
