@@ -714,20 +714,25 @@
   }
 
   function clearAppointmentClientSelection() {
+    adminState.appointmentClientRequestSeq = (adminState.appointmentClientRequestSeq || 0) + 1;
     $("#appointment-client-id").value = ""; $("#appointment-contact-id").value = ""; $("#appointment-client-search").value = ""; $("#appointment-phone-normalized").textContent = ""; $("#appointment-client-results").innerHTML = ""; $("#appointment-selected-client").innerHTML = ""; $("#appointment-selected-client").hidden = true; adminState.appointmentClientDetail = null;
   }
 
   async function selectAppointmentClient(id) {
+    // R256 QA-only: latest click takes precedence over any delayed older API response.
+    const requestSeq = adminState.appointmentClientRequestSeq = (adminState.appointmentClientRequestSeq || 0) + 1;
     const selected = $("#appointment-selected-client");
     try {
       selected.hidden = false; selected.innerHTML = '<div class="loading"><span class="spinner" role="status" aria-label="顧問先情報を読み込み中"></span></div>';
-      const data = await api(`/api/admin/clients/${id}`, { adminKey: adminState.key }); const client = data.client; adminState.appointmentClientDetail = data;
+      const data = await api(`/api/admin/clients/${id}`, { adminKey: adminState.key });
+      if (requestSeq !== adminState.appointmentClientRequestSeq) return;
+      const client = data.client; adminState.appointmentClientDetail = data;
       $("#appointment-client-id").value = client.id; $("#appointment-contact-id").value = ""; $("#admin-requester-name").value = client.representative_name || client.legal_name; $("#admin-requester-phone").value = client.phone || ""; $("#admin-requester-email").value = client.email || "";
       const activeCases = data.cases.filter((item) => !["completed", "cancelled"].includes(item.status));
       const contacts = data.contacts.length ? `<div class="contact-choice"><strong>予約者を連絡先から選択</strong><div class="button-row">${data.contacts.map((item) => `<button class="btn btn-secondary btn-sm" type="button" data-select-appointment-contact="${item.id}">${esc(item.full_name)}${item.position_title ? `（${esc(item.position_title)}）` : ""}</button>`).join("")}</div></div>` : "";
       selected.innerHTML = `<div class="selected-client-head"><div><span class="status" data-tone="success">既存顧問先</span><h3>${esc(client.legal_name)}</h3><p class="small muted">${esc(client.client_code)} ／ ${esc(client.representative_name || "代表者未登録")} ／ ${esc(client.phone || "電話未登録")}</p></div><button class="btn btn-secondary btn-sm" type="button" data-clear-appointment-client>選択解除</button></div><div class="selected-client-metrics"><span>進行中案件 <strong>${activeCases.length}</strong></span><span>資料依頼 <strong>${data.document_requests.length}</strong></span><span>予約履歴 <strong>${data.appointments.length}</strong></span><span>相談履歴 <strong>${data.inquiries.length}</strong></span></div>${contacts}`;
       $("#appointment-client-results").innerHTML = "";
-    } catch (error) { selected.hidden = true; toast(error.message, "error"); }
+    } catch (error) { if (requestSeq === adminState.appointmentClientRequestSeq) { selected.hidden = true; toast(error.message, "error"); } }
   }
 
   async function initIpad() {
