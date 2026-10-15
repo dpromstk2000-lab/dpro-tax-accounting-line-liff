@@ -202,7 +202,11 @@
         // R260 QA-only: expose slot selection to keyboard and screen-reader users.
         $("#slot-grid").innerHTML = data.slots.map((slot) => `<button class="slot-button" type="button" data-slot="${esc(slot.start_at)}" aria-pressed="false" ${slot.available ? "" : "disabled"}>${esc(slot.local_time)}</button>`).join("");
       } catch (error) {
-        if (requestSeq === slotRequestSeq) $("#slot-message").textContent = error.message;
+        if (requestSeq === slotRequestSeq) {
+          // R261 QA-only: preserve date/service and offer a safe retry for transient slot errors.
+          $("#slot-message").textContent = "空き時間を取得できませんでした。再試行してください。";
+          $("#slot-grid").innerHTML = '<button class="btn btn-secondary" type="button" data-retry-slots>再試行</button>';
+        }
       }
     }
     serviceSelect.addEventListener("change", () => {
@@ -214,6 +218,7 @@
     });
     dateInput.addEventListener("change", loadSlots);
     $("#slot-grid").addEventListener("click", (event) => {
+      if (event.target.closest("[data-retry-slots]")) { loadSlots(); return; }
       const button = event.target.closest("[data-slot]");
       if (!button) return;
       $$(".slot-button", $("#slot-grid")).forEach((node) => {
