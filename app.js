@@ -406,7 +406,8 @@
   }
 
   function renderClients() {
-    const q = normalizePhone($("#client-search")?.value) || $("#client-search")?.value?.toLowerCase() || "";
+    const rawQuery = String($("#client-search")?.value || "").trim().normalize("NFKC").toLowerCase();
+    const q = /^[+0-9\s()\-]+$/.test(rawQuery) ? normalizePhone(rawQuery) : rawQuery;
     const status = $("#client-status-filter")?.value || "";
     const list = adminState.clients.filter((item) => (!status || item.status === status) && (!q || [item.client_code, item.legal_name, item.trade_name, item.representative_name, item.phone_normalized, item.phone, item.email].some((value) => String(value || "").normalize("NFKC").toLowerCase().includes(q))));
     $("#clients-table-body").innerHTML = list.length ? list.map((item) => `<tr><td><strong>${esc(item.legal_name)}</strong><div class="small muted">${esc(item.client_code)}${item.representative_name ? ` ／ ${esc(item.representative_name)}` : ""}</div></td><td>${esc(label(item.client_type))}</td><td>${esc(item.phone || "－")}</td><td>${esc(staffName(item.assigned_staff_id))}</td><td>${badge(item.status)}</td><td><div class="table-actions"><button class="btn btn-secondary btn-sm" data-client-detail="${item.id}" type="button">詳細</button><button class="btn btn-danger btn-sm" data-soft-delete="client" data-id="${item.id}" type="button">終了</button></div></td></tr>`).join("") : `<tr><td colspan="6">${empty("一致する顧問先がありません。")}</td></tr>`;
