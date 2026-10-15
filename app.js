@@ -185,7 +185,10 @@
     max.setDate(max.getDate() + Number(office.booking_open_days || 90));
     dateInput.max = new Intl.DateTimeFormat("en-CA", { timeZone: CONFIG.TIMEZONE }).format(max);
 
+    let slotRequestSeq = 0;
     async function loadSlots() {
+      // R258 QA-only: ignore stale slot replies after another date/service selection.
+      const requestSeq = ++slotRequestSeq;
       const serviceId = serviceSelect.value;
       const date = dateInput.value;
       $("#booking-start").value = "";
@@ -194,10 +197,11 @@
       $("#slot-message").textContent = "空き時間を確認中...";
       try {
         const data = await api(`/api/public/slots?date=${encodeURIComponent(date)}&service_id=${encodeURIComponent(serviceId)}`);
+        if (requestSeq !== slotRequestSeq) return;
         $("#slot-message").textContent = data.slots.length ? "希望時間を選択してください。" : "この日は予約可能な時間がありません。別の日を選択してください。";
         $("#slot-grid").innerHTML = data.slots.map((slot) => `<button class="slot-button" type="button" data-slot="${esc(slot.start_at)}" ${slot.available ? "" : "disabled"}>${esc(slot.local_time)}</button>`).join("");
       } catch (error) {
-        $("#slot-message").textContent = error.message;
+        if (requestSeq === slotRequestSeq) $("#slot-message").textContent = error.message;
       }
     }
     serviceSelect.addEventListener("change", () => {
