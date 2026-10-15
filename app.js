@@ -199,7 +199,8 @@
         const data = await api(`/api/public/slots?date=${encodeURIComponent(date)}&service_id=${encodeURIComponent(serviceId)}`);
         if (requestSeq !== slotRequestSeq) return;
         $("#slot-message").textContent = data.slots.length ? "希望時間を選択してください。" : "この日は予約可能な時間がありません。別の日を選択してください。";
-        $("#slot-grid").innerHTML = data.slots.map((slot) => `<button class="slot-button" type="button" data-slot="${esc(slot.start_at)}" ${slot.available ? "" : "disabled"}>${esc(slot.local_time)}</button>`).join("");
+        // R260 QA-only: expose slot selection to keyboard and screen-reader users.
+        $("#slot-grid").innerHTML = data.slots.map((slot) => `<button class="slot-button" type="button" data-slot="${esc(slot.start_at)}" aria-pressed="false" ${slot.available ? "" : "disabled"}>${esc(slot.local_time)}</button>`).join("");
       } catch (error) {
         if (requestSeq === slotRequestSeq) $("#slot-message").textContent = error.message;
       }
@@ -215,7 +216,10 @@
     $("#slot-grid").addEventListener("click", (event) => {
       const button = event.target.closest("[data-slot]");
       if (!button) return;
-      $$(".slot-button", $("#slot-grid")).forEach((node) => node.classList.toggle("selected", node === button));
+      $$(".slot-button", $("#slot-grid")).forEach((node) => {
+        node.classList.toggle("selected", node === button);
+        node.setAttribute("aria-pressed", String(node === button));
+      });
       $("#booking-start").value = button.dataset.slot;
     });
 
