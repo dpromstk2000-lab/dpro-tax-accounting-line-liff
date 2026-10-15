@@ -418,8 +418,8 @@
   }
 
   function renderCases() {
-    const q = $("#case-search")?.value?.toLowerCase() || ""; const status = $("#case-status-filter")?.value || "";
-    const list = adminState.cases.filter((item) => (!status || item.status === status) && (!q || [item.case_code, item.title, item.next_action, item.public_summary].some((value) => String(value || "").toLowerCase().includes(q))));
+    const q = String($("#case-search")?.value || "").trim().normalize("NFKC").toLowerCase(); const status = $("#case-status-filter")?.value || "";
+    const list = adminState.cases.filter((item) => (!status || item.status === status) && (!q || [item.case_code, item.title, item.next_action, item.public_summary].some((value) => String(value || "").normalize("NFKC").toLowerCase().includes(q))));
     $("#cases-table-body").innerHTML = list.length ? list.map((item) => `<tr><td><strong>${esc(item.title)}</strong><div class="small muted">${esc(item.case_code)} ／ ${esc(label(item.case_type))}</div></td><td>${esc(clientName(item.client_id))}</td><td>${formatDate(item.deadline_date)}${item.deadline_is_confirmed ? " ✓" : ""}</td><td><div style="min-width:110px"><strong>${item.progress_percent}%</strong><div class="progress"><span style="width:${item.progress_percent}%"></span></div></div></td><td>${badge(item.status)}</td><td><div class="table-actions"><button class="btn btn-secondary btn-sm" data-case-progress="${item.id}" type="button">進捗更新</button><button class="btn btn-danger btn-sm" data-soft-delete="case" data-id="${item.id}" type="button">取消</button></div></td></tr>`).join("") : `<tr><td colspan="6">${empty("案件がありません。")}</td></tr>`;
   }
 
