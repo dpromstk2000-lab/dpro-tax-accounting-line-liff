@@ -1,0 +1,49 @@
+name: DPRO TAX TPLUS V3.6 Isolated QA Only
+on:
+  push:
+    branches:
+      - qa/r225-synthetic-pg17-backup-restore-20261014
+    paths:
+      - 'tplus-owner-dashboard-v36/**'
+      - '.github/workflows/dpro-tax-tplus-v36-isolated-qa.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  qa-v36:
+    if: github.ref_name == 'qa/r225-synthetic-pg17-backup-restore-20261014'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout isolated QA branch
+        uses: actions/checkout@v4
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Chromium QA
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install playwright
+          python -m playwright install --with-deps chromium
+      - name: Run V3.6 offline browser tests
+        working-directory: tplus-owner-dashboard-v36
+        run: |
+          python test_baseline.py
+          python test_consistency.py
+          python test_extra_qa.py
+          python test_targeted_v35.py
+          python test_targeted_v36.py
+      - name: Upload QA report artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dpro-tax-tplus-v36-offline-qa
+          path: |
+            tplus-owner-dashboard-v36/QA_RESULTS.json
+            tplus-owner-dashboard-v36/QA_V35_CONSISTENCY.json
+            tplus-owner-dashboard-v36/V35_EXTRA_QA_RESULTS.json
+            tplus-owner-dashboard-v36/QA_V35_TARGETED.json
+            tplus-owner-dashboard-v36/QA_V36_TARGETED.json
+            tplus-owner-dashboard-v36/QA_*.png
+          if-no-files-found: warn
