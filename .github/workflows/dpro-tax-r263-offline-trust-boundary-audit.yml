@@ -1,0 +1,147 @@
+name: DPRO TAX R263 Offline Trust Boundary Evidence Only
+on:
+  push:
+    branches:
+      - qa/r225-synthetic-pg17-backup-restore-20261014
+    paths:
+      - '.github/workflows/dpro-tax-r263-offline-trust-boundary-audit.yml'
+permissions:
+  contents: read
+jobs:
+  offline-r263-source-audit:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/qa/r225-synthetic-pg17-backup-restore-20261014'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout isolated QA branch with no persistent credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read frontend source and preserve commercial HOLD
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY_AUDIT'
+          #!/usr/bin/env python3
+          """DPRO TAX R263: read-only client/server trust-boundary inventory.
+          
+          NO live Worker/DB/LINE interaction. PASS means repeatable inventory only,
+          NOT security approval or evidence about server-side enforcement.
+          """
+          from __future__ import annotations
+          import argparse
+          from datetime import datetime, timezone
+          import hashlib
+          import json
+          from pathlib import Path
+          import re
+          
+          TARGETS = ("app.js", "config.js", "owner.html", "member.html")
+          PINNED_WORKFLOW = ".github/workflows/dpro-tax-customer-onboarding-r262-frozen-candidate-qa-only.yml"
+          
+          
+          def inspect(root: Path) -> dict:
+              content = {}
+              source = {}
+              for p in TARGETS + (PINNED_WORKFLOW,):
+                  f = root / p
+                  if not f.is_file() or f.is_symlink():
+                      raise ValueError(f"Missing or disallowed source: {p}")
+                  data = f.read_bytes()
+                  if len(data) > 1_000_000:
+                      raise ValueError(f"Unexpected source size: {p}")
+                  content[p] = data.decode("utf-8-sig")
+                  source[p] = {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+              app, cfg, frozen = content["app.js"], content["config.js"], content[PINNED_WORKFLOW]
+              facts = {
+                  "ui_accepts_userid_query_string": bool(re.search(r'params\s*\.\s*get\s*\(\s*[\'\"]line_user_id[\'\"]', app)),
+                  "ui_sends_line_userid_header": bool(re.search(r'headers\s*\[\s*[\'\"]X-Line-User-Id[\'\"]\s*\]', app)),
+                  "ui_sends_admin_key_header": bool(re.search(r'headers\s*\[\s*[\'\"]X-Admin-Key[\'\"]\s*\]', app)),
+                  "ui_stores_admin_code_in_sessionstorage": bool(re.search(r'sessionStorage\s*\.\s*setItem\s*\(\s*[\'\"]dpro_tax_(?:ipad_)?admin[\'\"]', app)),
+                  "ui_demo_flag_from_query_string": bool(re.search(r'params\s*\.\s*get\s*\(\s*[\'\"]demo[\'\"]', app)),
+                  "ui_demo_uses_default_admin_code": "CONFIG.DEFAULT_ADMIN_CODE" in app,
+                  "ui_network_api_uses_configured_api_base": "CONFIG.API_BASE" in app and "fetch(`${apiBase}${path}`" in app,
+                  "config_contains_public_demo_admin_code": bool(re.search(r'DEFAULT_ADMIN_CODE\s*:\s*[\'\"]1234[\'\"]', cfg)),
+                  "candidate_explicit_commercial_hold": "COMMERCIAL HOLD" in frozen or "commercial_release':'HOLD'" in frozen,
+                  "candidate_explicit_no_deploy": "NOT DEPLOYABLE" in frozen or "No production" in frozen,
+              }
+              # This source-only inventory cannot verify identity proof or RLS on a Worker/DB.
+              controls = [
+                  {"gate": "G01", "check": "SERVER_VALIDATES_SIGNED_LINE_IDENTITY", "result": "NOT_VERIFIED", "risk": "P0", "evidence_needed": "Reject forged/missing/expired ID tokens; never trust client-supplied X-Line-User-Id"},
+                  {"gate": "G02", "check": "SERVER_ADMIN_ROLE_AND_TENANT_AUTHORIZATION", "result": "NOT_VERIFIED", "risk": "P0", "evidence_needed": "Role/tenant enforcement on each admin API, including read and write"},
+                  {"gate": "G03", "check": "DOCUMENT_SIGNED_URL_TENANT_BOUNDARY", "result": "NOT_VERIFIED", "risk": "P0", "evidence_needed": "Reject cross-tenant document URL requests and expired links"},
+                  {"gate": "G04", "check": "DEMOMODE_CANNOT_READ_LIVE_TENANT_DATA", "result": "NOT_VERIFIED", "risk": "P0", "evidence_needed": "Prove ?demo=1 cannot authenticate to real tenant or mutate prod"},
+                  {"gate": "G05", "check": "DB_RLS_PROVEN_WITH_REAL_VERIFIED_JWT", "result": "NOT_VERIFIED", "risk": "P0", "evidence_needed": "Verify production-equivalent RLS in isolated DB with cryptographic token trust; R234 uses synthetic claim"},
+                  {"gate": "G06", "check": "LINE_NOTIFICATION_IDEMPOTENCY_AND_TENANT", "result": "NOT_VERIFIED", "risk": "P1", "evidence_needed": "Isolated dispatch adapter and retries; never send live messages"},
+              ]
+              issues = []
+              if facts["ui_accepts_userid_query_string"] and facts["ui_sends_line_userid_header"]:
+                  issues.append({"id": "P0-CLIENT-LINE-ID-UNTRUSTED", "type": "TRUST_BOUNDARY_REQUIRES_SERVER_PROOF", "finding": "Frontend constructs X-Line-User-Id from a URL-supplied value. Backend enforcement unknown; do not treat header as authentication."})
+              if facts["ui_demo_flag_from_query_string"] and facts["ui_demo_uses_default_admin_code"] and facts["ui_network_api_uses_configured_api_base"]:
+                  issues.append({"id": "P0-DEMO-LIVE-API-PATH", "type": "DEMO_ISOLATION_REQUIRES_SERVER_PROOF", "finding": "Legacy app demo flag and default code coexist with a configured live API path. Verify server rejects any synthetic credential and never serves live data to demo mode."})
+              if facts["ui_sends_admin_key_header"] and facts["ui_stores_admin_code_in_sessionstorage"]:
+                  issues.append({"id": "P0-ADMIN-KEY-STORAGE", "type": "AUTH_DESIGN_REQUIRES_REVIEW", "finding": "Frontend stores an admin code in sessionStorage and sends it as X-Admin-Key. Production session scoping/rotation/role enforcement cannot be inferred."})
+              # Detect obvious embedded operational credentials, but do not treat public demo literals as secrets.
+              patterns = [
+                  r"(?i)\b(?:SUPABASE_SERVICE_ROLE_KEY|LINE_CHANNEL_ACCESS_TOKEN|CLOUDFLARE_API_TOKEN|PRIVATE_KEY)\s*[:=]\s*['\"][^'\"\s]{12,}['\"]",
+                  r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
+              ]
+              secret_hits = []
+              for p in TARGETS:
+                  for pattern in patterns:
+                      if re.search(pattern, content[p]):
+                          secret_hits.append(p)
+              result = {
+                  "suite": "DPRO_TAX_R263_OFFLINE_TRUST_BOUNDARY_INVENTORY",
+                  "checked_at_utc": datetime.now(timezone.utc).isoformat(),
+                  "mode": "SOURCE_READ_ONLY; NO_NETWORK_REQUESTS; NO_DB; NO_WORKER; NO_LINE; NO_GIT_WRITE",
+                  "release_gate": "NO_GO/HOLD",
+                  "server_enforcement_verified": False,
+                  "frontend_facts": facts,
+                  "observed_trust_boundaries": issues,
+                  "server_acceptance_gates": controls,
+                  "secret_candidate_paths": sorted(set(secret_hits)),
+                  "source_checksums": source,
+                  "audit_integrity": "PASS" if not secret_hits and all(facts.values()) else "FAIL",
+              }
+              return result
+          
+          
+          def main():
+              parser = argparse.ArgumentParser()
+              parser.add_argument("--root", default=".")
+              parser.add_argument("--output", default="r263-offline-audit.json")
+              args = parser.parse_args()
+              result = inspect(Path(args.root))
+              Path(args.output).write_text(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+              print("R263_FRONTEND_FACTS="+json.dumps(result["frontend_facts"],ensure_ascii=False,sort_keys=True))
+              print("R263_TRUST_BOUNDARIES="+json.dumps([v["id"] for v in result["observed_trust_boundaries"]]))
+              print("R263_SERVER_GATES=6 NOT_VERIFIED; COMMERCIAL HOLD")
+              print("R263_SOURCE_SCAN="+result["audit_integrity"])
+              if result["audit_integrity"] != "PASS":
+                  raise SystemExit("R263 source baseline changed or suspicious secret; requires review")
+          
+          
+          if __name__ == "__main__":
+              main()
+          PY_AUDIT
+      - name: Upload JSON evidence without publishing
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dpro-tax-r263-readonly-trust-boundary
+          path: r263-offline-audit.json
+          if-no-files-found: warn
+      - name: Validate no release approval is inferred
+        run: |
+          python3 - <<'PY_GATE'
+          import json
+          from pathlib import Path
+          x=json.loads(Path('r263-offline-audit.json').read_text('utf-8'))
+          assert x['audit_integrity']=='PASS'
+          assert x['release_gate']=='NO_GO/HOLD'
+          assert x['server_enforcement_verified'] is False
+          assert len(x['server_acceptance_gates'])==6
+          assert all(g['result']=='NOT_VERIFIED' for g in x['server_acceptance_gates'])
+          print('PASS: R263 evidence-only QA completed. REAL AUTH / RLS / LINE STILL HOLD.')
+          PY_GATE
