@@ -1,0 +1,223 @@
+name: DPRO TAX R265 Synthetic Signed Identity and Tenant Isolation Contract QA
+on:
+  push:
+    branches:
+      - qa/r225-synthetic-pg17-backup-restore-20261014
+    paths:
+      - '.github/workflows/dpro-tax-r265-synthetic-auth-tenant-contract-qa.yml'
+permissions:
+  contents: read
+jobs:
+  r265-qa-auth-tenant-contract:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/qa/r225-synthetic-pg17-backup-restore-20261014'
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Checkout QA-only repository without stored credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify actual QA branch source inventory (NO production interactions)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s app.js
+          test -s config.js
+          test -s .github/workflows/dpro-tax-r263-offline-trust-boundary-audit.yml
+          test -s .github/workflows/dpro-tax-r264-demo-egress-candidate-qa.yml
+          python3 - <<'PY_SOURCE_CHECK'
+          from pathlib import Path
+          import hashlib, json
+          a=Path('app.js').read_text(encoding='utf-8')
+          c=Path('config.js').read_text(encoding='utf-8')
+          required=['X-Line-User-Id','X-Admin-Key','sessionStorage','const isDemo','apiBase','async function api(']
+          assert all(x in a for x in required), 'QA client source changed; needs human review'
+          assert 'DEFAULT_ADMIN_CODE' in c, 'QA config changed; needs human review'
+          print('PASS: real QA source inventory present; source_sha256='+hashlib.sha256(a.encode()).hexdigest())
+          print('NOT_VERIFIED: real Worker/JWT/RLS/LINE authentication')
+          PY_SOURCE_CHECK
+      - name: Run local synthetic signed identity and tenant policy acceptance matrix
+        shell: bash
+        env:
+          R265_EVIDENCE_DIR: r265-contract-evidence
+        run: |
+          set -euo pipefail
+          node --version
+          cat > /tmp/r265-contract-test.cjs <<'R265_TEST_JS'
+          'use strict';
+          // R265: Synthetic-only authentication and cross-tenant rejection acceptance contract.
+          // This is not the DPRO Worker and does NOT verify live LINE, Worker or Supabase.
+          const assert = require('node:assert/strict');
+          const {webcrypto} = require('node:crypto');
+          const {subtle} = webcrypto;
+          const fs = require('node:fs');
+          const BASE_NOW = 1792130400; // fixed fake clock, not current runtime / external data
+          const ISSUER = 'https://identity.invalid.test/synthetic-only';
+          const AUDIENCE = 'dpro-tax-qa-only';
+          const TEAMS = Object.freeze({A:'tax-tenant-A', B:'tax-tenant-B'});
+          const DOCUMENTS=[
+           {id:'doc-a-1',tenant:TEAMS.A,member:'mem-A',private:true},
+           {id:'doc-b-1',tenant:TEAMS.B,member:'mem-B',private:true}
+          ];
+          const CLIENTS=[{id:'client-a-1',tenant:TEAMS.A},{id:'client-b-1',tenant:TEAMS.B}];
+          const checks=[];
+          let attempts=0, denied=0, outbound=0;
+          function b64(data){return Buffer.from(data).toString('base64url');}
+          function jenc(data){return b64(JSON.stringify(data));}
+          function decodeJSON(data){if(!/^[A-Za-z0-9_-]{1,4096}$/.test(data)) throw new Error('INVALID_ENCODING');return JSON.parse(Buffer.from(data,'base64url').toString('utf8'));}
+          async function makePair(){return subtle.generateKey({name:'RSASSA-PKCS1-v1_5',modulusLength:2048,publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'},true,['sign','verify']);}
+          async function signJWT(payload,privateKey,kid='qa-a',hdr={}){
+           const header={typ:'JWT',alg:'RS256',kid,...hdr};
+           const signingInput=`${jenc(header)}.${jenc(payload)}`;
+           const signature=Buffer.from(await subtle.sign('RSASSA-PKCS1-v1_5',privateKey,Buffer.from(signingInput)));
+           return `${signingInput}.${b64(signature)}`;
+          }
+          function payload(tenant=TEAMS.A,sub='staff-A',role='staff'){
+           return {iss:ISSUER,aud:AUDIENCE,sub,tenant,role,exp:BASE_NOW+1800,nbf:BASE_NOW-60,iat:BASE_NOW-60};
+          }
+          function allowedJWTClaimString(value){return typeof value==='string'&&value.length>=1&&value.length<=100&&/^[\w-]+$/.test(value);}
+          function makeVerifier(keys){
+           return async function verify(token,now=BASE_NOW){
+             if(typeof token!=='string'||token.length>12000) throw new Error('TOKEN_MISSING_OR_TOO_LARGE');
+             const parts=token.split('.');
+             if(parts.length!==3||!parts.every(part=>/^[A-Za-z0-9_-]+$/.test(part))) throw new Error('MALFORMED_TOKEN');
+             const head=decodeJSON(parts[0]),claims=decodeJSON(parts[1]);
+             if(head.typ!=='JWT'||head.alg!=='RS256'||!Object.prototype.hasOwnProperty.call(keys,head.kid)) throw new Error('UNTRUSTED_ALGORITHM_OR_KID');
+             if(!(await subtle.verify('RSASSA-PKCS1-v1_5',keys[head.kid],Buffer.from(parts[2],'base64url'),Buffer.from(`${parts[0]}.${parts[1]}`))))throw new Error('BAD_SIGNATURE');
+             if(claims.iss!==ISSUER||claims.aud!==AUDIENCE)throw new Error('WRONG_ISSUER_OR_AUDIENCE');
+             if(!Number.isInteger(claims.exp)||!Number.isInteger(claims.nbf)||!Number.isInteger(claims.iat)||claims.exp<=now||claims.nbf>now||claims.iat>now+60)throw new Error('EXPIRED_OR_NOT_YET_VALID');
+             if(!allowedJWTClaimString(claims.sub)||!allowedJWTClaimString(claims.tenant)||!['owner','staff','member'].includes(claims.role))throw new Error('MISSING_IDENTITY_SCOPE');
+             return {sub:claims.sub,tenant:claims.tenant,role:claims.role};
+           };
+          }
+          function makeAPI(verify){
+           // Replace this mock function with the real Worker in a LATER isolated integration QA only.
+           return async function request({token,path,method='GET',headers={}}){
+             attempts++;
+             const auth = await verify(token).catch(()=>null);
+             if(!auth){denied++;return {status:401,body:{error:'UNAUTHORIZED'}};}
+             if(!['GET','HEAD'].includes(method)){denied++;return {status:403,body:{error:'NO_WRITE_IN_SYNTHETIC_QA'}};}
+             if(path==='/api/admin/clients'){
+               if(!['owner','staff'].includes(auth.role)){denied++;return {status:403,body:{error:'ROLE_FORBIDDEN'}};}
+               return {status:200,body:{clients:CLIENTS.filter(row=>row.tenant===auth.tenant)}};
+             }
+             const doc = /^\/api\/member\/documents\/(doc-[ab]-1)\/signed-url$/.exec(path);
+             if(doc){
+               if(auth.role!=='member'){denied++;return {status:403,body:{error:'ROLE_FORBIDDEN'}};}
+               const found=DOCUMENTS.find(row=>row.id===doc[1]&&row.tenant===auth.tenant&&row.member===auth.sub);
+               if(!found){denied++;return {status:404,body:{error:'NOT_FOUND'}};}
+               return {status:200,body:{url:'about:blank',mock_only:true}};
+             }
+             denied++;return {status:404,body:{error:'NOT_FOUND'}};
+           };
+          }
+          async function test(name,fn){try{await fn();checks.push({name,result:'PASS'});}catch(err){checks.push({name,result:'FAIL',error:String(err)});throw new Error(`${name}: ${err.message}`);}}
+          (async()=>{
+           const pairA=await makePair(),pairAttacker=await makePair();
+           const verify=makeVerifier({'qa-a':pairA.publicKey});const api=makeAPI(verify);
+           const aStaff=await signJWT(payload(),pairA.privateKey),bStaff=await signJWT(payload(TEAMS.B,'staff-B'),pairA.privateKey);
+           const aMember=await signJWT(payload(TEAMS.A,'mem-A','member'),pairA.privateKey),bMember=await signJWT(payload(TEAMS.B,'mem-B','member'),pairA.privateKey);
+           const aOwner=await signJWT(payload(TEAMS.A,'owner-A','owner'),pairA.privateKey);
+           const signedHeader=(t)=>t.split('.');
+           await test('G01 signed RS256 accepted',async()=>assert.equal((await verify(aStaff)).tenant,TEAMS.A));
+           await test('G01 missing token denied',async()=>assert.equal((await api({path:'/api/admin/clients'})).status,401));
+           await test('G01 empty string denied',async()=>assert.equal((await api({token:'',path:'/api/admin/clients'})).status,401));
+           await test('G01 none-algorithm denied',async()=>{
+           const none=await signJWT(payload(),pairA.privateKey,'qa-a',{alg:'none'});assert.equal((await api({token:none,path:'/api/admin/clients'})).status,401);
+           });
+           await test('G01 changed tenant without re-sign rejected',async()=>{
+           const parts=signedHeader(aStaff);parts[1]=jenc(payload(TEAMS.B));assert.equal((await api({token:parts.join('.'),path:'/api/admin/clients'})).status,401);
+           });
+           await test('G01 unrelated signing key rejected',async()=>{
+           const attack=await signJWT(payload(),pairAttacker.privateKey);assert.equal((await api({token:attack,path:'/api/admin/clients'})).status,401);
+           });
+           await test('G01 untrusted kid denied',async()=>{
+           const attack=await signJWT(payload(),pairA.privateKey,'evil');assert.equal((await api({token:attack,path:'/api/admin/clients'})).status,401);
+           });
+           await test('G01 incorrect issuer denied',async()=>{
+           const attack=await signJWT({...payload(),iss:'https://attacker.invalid.test'},pairA.privateKey);assert.equal((await api({token:attack,path:'/api/admin/clients'})).status,401);
+           });
+           await test('G01 incorrect audience denied',async()=>{
+           const attack=await signJWT({...payload(),aud:'another-service'},pairA.privateKey);assert.equal((await api({token:attack,path:'/api/admin/clients'})).status,401);
+           });
+           await test('G01 expired token denied',async()=>{
+           const attack=await signJWT({...payload(),exp:BASE_NOW-1},pairA.privateKey);assert.equal((await api({token:attack,path:'/api/admin/clients'})).status,401);
+           });
+           await test('G01 future token denied',async()=>{
+           const attack=await signJWT({...payload(),nbf:BASE_NOW+61},pairA.privateKey);assert.equal((await api({token:attack,path:'/api/admin/clients'})).status,401);
+           });
+           await test('G01 future iat denied',async()=>{
+           const attack=await signJWT({...payload(),iat:BASE_NOW+1000},pairA.privateKey);assert.equal((await api({token:attack,path:'/api/admin/clients'})).status,401);
+           });
+           await test('G01 malformed token denied',async()=>assert.equal((await api({token:'xx.yyy.zzz',path:'/api/admin/clients'})).status,401));
+           await test('G01 missing tenant claim denied',async()=>{
+           const attack=await signJWT({...payload(),tenant:undefined},pairA.privateKey);assert.equal((await api({token:attack,path:'/api/admin/clients'})).status,401);
+           });
+           await test('G01 missing role claim denied',async()=>{
+           const attack=await signJWT({...payload(),role:undefined},pairA.privateKey);assert.equal((await api({token:attack,path:'/api/admin/clients'})).status,401);
+           });
+           await test('G02 role owner tenant A can list only A',async()=>{
+           const r=await api({token:aOwner,path:'/api/admin/clients'});assert.equal(r.status,200);assert.deepEqual(r.body.clients.map(x=>x.tenant),[TEAMS.A]);
+           });
+           await test('G02 staff A sees only A',async()=>{
+           const r=await api({token:aStaff,path:'/api/admin/clients'});assert.equal(r.status,200);assert.deepEqual(r.body.clients.map(x=>x.tenant),[TEAMS.A]);
+           });
+           await test('G02 staff B sees only B',async()=>{
+           const r=await api({token:bStaff,path:'/api/admin/clients'});assert.equal(r.status,200);assert.deepEqual(r.body.clients.map(x=>x.tenant),[TEAMS.B]);
+           });
+           await test('G02 member cannot access admin clients',async()=>assert.equal((await api({token:aMember,path:'/api/admin/clients'})).status,403));
+           await test('G02 spoof X-Line-User-Id cannot change identity',async()=>{
+           const r=await api({token:aStaff,path:'/api/admin/clients',headers:{'X-Line-User-Id':'staff-B','X-Tenant-Id':TEAMS.B}});
+           assert.equal(r.status,200);assert.equal(r.body.clients[0].tenant,TEAMS.A);
+           });
+           await test('G02 spoof admin header cannot promote member',async()=>{
+           const r=await api({token:aMember,path:'/api/admin/clients',headers:{'X-Admin-Key':'1234','X-Role':'owner'}});assert.equal(r.status,403);
+           });
+           await test('G03 member A can access only own doc',async()=>assert.equal((await api({token:aMember,path:'/api/member/documents/doc-a-1/signed-url'})).status,200));
+           await test('G03 member B can access only own doc',async()=>assert.equal((await api({token:bMember,path:'/api/member/documents/doc-b-1/signed-url'})).status,200));
+           await test('G03 member A cannot access tenant B doc',async()=>assert.equal((await api({token:aMember,path:'/api/member/documents/doc-b-1/signed-url'})).status,404));
+           await test('G03 member B cannot access tenant A doc',async()=>assert.equal((await api({token:bMember,path:'/api/member/documents/doc-a-1/signed-url'})).status,404));
+           await test('G03 staff cannot read member private doc',async()=>assert.equal((await api({token:aStaff,path:'/api/member/documents/doc-a-1/signed-url'})).status,403));
+           await test('G03 ID probing does not reveal other tenant existence',async()=>{
+           const r=await api({token:aMember,path:'/api/member/documents/doc-b-1/signed-url'});assert.deepEqual(r,{status:404,body:{error:'NOT_FOUND'}});
+           });
+           await test('G04 demo code 1234 alone is never an identity',async()=>assert.equal((await api({token:'1234',path:'/api/admin/clients'})).status,401));
+           await test('G04 demo flag/header without identity denied',async()=>assert.equal((await api({token:'',path:'/api/admin/clients',headers:{'X-Demo':'1','X-Admin-Key':'1234'}})).status,401));
+           await test('G04 business mutation denied even with valid owner token',async()=>assert.equal((await api({token:aOwner,path:'/api/admin/clients',method:'POST'})).status,403));
+           await test('G05 no fake DB changes from test',async()=>assert.deepEqual(CLIENTS.map(x=>x.id),['client-a-1','client-b-1']));
+           await test('G06 no network or LINE dispatch executed',async()=>assert.equal(outbound,0));
+           await test('GATE commercial HOLD cannot be bypassed by local PASS',async()=>assert.equal('NO_GO/HOLD','NO_GO/HOLD'));
+           const report={suite:'DPRO_TAX_R265_SYNTHETIC_AUTH_TENANT_DENIAL_CONTRACT',mode:'ISOLATED_CRYPTOGRAPHIC_TEST_FIXTURE_ONLY',checked:'local synthetic ephemeral RS256 keys',test_count:checks.length,passed:checks.length,failed:0,denied_requests:denied,all_mock_requests:attempts,network_requests:outbound,db_requests:0,line_dispatches:0,real_worker_source_verified:false,real_jwt_or_line_verified:false,real_db_rls_verified:false,real_signed_document_urls_verified:false,release_gate:'NO_GO/HOLD',checks};
+           const dir=process.env.R265_EVIDENCE_DIR||'.';fs.mkdirSync(dir,{recursive:true});fs.writeFileSync(dir+'/R265_RESULTS.json',JSON.stringify(report,null,2));
+           console.log('R265_ACCEPTANCE_CONTRACT=PASS '+JSON.stringify({test_count:checks.length,denied_requests:denied,network_requests:outbound,release_gate:report.release_gate}));
+          })().catch(err=>{console.error('R265_ACCEPTANCE_CONTRACT=FAIL',err.stack||String(err));process.exitCode=1;});
+          R265_TEST_JS
+          node /tmp/r265-contract-test.cjs
+          python3 - <<'PY_REPORT'
+          from pathlib import Path
+          import json
+          d=json.loads(Path('r265-contract-evidence/R265_RESULTS.json').read_text())
+          assert d['test_count']>=33 and d['passed']==d['test_count'] and d['failed']==0
+          assert d['network_requests']==d['db_requests']==d['line_dispatches']==0
+          assert not any(d[x] for x in ('real_worker_source_verified','real_jwt_or_line_verified','real_db_rls_verified','real_signed_document_urls_verified'))
+          assert d['release_gate']=='NO_GO/HOLD'
+          print('PASS: synthetic contract complete; zero network/DB/LINE; real trust boundary NOT VERIFIED; COMMERCIAL HOLD')
+          PY_REPORT
+      - name: Confirm original repository source is unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --exit-code
+          git diff --cached --exit-code
+          echo 'PASS: repository source and QA branch not modified by this workflow'
+      - name: Preserve synthetic-only JSON evidence in Actions
+        uses: actions/upload-artifact@v4
+        with:
+          name: dpro-tax-r265-synthetic-auth-tenant-contract
+          path: r265-contract-evidence/R265_RESULTS.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Keep commercial release gate closed
+        run: |
+          echo 'R265 success means only synthetic acceptance contract tests, not DPRO Worker enforcement.'
+          echo 'NO_GO/HOLD; NO_MERGE; no production Worker, Supabase, LINE or TAX main changes.'
