@@ -1,0 +1,145 @@
+name: DPRO TAX R264 Isolated Demo Egress Deny Candidate QA
+on:
+  push:
+    branches:
+      - qa/r225-synthetic-pg17-backup-restore-20261014
+    paths:
+      - '.github/workflows/dpro-tax-r264-demo-egress-candidate-qa.yml'
+permissions:
+  contents: read
+jobs:
+  r264-isolated-candidate:
+    if: github.ref == 'refs/heads/qa/r225-synthetic-pg17-backup-restore-20261014'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout QA branch without stored credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build disposable demo-offline patch without changing repository files
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY_R264'
+          from pathlib import Path
+          import difflib, hashlib, json, re
+
+          root = Path('app.js')
+          assert root.is_file() and not root.is_symlink(), 'Missing legacy QA source'
+          before_bytes = root.read_bytes()
+          before = before_bytes.decode('utf-8')
+          assert len(before) >= 75000 and len(before) <= 110000, 'Unexpected baseline length'
+          assert 'const isDemo = params.get("demo") === "1";' in before
+          assert 'const apiBase = location.hostname === "terminal.local" ? "/tax-api" : CONFIG.API_BASE;' in before
+          needle='  async function api(path, { method = "GET", body, adminKey, lineId, formData } = {}) {\n'
+          assert before.count(needle)==1, 'Expected one network API entry'
+          assert before.count('fetch(')==2, 'Unexpected new network call site; manual source audit needed'
+          assert 'fetch(`${apiBase}${path}`' in before
+          assert 'if (isDemo) {' not in before[before.index(needle):before.index(needle)+200], 'Guard already installed/changed'
+
+          guard='''
+              // R264 ISOLATED CANDIDATE ONLY; not incorporated into production source.
+              // Public demonstration must never make backend requests with the public 1234 code.
+              if (isDemo) {
+                const error = new Error("この旧デモでは外部APIに接続できません。公開済みの共通デモをご利用ください。");
+                error.code = "DEMO_NETWORK_DENIED";
+                throw error;
+              }
+          '''
+          updated=before.replace(needle,needle+guard,1)
+          static_need='Promise.all(["index.html", "member.html", "owner.html", "owner-ipad.html", "system-check.html"].map((file) => fetch(file, { cache: "no-store" }).then((response) => response.ok)))'
+          assert updated.count(static_need)==1, 'Unexpected change in diagnostic direct fetch; fail closed'
+          updated=updated.replace(static_need,'(isDemo ? Promise.resolve(Array(5).fill(false)) : '+static_need+')',1)
+          assert updated.count('fetch(')==2, 'Unexpected network methods in isolated candidate'
+          assert updated.count('DEMO_NETWORK_DENIED')==1
+          assert updated.count('isDemo ? Promise.resolve(Array(5).fill(false)) :')==1
+          assert updated.count('sessionStorage.setItem')==before.count('sessionStorage.setItem')
+
+          folder=Path('r264-candidate-artifact');folder.mkdir(exist_ok=True)
+          (folder/'app.js').write_text(updated,encoding='utf-8')
+          diff=''.join(difflib.unified_diff(before.splitlines(keepends=True),updated.splitlines(keepends=True),fromfile='R263_QA_BRANCH_APP_JS_UNCHANGED',tofile='R264_ISOLATED_CANDIDATE_APP_JS'))
+          (folder/'PATCH_REVIEW.diff').write_text(diff,encoding='utf-8')
+          assert root.read_bytes()==before_bytes, 'Original QA source was unexpectedly modified'
+          (folder/'README.txt').write_text('R264 ISOLATED CANDIDATE ONLY. NEVER replace GitHub main or live app.js. The patch disables legacy ?demo=1 API access and its local static-file fetch. It does not verify server-side identity, JWT, RLS, or production Worker. Release HOLD.\n',encoding='utf-8')
+          result={'suite':'R264_ISOLATED_LEGACY_DEMO_EGRESS_DENY','mode':'READ_ONLY_SOURCE; EMIT_TEMP_COPY_ONLY','release':'NO_GO/HOLD','production_changed':False,'source_path':'app.js','source_sha256':hashlib.sha256(before_bytes).hexdigest(),'candidate_sha256':hashlib.sha256(updated.encode()).hexdigest(),'fetch_calls':2,'server_auth_verified':False,'tenant_rls_verified':False,'line_sent':False,'db_writes':False}
+          (folder/'BASELINE_REPORT.json').write_text(json.dumps(result,ensure_ascii=False,indent=2,sort_keys=True),encoding='utf-8')
+          print('R264_SOURCE_CHECK=PASS; original untouched; diff_size=',len(diff))
+          print('R264_GATES=NO_GO/HOLD; actual Worker/RLS enforcement NOT verified')
+          PY_R264
+      - name: Test API denial in demo and preserved non-demo transport using in-memory mock
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'JS_R264'
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const root = 'r264-candidate-artifact';
+          const original=fs.readFileSync('app.js','utf8');
+          const patched=fs.readFileSync(path.join(root,'app.js'),'utf8');
+          const start='  async function api(';
+          const end='  function formObject(';
+          assert.equal(original.split(start).length,2);
+          assert.equal(patched.split(start).length,2);
+          assert.equal(patched.split(end).length,2);
+          const apiFuncSource=start+patched.split(start)[1].split(end)[0];
+          const oldFuncSource=start+original.split(start)[1].split(end)[0];
+          const make = (source,isDemo,fetchStub) => new Function('isDemo','apiBase','fetch', '"use strict"; '+source+'; return api;')(isDemo,'https://api.example.invalid',fetchStub);
+          let calls=[];
+          async function fakeFetch(url,options){calls.push({url,options});return {ok:true,status:200,text:async()=>JSON.stringify({ok:true,marker:'safe-mock'})};}
+          async function test(){
+           let checks=0;
+           const guarded=make(apiFuncSource,true,fakeFetch);
+           for(const item of [
+            ['/api/admin/dashboard',{adminKey:'1234'}],
+            ['/api/member',{lineId:'spoofed_line_user'}],
+            ['/api/admin/clients',{method:'POST',adminKey:'1234',body:{sample:true}}],
+            ['/api/member/documents',{method:'POST',lineId:'spoofed_line_user',formData:{synthetic:true}}],
+           ]){
+            await assert.rejects(guarded(...item),e=>e.code==='DEMO_NETWORK_DENIED');checks++;
+           }
+           assert.equal(calls.length,0);checks++;
+           // Existing non-demo transport remains usable (all responses are local in-memory stubs).
+           const normal=make(apiFuncSource,false,fakeFetch);
+           const v=await normal('/api/admin/dashboard',{adminKey:'test_admin'});
+           assert.equal(v.marker,'safe-mock');checks++;
+           assert.equal(calls[0].url,'https://api.example.invalid/api/admin/dashboard');checks++;
+           assert.equal(calls[0].options.headers['X-Admin-Key'],'test_admin');checks++;
+           const old=make(oldFuncSource,false,fakeFetch);
+           const compare=await old('/api/admin/dashboard',{adminKey:'test_admin'});
+           assert.equal(compare.marker,v.marker);checks++;
+           assert(patched.includes('(isDemo ? Promise.resolve(Array(5).fill(false)) : Promise.all('));checks++;
+           assert.equal((patched.match(/fetch\(/g)||[]).length,2);checks++;
+           assert(!fs.readFileSync('app.js','utf8').includes('DEMO_NETWORK_DENIED'));checks++;
+           assert.equal(JSON.parse(fs.readFileSync(path.join(root,'BASELINE_REPORT.json'),'utf8')).release,'NO_GO/HOLD');checks++;
+           assert.equal(calls.length,2);checks++;
+           const report={suite:'R264_ISOLATED_DEMO_EGRESS',passed:checks,failed:0,simulated_network_stub_count:calls.length,demo_network_calls:0,live_network_calls:0,source_modified:false,server_auth_verified:false,release:'NO_GO/HOLD'};
+           fs.writeFileSync(path.join(root,'R264_QA_RESULTS.json'),JSON.stringify(report,null,2));
+           console.log('R264_DEMO_EGRESS_QA=PASS',JSON.stringify(report));
+          }
+          test().catch(error=>{console.error(error);process.exitCode=1});
+          JS_R264
+      - name: Confirm source protected and no false commercial approval
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY_GATES'
+          from pathlib import Path
+          import hashlib,json
+          base=json.loads(Path('r264-candidate-artifact/BASELINE_REPORT.json').read_text('utf-8'))
+          qa=json.loads(Path('r264-candidate-artifact/R264_QA_RESULTS.json').read_text('utf-8'))
+          assert hashlib.sha256(Path('app.js').read_bytes()).hexdigest()==base['source_sha256']
+          assert qa['passed']>=14 and qa['failed']==0
+          assert qa['demo_network_calls']==0 and qa['live_network_calls']==0
+          assert qa['source_modified']==False and qa['server_auth_verified']==False
+          assert qa['release']=='NO_GO/HOLD' and base['release']=='NO_GO/HOLD'
+          print('PASS: R264 source unchanged; mock-only network; deny legacy demo; commercial HOLD')
+          PY_GATES
+      - name: Store disposable source diff and QA proof in Actions only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dpro-tax-r264-isolated-demo-egress-candidate
+          path: r264-candidate-artifact/
+          if-no-files-found: warn
