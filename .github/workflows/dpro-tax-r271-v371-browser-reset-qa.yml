@@ -1,0 +1,190 @@
+name: DPRO TAX R271 V3.7.1 Isolated Browser Reset Regression QA
+on:
+  push:
+    branches:
+      - qa/r225-synthetic-pg17-backup-restore-20261014
+    paths:
+      - .github/workflows/dpro-tax-r271-v371-browser-reset-qa.yml
+permissions:
+  contents: read
+jobs:
+  r271-static-browser-no-production:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/qa/r225-synthetic-pg17-backup-restore-20261014'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout QA candidate only without write permissions
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Install isolated Chromium for offline page testing
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv .r271-venv
+          .r271-venv/bin/python -m pip install --disable-pip-version-check playwright==1.56.0
+          .r271-venv/bin/python -m playwright install --with-deps chromium
+      - name: Serve only checked-out static candidate on loopback
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s v371-evergreen-CANDIDATE.html
+          python3 -m http.server 8765 --bind 127.0.0.1 > /tmp/r271-http.log 2>&1 &
+          for i in $(seq 1 25); do
+            if curl --fail --silent --noproxy '*' http://127.0.0.1:8765/v371-evergreen-CANDIDATE.html > /dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent --show-error --noproxy '*' http://127.0.0.1:8765/v371-evergreen-CANDIDATE.html -o /dev/null
+      - name: Verify timezone rollover, tenant UI separation and REAL reset navigation
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/r271_browser_qa.py <<'PY_R271'
+          #!/usr/bin/env python3
+          """Offline browser QA for V3.7.1 candidate. Does not use production APIs or secrets."""
+          import datetime
+          import hashlib
+          import json
+          import os
+          import pathlib
+          from playwright.sync_api import sync_playwright
+
+          SOURCE = pathlib.Path('v371-evergreen-CANDIDATE.html')
+          assert SOURCE.is_file(), 'Expected QA branch candidate HTML missing'
+          data = SOURCE.read_bytes()
+          expected_blob = '75c468a017b20a644f7349e3ef1b84037af74abe'
+          blob = hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+          assert blob==expected_blob, ('QA candidate drift',blob,expected_blob)
+          html=data.decode('utf-8-sig')
+          assert 'id="demo-reset"' in html and 'japanDatePlus' in html
+          assert 'fetch(' not in html and 'XMLHttpRequest' not in html and 'WebSocket' not in html
+          assert '田中' not in html and 'ティープラス' not in html
+          CHECK_MODE=os.environ.get('R271_USE_SETCONTENT')=='1'
+          HOST_URL='http://127.0.0.1:8765/v371-evergreen-CANDIDATE.html'
+          OUT=pathlib.Path('r271-qa-evidence');OUT.mkdir(exist_ok=True)
+          scenarios=[
+           ('desktop','2026-10-17T09:46:00+09:00','Asia/Tokyo',1360,900),
+           ('ipad','2027-12-30T22:15:00-08:00','America/Los_Angeles',820,1180),
+           ('mobile','2032-01-29T09:25:00+09:00','Asia/Tokyo',390,844),
+          ]
+          report={'suite':'R271_V371_GITHUB_ORIGIN_BROWSER_QA','mode':'SET_CONTENT_DIAGNOSTIC' if CHECK_MODE else 'REAL_LOOPBACK_NAVIGATION','git_blob_sha':blob,'scenarios':[],'external_requests':[],'browser_errors':[],'actual_reload_confirmed':not CHECK_MODE,'production_interactions':0,'release':'NO_GO/HOLD','pass_count':0}
+
+          def nav(page,name,mobile):
+           if mobile: page.locator('#sidebar-toggle').click(timeout=5000)
+           page.locator(f'[data-admin-view="{name}"]').click(timeout=8000)
+           assert page.locator(f'[data-admin-panel="{name}"]').is_visible()
+
+          with sync_playwright() as pw:
+           browser=pw.chromium.launch(headless=True,**({'executable_path':'/usr/bin/chromium','args':['--no-sandbox']} if CHECK_MODE else {}))
+           for name,clock,tz,width,height in scenarios:
+            context=browser.new_context(viewport={'width':width,'height':height},timezone_id=tz,service_workers='block')
+            page=context.new_page();external=[];errors=[];requested=[]
+            def check_route(route):
+             url=route.request.url
+             requested.append(url)
+             if not CHECK_MODE and url.startswith('http://127.0.0.1:8765/'):
+              return route.continue_()
+             if not CHECK_MODE and url.startswith('data:'):
+              return route.continue_()
+             external.append(url)
+             return route.abort()
+            page.route('**/*',check_route)
+            page.on('pageerror', lambda e:errors.append(str(e)))
+            page.clock.install(time=datetime.datetime.fromisoformat(clock))
+            if CHECK_MODE:
+             page.set_content(html,wait_until='load')
+            else:
+             page.goto(HOST_URL,wait_until='load',timeout=30000)
+            mobile=width<=760
+            expect_visit=(datetime.datetime.fromisoformat(clock).astimezone(datetime.timezone(datetime.timedelta(hours=9))).date()+datetime.timedelta(days=7)).isoformat()
+            visit=page.locator('#visit-date').input_value()
+            due=page.locator('#doc-due').input_value()
+            assert visit==expect_visit,(name,visit,expect_visit)
+            assert due>visit,(name,'due date',due)
+            checks=2
+            nav(page,'notes',mobile)
+            expected_visit_month=str(int(visit[5:7]))+'月';expected_due_month=str(int(due[5:7]))+'月'
+            notes=page.locator('#memo-office-list').inner_text();albums=page.locator('#memo-album-grid').inner_text()
+            assert expected_due_month+'の月次資料' in notes,(name,'stale note date',notes)
+            assert expected_visit_month+'の訪問資料' in albums,(name,'stale album date',albums)
+            checks+=2
+            page.locator('#memo-text').fill('所内専用の架空メモ')
+            page.locator('[data-action="add-note"]').click()
+            assert '所内専用の架空メモ' in page.locator('#memo-office-list').inner_text()
+            checks+=1
+            nav(page,'liff',mobile)
+            page.locator('[data-liff-tab="notes"]').click()
+            assert '所内専用の架空メモ' not in page.locator('#liff-content').inner_text()
+            assert '所内確認' not in page.locator('#liff-content').inner_text()
+            checks+=2
+            nav(page,'reminders',mobile)
+            page.locator('[data-toggle-doc="0"]').click()
+            assert '未提出 0点' in page.locator('#doc-stats').inner_text()
+            checks+=1
+            nav(page,'visits',mobile)
+            page.locator('[data-action="preview-visit"]').click()
+            assert 'LINE送信なし' in page.locator('#visit-feedback').inner_text()
+            checks+=1
+            page.screenshot(path=str(OUT/f'{name}-before-reset.png'),full_page=True,animations='disabled')
+            dialog_observed=[]
+            def confirm(d):
+             dialog_observed.append(d.message)
+             d.accept()
+            page.once('dialog',confirm)
+            if CHECK_MODE:
+             # The sandbox blocks navigation. A test of fresh source re-initialization
+             # is not equivalent to testing the real reset/reload and is counted separately.
+             page.set_content(html,wait_until='load')
+            else:
+             page.locator('#demo-reset').click(timeout=12000)
+             page.wait_for_load_state('load',timeout=12000)
+             assert len(dialog_observed)==1,(name,'reset confirmation not observed',dialog_observed)
+            checks+=1 if not CHECK_MODE else 0
+            nav(page,'notes',mobile)
+            assert '所内専用の架空メモ' not in page.locator('#memo-office-list').inner_text()
+            checks+=1
+            nav(page,'reminders',mobile)
+            assert '未提出 1点' in page.locator('#doc-stats').inner_text()
+            checks+=1
+            assert not errors,(name,'javascript errors',errors)
+            assert not external,(name,'external requests',external)
+            checks+=2
+            report['pass_count']+=checks
+            report['scenarios'].append({'name':name,'clock':clock,'timezone':tz,'checks':checks,'visit':visit,'due':due,'reset_dialog':dialog_observed,'network_requests':requested,'external_requests':external,'errors':errors})
+            context.close()
+           browser.close()
+          assert len(report['scenarios'])==3
+          assert report['pass_count']==(42 if not CHECK_MODE else 39)
+          assert report['release']=='NO_GO/HOLD'
+          (OUT/'R271_RESULTS.json').write_text(json.dumps(report,ensure_ascii=False,indent=2,sort_keys=True),encoding='utf-8')
+          print('PASS: R271 '+str(report['pass_count'])+'/'+str(report['pass_count'])+' '+report['mode']+'; real reload verified='+str(report['actual_reload_confirmed'])+'; 0 external requests; commercial HOLD')
+          PY_R271
+          .r271-venv/bin/python /tmp/r271_browser_qa.py
+      - name: Assert 42 browser checks, actual reload, offline mode and release HOLD
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY_QA'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('r271-qa-evidence/R271_RESULTS.json').read_text(encoding='utf-8'))
+          assert r['pass_count']==42 and len(r['scenarios'])==3 and r['actual_reload_confirmed']
+          assert r['production_interactions']==0 and r['release']=='NO_GO/HOLD'
+          assert all(len(x['reset_dialog'])==1 for x in r['scenarios'])
+          assert not r['external_requests'] and not r['browser_errors']
+          assert all(not x['errors'] and not x['external_requests'] for x in r['scenarios'])
+          print('PASS: R271 42 real navigation browser checks, 3 screenshot proofs, original source unmodified, NO_GO/HOLD')
+          PY_QA
+      - name: Preserve synthetic-only screenshots and proof in Actions
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dpro-tax-r271-v371-localhost-browser-proof
+          path: r271-qa-evidence/
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Keep commercial release gate closed
+        run: |
+          echo 'NO_GO/HOLD: this is a QA-branch static V3.7.1 preview ONLY.'
+          echo 'V3.6 public, TAX main, Worker, Supabase, LINE untouched; this workflow has no Git write token.'

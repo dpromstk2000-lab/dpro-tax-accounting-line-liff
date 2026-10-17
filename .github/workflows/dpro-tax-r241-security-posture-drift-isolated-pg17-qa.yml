@@ -1,0 +1,224 @@
+name: DPRO TAX R241 Isolated PG17 Security Posture Drift and Repair QA
+
+on:
+  push:
+    branches: ['qa/r225-synthetic-pg17-backup-restore-20261014']
+    paths:
+      - '.github/workflows/dpro-tax-r241-security-posture-drift-isolated-pg17-qa.yml'
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches: [main]
+    paths:
+      - '.github/workflows/dpro-tax-r241-security-posture-drift-isolated-pg17-qa.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  r241-disposable-security-posture:
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/qa/r225-synthetic-pg17-backup-restore-20261014') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: r241_ephemeral_fictional_only
+          POSTGRES_DB: r241_disposable_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d r241_disposable_only"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: r241_ephemeral_fictional_only
+      PGDATABASE: r241_disposable_only
+      PGCONNECT_TIMEOUT: '5'
+
+    steps:
+      - name: Prepare synthetic roles and safe PG17 table function policy defaults
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$PGHOST" = '127.0.0.1'
+          test "$PGDATABASE" = 'r241_disposable_only'
+          test "$PGUSER" = 'postgres'
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+          psql -AtX -v ON_ERROR_STOP=1 -c 'SHOW server_version;' | grep -E '^17\.'
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE r241_anon NOLOGIN;
+          CREATE ROLE r241_staff NOLOGIN;
+          CREATE ROLE r241_creator NOLOGIN;
+          CREATE SCHEMA r241_lab;
+          GRANT USAGE ON SCHEMA r241_lab TO r241_anon,r241_staff,r241_creator;
+          GRANT CREATE ON SCHEMA r241_lab TO r241_creator;
+          ALTER DEFAULT PRIVILEGES FOR ROLE r241_creator
+            REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+          SET ROLE r241_creator;
+          CREATE TABLE r241_lab.fake_clients (
+            id integer PRIMARY KEY,
+            tenant_label text NOT NULL
+          );
+          CREATE FUNCTION r241_lab.fake_count() RETURNS integer
+            LANGUAGE sql SECURITY INVOKER
+            SET search_path=pg_catalog,r241_lab,pg_temp
+            AS $$ SELECT count(*)::integer FROM r241_lab.fake_clients $$;
+          RESET ROLE;
+          INSERT INTO r241_lab.fake_clients VALUES
+            (1,'r241_staff'),(2,'fictional-other');
+          GRANT SELECT ON r241_lab.fake_clients TO r241_staff;
+          GRANT EXECUTE ON FUNCTION r241_lab.fake_count() TO r241_staff;
+          ALTER TABLE r241_lab.fake_clients ENABLE ROW LEVEL SECURITY;
+          ALTER TABLE r241_lab.fake_clients FORCE ROW LEVEL SECURITY;
+          CREATE POLICY r241_staff_read ON r241_lab.fake_clients
+            FOR SELECT TO r241_staff USING (tenant_label=current_user);
+          DO $verify$
+          BEGIN
+            IF has_function_privilege('r241_anon','r241_lab.fake_count()','EXECUTE') THEN
+              RAISE EXCEPTION 'Fake function should not have anonymous EXECUTE';
+            END IF;
+            IF has_table_privilege('r241_anon','r241_lab.fake_clients','SELECT') THEN
+              RAISE EXCEPTION 'Fake table should not have anonymous SELECT';
+            END IF;
+          END $verify$;
+          SQL
+          echo 'PASS: fictional roles, forced RLS, staff policy and function ACL configured'
+
+      - name: Create deterministic SQL security catalog fingerprint and safe baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > r241_posture.sql <<'SQL'
+          SELECT jsonb_build_object(
+            'table_owner',pg_get_userbyid(c.relowner),
+            'table_rls',c.relrowsecurity,
+            'table_force_rls',c.relforcerowsecurity,
+            'anon_select',has_table_privilege('r241_anon',c.oid,'SELECT'),
+            'anon_truncate',has_table_privilege('r241_anon',c.oid,'TRUNCATE'),
+            'staff_select',has_table_privilege('r241_staff',c.oid,'SELECT'),
+            'policies',(
+              SELECT coalesce(jsonb_agg(jsonb_build_object(
+                'policy',policyname,'command',cmd,'permissive',permissive,
+                'roles',roles,'qual',qual,'check',with_check) ORDER BY policyname),'[]'::jsonb)
+              FROM pg_policies WHERE schemaname='r241_lab' AND tablename='fake_clients'
+            ),
+            'function_owner',pg_get_userbyid(p.proowner),
+            'function_security_definer',p.prosecdef,
+            'function_config',coalesce(to_jsonb(p.proconfig),'[]'::jsonb),
+            'anon_execute',has_function_privilege('r241_anon',p.oid,'EXECUTE'),
+            'staff_execute',has_function_privilege('r241_staff',p.oid,'EXECUTE'),
+            'default_anon_table_grants',(
+              SELECT count(*) FROM pg_default_acl d,
+                LATERAL aclexplode(d.defaclacl) acl
+              WHERE d.defaclrole='r241_creator'::regrole
+                AND d.defaclobjtype='r'
+                AND acl.grantee='r241_anon'::regrole
+            ),
+            'default_public_function_execute',(
+              SELECT count(*) FROM pg_default_acl d,
+                LATERAL aclexplode(d.defaclacl) acl
+              WHERE d.defaclrole='r241_creator'::regrole
+                AND d.defaclobjtype='f'
+                AND acl.grantee=0 AND acl.privilege_type='EXECUTE'
+            )
+          )::text
+          FROM pg_class c CROSS JOIN pg_proc p
+          WHERE c.oid='r241_lab.fake_clients'::regclass
+            AND p.oid='r241_lab.fake_count()'::regprocedure;
+          SQL
+          psql -qAtX -v ON_ERROR_STOP=1 -f r241_posture.sql > r241_safe_baseline.json
+          test -s r241_safe_baseline.json
+          sha256sum r241_safe_baseline.json | cut -d ' ' -f1 > r241_safe_baseline.sha256
+          test -s r241_safe_baseline.sha256
+          baseline=$(cat r241_safe_baseline.sha256)
+          test "${#baseline}" = '64'
+          staff_count=$(psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE r241_staff; SELECT count(*) FROM r241_lab.fake_clients;' | tail -n 1)
+          test "$staff_count" = '1'
+          echo 'PASS: deterministic synthetic ACL, policy, RLS, function, default-ACL baseline recorded'
+
+      - name: Commit five fictional security drifts and prove fingerprint changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          BEGIN;
+          GRANT TRUNCATE ON r241_lab.fake_clients TO r241_anon;
+          ALTER TABLE r241_lab.fake_clients DISABLE ROW LEVEL SECURITY;
+          CREATE POLICY r241_bad_broad ON r241_lab.fake_clients
+            AS PERMISSIVE FOR SELECT TO r241_staff USING (true);
+          GRANT EXECUTE ON FUNCTION r241_lab.fake_count() TO PUBLIC;
+          ALTER DEFAULT PRIVILEGES FOR ROLE r241_creator
+            GRANT SELECT,TRUNCATE ON TABLES TO r241_anon;
+          COMMIT;
+          SQL
+          psql -qAtX -v ON_ERROR_STOP=1 -f r241_posture.sql > r241_unsafe_drift.json
+          ! cmp -s r241_safe_baseline.json r241_unsafe_drift.json
+          drift_hash=$(sha256sum r241_unsafe_drift.json | cut -d ' ' -f1)
+          test "$drift_hash" != "$(cat r241_safe_baseline.sha256)"
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          DO $check$
+          BEGIN
+            IF NOT has_table_privilege('r241_anon','r241_lab.fake_clients','TRUNCATE')
+               OR NOT has_function_privilege('r241_anon','r241_lab.fake_count()','EXECUTE')
+               OR (SELECT relrowsecurity FROM pg_class WHERE oid='r241_lab.fake_clients'::regclass)
+               OR (SELECT count(*) FROM pg_policies WHERE schemaname='r241_lab'
+                        AND tablename='fake_clients') <> 2 THEN
+              RAISE EXCEPTION 'Expected controlled fictional drift was not generated';
+            END IF;
+          END $check$;
+          SQL
+          echo 'PASS: committed fictional table ACL, RLS, policy, RPC and default ACL drift detected'
+
+      - name: Repair synthetic security drift and prove exact catalog baseline restored
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          BEGIN;
+          REVOKE TRUNCATE ON r241_lab.fake_clients FROM r241_anon;
+          ALTER TABLE r241_lab.fake_clients ENABLE ROW LEVEL SECURITY;
+          DROP POLICY r241_bad_broad ON r241_lab.fake_clients;
+          REVOKE EXECUTE ON FUNCTION r241_lab.fake_count() FROM PUBLIC;
+          ALTER DEFAULT PRIVILEGES FOR ROLE r241_creator
+            REVOKE SELECT,TRUNCATE ON TABLES FROM r241_anon;
+          COMMIT;
+          SQL
+          psql -qAtX -v ON_ERROR_STOP=1 -f r241_posture.sql > r241_repaired.json
+          cmp -s r241_safe_baseline.json r241_repaired.json
+          test "$(sha256sum r241_repaired.json | cut -d ' ' -f1)" = "$(cat r241_safe_baseline.sha256)"
+          if psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE r241_anon; SELECT r241_lab.fake_count();' >/dev/null 2>&1; then
+            echo 'FAIL: fictional anonymous EXECUTE succeeded after repair'; exit 1
+          fi
+          staff_count=$(psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE r241_staff; SELECT count(*) FROM r241_lab.fake_clients;' | tail -n 1)
+          test "$staff_count" = '1'
+          echo 'PASS: five fictional security drift changes repaired; full catalog fingerprint matches baseline'
+
+      - name: Prove failed transaction leaves fingerprint unchanged and retain HOLD
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          BEGIN;
+          GRANT SELECT,TRUNCATE ON r241_lab.fake_clients TO r241_anon;
+          ALTER TABLE r241_lab.fake_clients DISABLE ROW LEVEL SECURITY;
+          CREATE POLICY r241_temporary_bad ON r241_lab.fake_clients
+            FOR SELECT TO r241_staff USING (true);
+          ROLLBACK;
+          SQL
+          psql -qAtX -v ON_ERROR_STOP=1 -f r241_posture.sql > r241_after_rollback.json
+          cmp -s r241_safe_baseline.json r241_after_rollback.json
+          test "$PGHOST" = '127.0.0.1'
+          test "$PGDATABASE" = 'r241_disposable_only'
+          test "$PGUSER" = 'postgres'
+          echo 'PASS: rolled-back fictional drift leaves security fingerprint unchanged'
+          echo 'Synthetic catalog evidence only: real Supabase backups, roles, runtime JWT and restore are NOT verified.'
+          echo 'NO_GO / HOLD / NO MERGE / NO DEPLOY; no production Supabase, LINE, GitHub main or Worker7 change.'

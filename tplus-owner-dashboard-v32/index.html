@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+
+<html lang="ja">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<meta content="#0B1F33" name="theme-color"/>
+<title>DPRO TAX | ティープラス向け共通管理デモ V3.2</title>
+
+
+
+
+<style>:root {
+  --navy-950: #0b1f33;
+  --navy-900: #102a43;
+  --navy-800: #17324d;
+  --navy-700: #244a68;
+  --teal-700: #0f766e;
+  --teal-600: #0d9488;
+  --teal-100: #ccfbf1;
+  --teal-50: #f0fdfa;
+  --blue-50: #eff6ff;
+  --slate-950: #182230;
+  --slate-800: #344054;
+  --slate-700: #475467;
+  --slate-600: #667085;
+  --slate-500: #98a2b3;
+  --slate-300: #d0d5dd;
+  --slate-200: #e4e7ec;
+  --slate-100: #f2f4f7;
+  --surface: #ffffff;
+  --background: #f4f7fa;
+  --warning: #b45309;
+  --warning-bg: #fff7ed;
+  --danger: #b42318;
+  --danger-bg: #fef3f2;
+  --success: #027a48;
+  --success-bg: #ecfdf3;
+  --shadow: 0 12px 34px rgba(16, 42, 67, 0.09);
+  --radius-xl: 22px;
+  --radius-lg: 16px;
+  --radius-md: 12px;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--background);
+  color: var(--slate-950);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans JP", sans-serif;
+  font-size: 17px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+button, input, select, textarea { font: inherit; }
+button, a { -webkit-tap-highlight-color: transparent; }
+a { color: inherit; }
+img { max-width: 100%; }
+[hidden] { display: none !important; }
+
+.skip-link {
+  position: fixed;
+  left: 16px;
+  top: -80px;
+  z-index: 10000;
+  border-radius: 10px;
+  background: #fff;
+  color: var(--navy-900);
+  padding: 10px 16px;
+  box-shadow: var(--shadow);
+}
+.skip-link:focus { top: 12px; }
+
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  border-bottom: 1px solid rgba(228, 231, 236, 0.9);
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(16px);
+}
+.header-inner {
+  max-width: 1240px;
+  margin: 0 auto;
+  min-height: 76px;
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+  font-weight: 800;
+  color: var(--navy-900);
+  letter-spacing: -0.02em;
+}
+.brand-mark {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(145deg, var(--navy-800), var(--teal-700));
+  color: #fff;
+  font-size: 20px;
+  font-weight: 900;
+  box-shadow: 0 8px 18px rgba(15, 118, 110, 0.22);
+}
+.brand-copy { display: grid; line-height: 1.25; }
+.brand-copy small { color: var(--slate-600); font-size: 12px; font-weight: 700; letter-spacing: 0.05em; }
+.top-nav { display: flex; align-items: center; gap: 8px; }
+.top-nav a {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 14px;
+  border-radius: 12px;
+  color: var(--navy-800);
+  font-size: 15px;
+  font-weight: 750;
+  text-decoration: none;
+}
+.top-nav a:hover { background: var(--slate-100); }
+
+.container { width: min(1180px, calc(100% - 40px)); margin-inline: auto; }
+.page-main { padding: 34px 0 64px; }
+.page-heading { margin-bottom: 26px; }
+.eyebrow {
+  margin: 0 0 8px;
+  color: var(--teal-700);
+  font-size: 14px;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+h1, h2, h3, p { overflow-wrap: anywhere; }
+h1 { margin: 0; color: var(--navy-950); font-size: clamp(30px, 4vw, 46px); line-height: 1.25; letter-spacing: -0.035em; }
+h2 { margin: 0; color: var(--navy-900); font-size: clamp(24px, 3vw, 32px); line-height: 1.35; letter-spacing: -0.025em; }
+h3 { margin: 0; color: var(--navy-900); font-size: 20px; line-height: 1.45; }
+.lead { margin: 12px 0 0; color: var(--slate-700); font-size: 18px; line-height: 1.8; }
+.muted { color: var(--slate-600); }
+.small { font-size: 14px; }
+
+.hero {
+  position: relative;
+  overflow: hidden;
+  padding: clamp(42px, 7vw, 86px) 0;
+  background:
+    radial-gradient(circle at 88% 10%, rgba(13, 148, 136, 0.23), transparent 28%),
+    radial-gradient(circle at 70% 80%, rgba(96, 165, 250, 0.15), transparent 35%),
+    linear-gradient(135deg, #0b1f33, #17324d 58%, #0f5d5a);
+  color: #fff;
+}
+.hero::after {
+  content: "";
+  position: absolute;
+  width: 390px;
+  height: 390px;
+  right: -130px;
+  bottom: -230px;
+  border: 54px solid rgba(255,255,255,.06);
+  border-radius: 50%;
+}
+.hero-grid {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(320px, .75fr);
+  align-items: center;
+  gap: 48px;
+}
+.hero h1 { max-width: 760px; color: #fff; font-size: clamp(36px, 4.6vw, 52px); }
+.hero .eyebrow { color: #79e6da; }
+.hero .lead { max-width: 710px; color: rgba(255,255,255,.85); font-size: 19px; }
+.hero-actions { margin-top: 30px; display: flex; flex-wrap: wrap; gap: 12px; }
+.hero-panel {
+  padding: 28px;
+  border: 1px solid rgba(255,255,255,.18);
+  border-radius: 24px;
+  background: rgba(255,255,255,.1);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 22px 50px rgba(3, 17, 30, .28);
+}
+.hero-panel h2 { color: #fff; font-size: 23px; }
+.hero-panel ul { margin: 18px 0 0; padding: 0; list-style: none; display: grid; gap: 13px; }
+.hero-panel li { display: flex; gap: 10px; color: rgba(255,255,255,.91); }
+.hero-panel li::before { content: "✓"; flex: 0 0 26px; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: rgba(121,230,218,.18); color: #79e6da; font-weight: 900; }
+
+.section { padding: 62px 0; }
+.section-tight { padding: 34px 0; }
+.section-head { margin-bottom: 26px; display: flex; align-items: end; justify-content: space-between; gap: 18px; }
+.section-head p { margin: 6px 0 0; color: var(--slate-600); }
+.card-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.card {
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+  box-shadow: 0 4px 14px rgba(16, 42, 67, 0.04);
+}
+.card-pad { padding: 24px; }
+.action-card { padding: 26px; display: flex; flex-direction: column; min-height: 250px; }
+.action-card .icon-tile { margin-bottom: 22px; }
+.action-card p { color: var(--slate-600); }
+.action-card .btn { margin-top: auto; }
+.icon-tile { width: 52px; height: 52px; display: grid; place-items: center; border-radius: 16px; background: var(--teal-50); color: var(--teal-700); font-size: 25px; }
+
+.btn {
+  min-height: 50px;
+  border: 1px solid transparent;
+  border-radius: 13px;
+  padding: 11px 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 800;
+  text-decoration: none;
+  transition: transform .16s ease, box-shadow .16s ease, background .16s ease;
+}
+.btn:hover { transform: translateY(-1px); }
+.btn:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, .nav-button:focus-visible { outline: 3px solid rgba(13, 148, 136, .3); outline-offset: 2px; }
+.btn-primary { background: var(--teal-700); color: #fff; box-shadow: 0 8px 18px rgba(15,118,110,.19); }
+.btn-primary:hover { background: #0b665f; }
+.btn-navy { background: var(--navy-800); color: #fff; box-shadow: 0 8px 18px rgba(23,50,77,.17); }
+.btn-light { border-color: rgba(255,255,255,.28); background: rgba(255,255,255,.12); color: #fff; }
+.btn-secondary { border-color: var(--slate-300); background: #fff; color: var(--navy-800); }
+.btn-danger { border-color: #fecdca; background: var(--danger-bg); color: var(--danger); }
+.btn-ghost { background: transparent; color: var(--navy-800); }
+.btn-sm { min-height: 40px; padding: 8px 12px; font-size: 14px; border-radius: 10px; }
+.btn-block { width: 100%; }
+.button-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+
+.form-card { padding: clamp(22px, 4vw, 36px); }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.field { display: grid; gap: 7px; }
+.field-full { grid-column: 1 / -1; }
+.field label, .label { color: var(--slate-800); font-size: 15px; font-weight: 800; }
+.required { color: var(--danger); font-size: 13px; margin-left: 4px; }
+input, select, textarea {
+  width: 100%;
+  min-height: 52px;
+  border: 1px solid var(--slate-300);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--slate-950);
+  padding: 11px 13px;
+  font-size: 17px;
+}
+textarea { min-height: 128px; resize: vertical; }
+input::placeholder, textarea::placeholder { color: var(--slate-500); }
+.check-row { display: flex; align-items: flex-start; gap: 11px; }
+.check-row input { width: 22px; height: 22px; min-height: 0; margin-top: 3px; accent-color: var(--teal-700); }
+.security-notice { padding: 16px 18px; display: flex; gap: 12px; border: 1px solid #fedf89; border-radius: 14px; background: #fffaeb; color: #7a2e0e; }
+.security-notice strong { display: block; }
+
+.slot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 9px; }
+.slot-button { min-height: 48px; border: 1px solid var(--slate-300); border-radius: 11px; background: #fff; color: var(--navy-800); cursor: pointer; font-weight: 800; }
+.slot-button:hover:not(:disabled), .slot-button.selected { border-color: var(--teal-700); background: var(--teal-50); color: var(--teal-700); }
+.slot-button:disabled { background: var(--slate-100); color: var(--slate-500); cursor: not-allowed; text-decoration: line-through; }
+
+.alert { margin: 0 0 18px; padding: 15px 17px; border-radius: 13px; font-weight: 700; }
+.alert-success { border: 1px solid #abefc6; background: var(--success-bg); color: var(--success); }
+.alert-error { border: 1px solid #fecdca; background: var(--danger-bg); color: var(--danger); }
+.alert-info { border: 1px solid #b2ddff; background: var(--blue-50); color: #175cd3; }
+
+.status { display: inline-flex; align-items: center; min-height: 30px; border-radius: 999px; padding: 3px 10px; background: var(--slate-100); color: var(--slate-700); font-size: 13px; font-weight: 850; white-space: nowrap; }
+.status[data-tone="success"] { background: var(--success-bg); color: var(--success); }
+.status[data-tone="warning"] { background: var(--warning-bg); color: var(--warning); }
+.status[data-tone="danger"] { background: var(--danger-bg); color: var(--danger); }
+.status[data-tone="info"] { background: var(--blue-50); color: #175cd3; }
+
+.portal-shell { min-height: 100vh; }
+.portal-topbar { background: var(--navy-900); color: #fff; }
+.portal-topbar .header-inner { min-height: 72px; }
+.portal-topbar .brand, .portal-topbar .brand-copy small { color: #fff; }
+.portal-topbar .brand-mark { background: rgba(255,255,255,.14); box-shadow: none; }
+.user-chip { display: flex; align-items: center; gap: 10px; }
+.user-avatar { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--teal-600); color: #fff; font-weight: 900; }
+.portal-hero { padding: 30px 0; background: linear-gradient(135deg, #eaf4f7, #f3faf9); border-bottom: 1px solid var(--slate-200); }
+.portal-hero-row { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.portal-hero h1 { font-size: clamp(28px, 4vw, 38px); }
+.summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 15px; margin-top: 22px; }
+.summary-card { padding: 18px; border: 1px solid var(--slate-200); border-radius: 16px; background: #fff; }
+.summary-card .value { margin-top: 6px; color: var(--navy-900); font-size: 28px; font-weight: 900; line-height: 1.2; }
+.summary-card .label { color: var(--slate-600); font-size: 14px; }
+
+.tabs { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }
+.tab-button { min-height: 48px; flex: 0 0 auto; border: 1px solid var(--slate-300); border-radius: 12px; background: #fff; color: var(--slate-700); padding: 10px 17px; cursor: pointer; font-weight: 800; }
+.tab-button.active { border-color: var(--navy-800); background: var(--navy-800); color: #fff; }
+.panel { margin-top: 22px; }
+.list { display: grid; gap: 13px; }
+.list-item { padding: 20px; border: 1px solid var(--slate-200); border-radius: 16px; background: #fff; }
+.list-item-head { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; }
+.list-item p { margin: 7px 0 0; color: var(--slate-600); }
+.meta-row { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 12px; color: var(--slate-700); font-size: 14px; }
+.progress { width: 100%; height: 9px; overflow: hidden; margin-top: 14px; border-radius: 999px; background: var(--slate-100); }
+.progress > span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--teal-700), #2dd4bf); }
+.empty { padding: 38px 22px; text-align: center; border: 1px dashed var(--slate-300); border-radius: 16px; background: rgba(255,255,255,.6); color: var(--slate-600); }
+
+.admin-layout { min-height: 100vh; display: grid; grid-template-columns: 276px minmax(0, 1fr); }
+.sidebar { position: sticky; top: 0; height: 100vh; overflow-y: auto; padding: 22px 16px; background: var(--navy-950); color: #fff; }
+.sidebar .brand { margin: 0 8px 24px; color: #fff; }
+.sidebar .brand-copy small { color: rgba(255,255,255,.65); }
+.side-label { margin: 20px 12px 8px; color: rgba(255,255,255,.52); font-size: 12px; font-weight: 850; letter-spacing: .09em; }
+.side-nav { display: grid; gap: 5px; }
+.nav-button { width: 100%; min-height: 48px; border: 0; border-radius: 12px; padding: 10px 12px; display: flex; align-items: center; gap: 12px; background: transparent; color: rgba(255,255,255,.76); cursor: pointer; font-size: 16px; font-weight: 750; text-align: left; }
+.nav-button:hover, .nav-button.active { background: rgba(255,255,255,.11); color: #fff; }
+.nav-icon { width: 26px; text-align: center; font-size: 20px; }
+.admin-main { min-width: 0; }
+.admin-topbar { position: sticky; top: 0; z-index: 80; min-height: 76px; padding: 12px 28px; border-bottom: 1px solid var(--slate-200); background: rgba(255,255,255,.94); backdrop-filter: blur(12px); display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.admin-content { padding: 30px; }
+.admin-page-head { display: flex; align-items: end; justify-content: space-between; gap: 20px; margin-bottom: 24px; }
+.admin-page-head h1 { font-size: 31px; }
+.metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.metric { padding: 20px; border: 1px solid var(--slate-200); border-radius: 18px; background: #fff; box-shadow: 0 3px 12px rgba(16,42,67,.035); }
+.metric-top { display: flex; justify-content: space-between; gap: 14px; align-items: center; color: var(--slate-600); font-size: 14px; font-weight: 750; }
+.metric-value { margin-top: 10px; color: var(--navy-900); font-size: 34px; line-height: 1.1; font-weight: 900; }
+.metric-note { margin-top: 8px; color: var(--slate-600); font-size: 13px; }
+.dashboard-grid { display: grid; grid-template-columns: 1.35fr .65fr; gap: 18px; margin-top: 18px; }
+.panel-card { padding: 22px; border: 1px solid var(--slate-200); border-radius: 18px; background: #fff; }
+.panel-card-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.panel-card-head h2 { font-size: 21px; }
+.toolbar { margin-bottom: 16px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.toolbar .search { min-width: 260px; max-width: 460px; flex: 1 1 280px; }
+.toolbar select { width: auto; min-width: 160px; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--slate-200); border-radius: 16px; background: #fff; }
+table { width: 100%; border-collapse: collapse; min-width: 780px; }
+th, td { padding: 14px 15px; border-bottom: 1px solid var(--slate-200); text-align: left; vertical-align: middle; }
+th { background: #f8fafc; color: var(--slate-700); font-size: 13px; font-weight: 850; white-space: nowrap; }
+td { font-size: 15px; }
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr:hover { background: #fbfdfd; }
+.table-actions { display: flex; gap: 7px; flex-wrap: wrap; }
+
+.settings-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(320px, .65fr); gap: 18px; align-items: start; }
+.settings-main { margin: 0; }
+.settings-side { display: grid; gap: 18px; }
+.section-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.section-title h2 { font-size: 22px; }
+.schedule-list { display: grid; gap: 0; }
+.schedule-row { min-height: 44px; padding: 10px 2px; border-bottom: 1px solid var(--slate-200); display: flex; justify-content: space-between; gap: 16px; }
+.schedule-row:last-child { border-bottom: 0; }
+.schedule-note { margin-top: 14px; padding: 14px; border-radius: 13px; background: var(--warning-bg); color: #7c4a03; display: grid; gap: 6px; font-size: 14px; }
+.notice-card { border-color: #cbd5e1; background: #f8fafc; }
+.notice-card p { margin: 8px 0 0; line-height: 1.75; }
+
+.modal-wide { width: min(920px, 100%); }
+.search-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px; }
+.client-search-results { display: grid; gap: 8px; margin-top: 10px; }
+.client-result { width: 100%; min-height: 62px; padding: 12px 14px; border: 1px solid var(--slate-200); border-radius: 13px; background: #fff; color: var(--navy-900); cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 16px; text-align: left; }
+.client-result:hover { border-color: var(--teal-600); background: var(--teal-50); }
+.client-result span:first-child { display: grid; gap: 3px; }
+.client-result small { color: var(--slate-600); }
+.client-result-phone { color: var(--teal-800); font-weight: 800; white-space: nowrap; }
+.selected-client { padding: 18px; border: 2px solid #99f6e4; border-radius: 16px; background: var(--teal-50); }
+.selected-client-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; }
+.selected-client-head h3 { margin-top: 8px; }
+.selected-client-head p { margin: 5px 0 0; }
+.selected-client-metrics { margin-top: 14px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.selected-client-metrics span { padding: 10px; border-radius: 10px; background: #fff; color: var(--slate-700); font-size: 13px; text-align: center; }
+.selected-client-metrics strong { display: block; margin-top: 3px; color: var(--navy-900); font-size: 20px; }
+.contact-choice { margin-top: 14px; padding-top: 14px; border-top: 1px solid #99f6e4; }
+.contact-choice > strong { display: block; margin-bottom: 9px; }
+
+.auth-screen { min-height: 100vh; display: grid; place-items: center; padding: 30px; background: radial-gradient(circle at 20% 10%, rgba(13,148,136,.18), transparent 27%), linear-gradient(145deg, var(--navy-950), var(--navy-800)); }
+.auth-card { width: min(480px, 100%); padding: 34px; border-radius: 24px; background: #fff; box-shadow: 0 28px 70px rgba(0,0,0,.28); }
+.auth-card .brand { margin-bottom: 26px; }
+.admin-code-row { display: grid; grid-template-columns: 1fr auto; gap: 9px; }
+.admin-code-row .btn { padding-inline: 14px; }
+
+.ipad-body { background: #eaf0f4; font-size: 18px; }
+.ipad-header { padding: 16px 24px; background: var(--navy-900); color: #fff; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.ipad-header .brand, .ipad-header .brand-copy small { color: #fff; }
+.ipad-main { padding: 24px; }
+.ipad-metrics { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 14px; }
+.ipad-card { min-height: 128px; padding: 20px; border: 1px solid var(--slate-200); border-radius: 20px; background: #fff; }
+.ipad-card .value { font-size: 38px; font-weight: 900; color: var(--navy-900); }
+.ipad-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 18px; }
+.ipad-action { min-height: 62px; font-size: 18px; }
+.ipad-item-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.ipad-item-actions .ipad-action { flex: 1 1 150px; }
+.ipad-item-actions .ipad-action:disabled { cursor: not-allowed; opacity: .7; }
+.ipad-safety-note { margin: 10px 0 0; }
+
+.check-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 16px; }
+.check-card { padding: 22px; border: 1px solid var(--slate-200); border-radius: 18px; background: #fff; }
+.check-indicator { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 50%; background: var(--slate-100); color: var(--slate-600); font-size: 23px; font-weight: 900; }
+.check-indicator.ok { background: var(--success-bg); color: var(--success); }
+.check-indicator.ng { background: var(--danger-bg); color: var(--danger); }
+.check-card h3 { margin-top: 15px; }
+.check-card p { margin: 6px 0 0; color: var(--slate-600); font-size: 14px; }
+
+.hours-editor { display: grid; gap: 10px; margin: 18px 0; }
+.hours-row { display: grid; grid-template-columns: 90px minmax(110px,1fr) auto minmax(110px,1fr) auto; gap: 10px; align-items: center; padding: 12px; border: 1px solid var(--slate-200); border-radius: 13px; background: var(--slate-50); }
+.hours-row > strong { color: var(--navy-900); }
+.hours-row > span { color: var(--slate-500); font-weight: 800; }
+.hours-closed, .switch-label { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; color: var(--slate-700); }
+.settings-item-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.compact-form { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; margin-top: 16px; }
+.closed-date-list { display: grid; gap: 9px; margin-top: 18px; }
+.closed-date-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 13px 14px; border: 1px solid var(--slate-200); border-radius: 13px; background: var(--slate-50); }
+.closed-date-row strong { color: var(--navy-900); }
+.closed-date-row small { display: block; margin-top: 3px; color: var(--slate-600); }
+.compact-empty { padding: 16px; border: 1px dashed var(--slate-300); border-radius: 13px; color: var(--slate-600); text-align: center; }
+.check-fieldset { display: flex; gap: 18px; flex-wrap: wrap; padding: 15px; border: 1px solid var(--slate-300); border-radius: 13px; }
+.check-fieldset legend { padding: 0 6px; font-weight: 800; color: var(--navy-900); }
+.check-fieldset label { display: inline-flex; align-items: center; gap: 7px; font-weight: 700; }
+.submission-history { display: grid; gap: 8px; margin-top: 11px; }
+.submission-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 11px 12px; border: 1px solid var(--slate-200); border-radius: 12px; background: #fff; }
+.submission-row strong { display: block; color: var(--navy-900); overflow-wrap: anywhere; }
+.submission-row small { display: block; margin-top: 3px; color: var(--slate-600); }
+.file-selection { margin-top: 10px; padding: 12px 14px; border: 1px solid #99f6e4; border-radius: 12px; background: var(--teal-50); color: var(--teal-800); font-weight: 700; overflow-wrap: anywhere; }
+.file-selection.error { border-color: #fecaca; background: var(--danger-bg); color: var(--danger); }
+.document-review-summary { display: grid; gap: 14px; }
+.review-file-card { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 18px; border: 1px solid var(--slate-200); border-radius: 16px; background: var(--slate-50); }
+.review-file-card h3 { margin-top: 9px; overflow-wrap: anywhere; }
+.review-file-card p { margin: 6px 0 0; color: var(--slate-600); }
+.review-context-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
+.review-context-grid span { padding: 13px; border: 1px solid var(--slate-200); border-radius: 12px; color: var(--slate-600); font-size: 13px; }
+.review-context-grid strong { display: block; margin-top: 4px; color: var(--navy-900); font-size: 15px; }
+.document-open-actions { align-items: center; margin: 16px 0; padding: 15px; border: 1px solid var(--slate-200); border-radius: 14px; background: #f7fbfb; }
+.document-open-actions .btn:disabled { cursor: not-allowed; opacity: .75; background: #edf1f4; color: #667788; border-color: #d9e0e6; box-shadow: none; }
+@media (max-width: 640px) { .document-open-actions { align-items: stretch; flex-direction: column; } .document-open-actions .btn { width: 100%; } }
+.document-review-form { display: grid; gap: 15px; }
+.review-action-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; }
+.document-audit { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--slate-200); }
+.timeline-list { display: grid; gap: 0; margin-top: 12px; }
+.timeline-row { position: relative; display: grid; grid-template-columns: 20px 1fr; gap: 9px; min-height: 54px; }
+.timeline-row::before { content: ""; position: absolute; left: 6px; top: 15px; bottom: -2px; width: 2px; background: var(--slate-200); }
+.timeline-row:last-child::before { display: none; }
+.timeline-dot { z-index: 1; width: 14px; height: 14px; margin-top: 3px; border: 3px solid #ccfbf1; border-radius: 50%; background: var(--teal-700); }
+.timeline-row strong, .timeline-row small { display: block; }
+.timeline-row small { margin-top: 3px; color: var(--slate-600); }
+
+.modal-backdrop { position: fixed; inset: 0; z-index: 1000; padding: 24px; display: grid; place-items: center; background: rgba(5,18,30,.62); }
+.modal { width: min(720px, 100%); max-height: calc(100vh - 48px); overflow-y: auto; border-radius: 22px; background: #fff; box-shadow: 0 28px 80px rgba(0,0,0,.3); }
+.modal-head { position: sticky; top: 0; z-index: 2; padding: 20px 24px; border-bottom: 1px solid var(--slate-200); background: #fff; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.modal-head h2 { font-size: 23px; }
+.modal-body { padding: 24px; }
+.icon-button { width: 44px; height: 44px; border: 1px solid var(--slate-300); border-radius: 12px; background: #fff; color: var(--slate-700); cursor: pointer; font-size: 21px; }
+.toast-stack { position: fixed; right: 18px; bottom: 18px; z-index: 2000; width: min(390px, calc(100% - 36px)); display: grid; gap: 10px; }
+.toast { padding: 15px 17px; border-radius: 13px; background: var(--navy-950); color: #fff; box-shadow: var(--shadow); font-weight: 700; animation: toast-in .2s ease-out; }
+.toast.error { background: var(--danger); }
+@keyframes toast-in { from { transform: translateY(8px); opacity: 0; } }
+.spinner { width: 22px; height: 22px; border: 3px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .65s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading { min-height: 180px; display: grid; place-items: center; color: var(--teal-700); }
+.mobile-menu { display: none; }
+
+.site-footer { padding: 30px 0; border-top: 1px solid var(--slate-200); background: #fff; color: var(--slate-600); font-size: 14px; }
+.footer-row { display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+
+@media (max-width: 1020px) {
+  .hero-grid { grid-template-columns: 1fr; }
+  .hero-panel { max-width: 700px; }
+  .metric-grid, .summary-grid, .ipad-metrics { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .dashboard-grid { grid-template-columns: 1fr; }
+  .admin-layout { grid-template-columns: 230px minmax(0,1fr); }
+  .card-grid, .check-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .settings-layout { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 760px) {
+  body { font-size: 17px; }
+  .container { width: min(100% - 28px, 1180px); }
+  .header-inner { min-height: 68px; padding: 10px 14px; }
+  .brand-copy span { font-size: 15px; }
+  .top-nav { display: none; }
+  .mobile-menu { display: inline-flex; }
+  .hero { padding: 44px 0; }
+  .hero-grid { gap: 30px; }
+  .hero-panel { padding: 22px; }
+  .section { padding: 42px 0; }
+  .card-grid, .form-grid, .summary-grid, .metric-grid, .check-grid, .ipad-metrics, .ipad-columns { grid-template-columns: 1fr; }
+  .field-full { grid-column: auto; }
+  .portal-hero-row, .section-head, .admin-page-head { align-items: flex-start; flex-direction: column; }
+  .admin-layout { display: block; }
+  .sidebar { position: fixed; left: 0; top: 0; z-index: 500; width: min(310px, 88vw); transform: translateX(-105%); transition: transform .22s ease; box-shadow: 12px 0 40px rgba(0,0,0,.24); }
+  .sidebar.open { transform: translateX(0); }
+  .admin-topbar { min-height: 68px; padding: 10px 14px; }
+  .admin-content { padding: 22px 14px 42px; }
+  .admin-page-head h1 { font-size: 27px; }
+  .toolbar .search, .toolbar select { width: 100%; max-width: none; }
+  .ipad-main { padding: 14px; }
+  .ipad-header { padding: 12px 14px; }
+  .auth-card { padding: 26px 21px; }
+  .modal-backdrop { padding: 10px; }
+  .modal { max-height: calc(100vh - 20px); }
+  .modal-body, .modal-head { padding: 18px; }
+  .search-row { grid-template-columns: 1fr; }
+  .client-result, .selected-client-head { align-items: flex-start; flex-direction: column; }
+  .selected-client-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hours-row { grid-template-columns: 70px 1fr auto 1fr; }
+  .hours-closed { grid-column: 1 / -1; }
+  .compact-form { grid-template-columns: 1fr; }
+  .compact-form .field-full { grid-column: auto; }
+  .closed-date-row { align-items: flex-start; }
+  .submission-row { align-items: flex-start; flex-direction: column; }
+  .review-context-grid, .review-action-grid { grid-template-columns: 1fr; }
+  .review-file-card { flex-direction: column; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation-duration: .001ms !important; }
+}
+/* R246 QA-branch only: owner settings intrinsic grid sizing.
+   Preserve desktop two-column layout; reflow business hours within the side card.
+   NO_GO / HOLD: not approved for main or production deployment. */
+.settings-layout {
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, .85fr);
+}
+.settings-layout > *,
+.settings-side,
+.settings-main { min-width: 0; }
+.hours-row {
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+.hours-row > strong { grid-column: 1 / 3; grid-row: 1; }
+.hours-row > .hours-closed {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
+  white-space: nowrap;
+}
+.hours-row > select[data-hour-open] { grid-column: 1; grid-row: 2; }
+.hours-row > span { grid-column: 2; grid-row: 2; }
+.hours-row > select[data-hour-close] { grid-column: 3; grid-row: 2; }
+.hours-row > select { min-width: 0; max-width: 100%; width: 100%; padding-inline: 8px; }
+.hours-row input[type="checkbox"] { width: 20px; min-height: 20px; height: 20px; flex: 0 0 20px; }
+@media (max-width: 1120px) {
+  .settings-layout { grid-template-columns: minmax(0, 1fr); }
+}
+</style><style>
+  body{font-size:16px} .admin-content{padding-bottom:100px}
+  .tplus-alert{background:#f1f7f9;border:1px solid #b2cfd3;padding:13px 15px;border-radius:12px;margin-bottom:19px;font-weight:600}
+  .tplus-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:16px 0}
+  .tplus-panel{background:#fff;border:1px solid #d7e1e9;border-radius:14px;padding:18px}
+  .tplus-panel h2{margin:0 0 16px;font-size:20px}
+  .tplus-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:12px 0}
+  .tplus-row label{font-weight:700} .tplus-row select,.tplus-row input,.tplus-row textarea{max-width:100%;padding:10px;font-size:16px;border:1px solid #a9c0d1;border-radius:9px}
+  .tplus-row textarea{width:min(100%,540px);min-height:90px}
+  .tplus-item{padding:13px 5px;border-bottom:1px solid #e7edf4;line-height:1.7}
+  .tplus-chip{display:inline-block;background:#ecf2fc;color:#1b4868;font-size:13px;padding:3px 10px;border-radius:15px}
+  .tplus-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:16px 0}
+  .tplus-stat{background:#eaf2f9;border-radius:13px;padding:16px}
+  .tplus-stat strong{display:block;font-size:25px;margin-top:6px}
+  .tplus-notice{background:#fff3d9;border:1px solid #f4d795;border-radius:10px;padding:13px;margin:12px 0}
+  .tplus-phone{max-width:430px;margin:14px auto;border:8px solid #21384f;border-radius:24px;background:white;padding:20px;min-height:450px}
+  .tplus-liff-menu{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+  .tplus-liff-menu button{padding:10px 3px;min-height:66px;border:1px solid #adc5d1;border-radius:8px;background:#eaf4f8;font-weight:700;font-size:13px}
+  [data-tplus-tab] {cursor:pointer} .tplus-phone .tplus-content{padding:16px 0;font-size:16px}
+  button:focus-visible{outline:3px solid #ed9c31;outline-offset:2px}
+  @media(max-width:900px){.tplus-grid{grid-template-columns:1fr}.tplus-metrics{grid-template-columns:1fr 1fr}}
+  @media(max-width:520px){.tplus-metrics{grid-template-columns:1fr}.tplus-liff-menu{grid-template-columns:repeat(2,1fr)}.tplus-phone{border-width:5px}}
+</style><style>
+.tplus-album-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:14px}
+.tplus-album-card{display:flex;gap:12px;align-items:center;border:1px solid #d7e1e9;border-radius:12px;padding:13px;background:#f8fafc;min-width:0}
+.tplus-album-icon{flex:0 0 54px;width:54px;height:54px;border-radius:11px;background:#e4eef8;display:grid;place-items:center;font-size:27px}
+.tplus-album-card strong{display:block;overflow-wrap:anywhere}
+.tplus-album-card small{display:block;color:#52657a}
+.tplus-privacy{font-weight:800;color:#8b341a}
+#doc-preview-log .tplus-item{font-size:14px}
+@media(max-width:600px){.tplus-album-grid{grid-template-columns:1fr}.tplus-album-card{padding:11px}}
+<style>
+.tplus-visit-fields{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:15px 0}
+.tplus-visit-fields .field{display:flex;flex-direction:column;gap:8px;min-width:0}
+.tplus-visit-fields label{font-weight:700}
+.tplus-visit-fields select,.tplus-visit-fields input{width:100%;max-width:100%;min-height:44px;border:1px solid #a9c0d1;border-radius:9px;padding:8px;font:inherit;background:white}
+.tplus-scroll{overflow-x:auto}.tplus-visits-table{width:100%;border-collapse:collapse;min-width:600px}
+.tplus-visits-table th,.tplus-visits-table td{text-align:left;padding:13px;border-bottom:1px solid #e1e8ef;vertical-align:middle;font-size:15px}
+.tplus-visits-table th{background:#f1f6fa;color:#263d4b}
+@media(max-width:900px){.tplus-visit-fields{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:520px){.tplus-visit-fields{grid-template-columns:1fr}}
+
+.tplus-visits-table td .btn{white-space:nowrap}
+#doc-items-list td{vertical-align:middle}
+#doc-stats{margin-top:10px}
+#doc-push{width:18px!important;height:18px!important;flex:0 0 18px;padding:0;margin:0 6px 0 0;accent-color:#07786e}
+label:has(>#doc-push){display:inline-flex!important;align-items:center;gap:5px;min-width:0}
+@media(max-width:560px){.tplus-visits-table th,.tplus-visits-table td{padding:8px 6px;font-size:12px}.tplus-visits-table td .btn{padding:7px;font-size:12px}}
+</style></head>
+<body data-page="owner">
+<section class="auth-screen" hidden="" id="owner-auth">
+<form class="auth-card" id="owner-login-form" onsubmit="return false">
+<div class="brand"><span class="brand-mark">D</span><span class="brand-copy"><span>DPRO 税理士・会計事務所</span><small>オーナーPC管理</small></span></div>
+<p class="eyebrow">Secure Administration</p>
+<h1 style="font-size:31px">管理画面を開く</h1>
+<p class="muted">管理コードを入力してください。デモ環境では「1234」です。</p>
+<div id="owner-login-alert"></div>
+<div class="field">
+<label for="owner-admin-code">管理コード</label>
+<div class="admin-code-row"><input autocomplete="current-password" id="owner-admin-code" inputmode="numeric" required="" type="password"/><button class="btn btn-secondary" id="owner-code-clear" type="button">削除</button></div>
+</div>
+<button class="btn btn-primary btn-block" style="margin-top:18px" type="submit">管理画面を開く</button>
+</form>
+</section>
+<div class="admin-layout" id="owner-app">
+<aside class="sidebar" id="admin-sidebar">
+<a class="brand" href="#"><span class="brand-mark">D</span><span class="brand-copy"><span>DPRO 税理士・会計事務所</span><small>オーナーPC管理</small></span></a>
+<div class="side-label">日常業務</div>
+<nav aria-label="管理メニュー" class="side-nav">
+<button class="nav-button active" data-admin-view="dashboard" type="button"><span class="nav-icon">⌂</span>ダッシュボード</button>
+<button class="nav-button" data-admin-view="clients" type="button"><span class="nav-icon">▣</span>顧問先・電話検索</button>
+<button class="nav-button" data-admin-view="cases" type="button"><span class="nav-icon">▤</span>案件・申告進捗</button>
+<button class="nav-button" data-admin-view="documents" type="button"><span class="nav-icon">▱</span>資料依頼・提出確認</button>
+<button class="nav-button" data-admin-view="appointments" type="button"><span class="nav-icon">◫</span>面談予約・電話受付</button>
+<button class="nav-button" data-admin-view="inquiries" type="button"><span class="nav-icon">◌</span>相談・問い合わせ</button>
+<button class="nav-button" data-admin-view="tasks" type="button"><span class="nav-icon">✓</span>タスク・期限</button>
+<button class="nav-button" data-admin-view="visits" type="button"><span class="nav-icon">▤</span>訪問予定・前日通知</button><button class="nav-button" data-admin-view="notes" type="button"><span class="nav-icon">✎</span>共有ノート・アルバム</button><button class="nav-button" data-admin-view="reminders" type="button"><span class="nav-icon">◎</span>資料依頼・自動通知</button><button class="nav-button" data-admin-view="liff" type="button"><span class="nav-icon">▦</span>顧問先LIFFプレビュー</button></nav>
+<div class="side-label">設定・確認</div>
+<nav aria-label="設定メニュー" class="side-nav">
+<button class="nav-button" data-admin-view="staff" type="button"><span class="nav-icon">♙</span>職員</button>
+<button class="nav-button" data-admin-view="settings" type="button"><span class="nav-icon">⚙</span>基本設定</button>
+<a aria-disabled="true" class="nav-button" href="#" title="隔離デモでは使用しません"><span class="nav-icon">●</span>システム確認</a>
+</nav>
+</aside>
+<main class="admin-main">
+<header class="admin-topbar">
+<div class="button-row"><button class="btn btn-secondary mobile-menu" id="sidebar-toggle" type="button">メニュー</button><strong id="admin-view-title">ダッシュボード</strong></div>
+<div class="button-row"><span class="muted small" id="owner-office-name">DPRO TAX｜共通操作デモ</span><button class="btn btn-secondary btn-sm" id="owner-logout" type="button">ログアウト</button></div>
+</header>
+<div class="loading" hidden="" id="owner-loading"><span aria-label="読み込み中" class="spinner" role="status"></span></div>
+<div class="admin-content" id="owner-content">
+<div class="tplus-alert" role="status">田中様向け DPRO TAX 共通デモ V3.2｜既存管理ダッシュボードの画面構造を使用｜架空データ・外部送信なし</div><div id="owner-alert"></div>
+<section data-admin-panel="dashboard">
+<div class="admin-page-head"><div><p class="eyebrow">Today Overview</p><h1>ダッシュボード</h1><p class="muted" id="dashboard-date">操作可能な架空の顧問先2社を使用｜DB保存なし</p></div><button class="btn btn-secondary" data-refresh-admin="" type="button">最新情報に更新</button></div>
+<div class="metric-grid">
+<div class="metric"><div class="metric-top"><span>顧問先</span><span>▣</span></div><div class="metric-value" id="metric-clients">2</div><div class="metric-note">登録済み顧問先</div></div>
+<div class="metric"><div class="metric-top"><span>進行中案件</span><span>▤</span></div><div class="metric-value" id="metric-cases">2</div><div class="metric-note">完了・取消を除く</div></div>
+<div class="metric"><div class="metric-top"><span>新着書類</span><span>▱</span></div><div class="metric-value" id="metric-documents">2</div><div class="metric-note">確認待ち</div></div>
+<div class="metric"><div class="metric-top"><span>未対応相談</span><span>◌</span></div><div class="metric-value" id="metric-inquiries">0</div><div class="metric-note">解決・終了を除く</div></div>
+</div>
+<div class="dashboard-grid">
+<div class="panel-card"><div class="panel-card-head"><h2>優先して確認する案件</h2><button class="btn btn-ghost btn-sm" data-go-view="cases" type="button">すべて見る</button></div><div class="list" id="dashboard-cases"><div class="tplus-item">月次会計／青葉商事（架空） <span class="tplus-chip">確認中</span></div><div class="tplus-item">確定申告／さくら企画（架空） <span class="tplus-chip">資料待ち</span></div></div></div>
+<div class="panel-card"><div class="panel-card-head"><h2>近日の予定（模擬）</h2><button class="btn btn-ghost btn-sm" data-go-view="tasks" type="button">タスク一覧</button></div><div class="list" id="dashboard-tasks"><div class="tplus-item">10/19 青葉商事への訪問前日LINE案内</div><div class="tplus-item">10/25 月次資料の回収期限</div></div></div>
+</div>
+<div class="dashboard-grid">
+<div class="panel-card"><div class="panel-card-head"><h2>書類確認待ち</h2><button class="btn btn-ghost btn-sm" data-go-view="documents" type="button">提出書類へ</button></div><div class="list" id="dashboard-documents"><div class="tplus-item">青葉商事：月次請求書（未提出）</div><div class="tplus-item">さくら企画：領収書（確認待ち）</div></div></div>
+<div class="panel-card"><div class="panel-card-head"><h2>面談・相談</h2></div><div class="list" id="dashboard-contact-work"><div class="tplus-item">10/20 10:00 青葉商事｜主担当：佐藤</div><div class="tplus-item">10/23 13:30 さくら企画｜主担当：鈴木</div></div></div>
+</div>
+<div class="tplus-grid">
+<div class="tplus-panel"><h2>① 次回訪問・前日通知</h2><div id="dashboard-visit-highlight">10/20（火）10:00｜青葉商事（架空）／担当 佐藤</div><div class="tplus-row"><button class="btn btn-primary" data-go-view="visits" type="button">訪問予定を管理</button></div></div>
+<div class="tplus-panel"><h2>②・③ 必要資料と定期依頼</h2><div>資料依頼は顧問先2社分｜毎月1社・3か月ごと1社（架空）</div><div class="tplus-row"><button class="btn btn-primary" data-go-view="reminders" type="button">資料依頼の設定</button></div></div>
+</div></section>
+<section data-admin-panel="clients" hidden="">
+<div class="admin-page-head"><div><p class="eyebrow">Clients</p><h1>顧問先・電話検索</h1><p class="muted">氏名、顧問先コード、電話番号で検索できます。ハイフン・全角・+81も同一判定します。</p></div><button class="btn btn-primary" data-open-modal="client-create-modal" disabled="" title="隔離デモでは登録しません" type="button">顧問先を登録</button></div>
+<div class="toolbar"><input class="search" disabled="" id="client-search" placeholder="顧問先名・コード・電話番号で検索" type="search"/><select disabled="" id="client-status-filter"><option value="">すべての状態</option><option value="onboarding">初期登録</option><option value="active">契約中</option><option value="paused">休止</option><option value="ended">終了</option></select><button class="btn btn-secondary" disabled="" id="client-search-button" type="button">検索</button></div>
+<div class="table-wrap"><table><thead><tr><th>顧問先</th><th>区分</th><th>電話番号</th><th>担当</th><th>状態</th><th>操作</th></tr></thead><tbody id="clients-table-body"><tr><td>青葉商事（架空）<small>｜DEMO-0001</small></td><td>法人</td><td>非表示</td><td>佐藤</td><td>契約中</td><td>デモ専用</td></tr><tr><td>さくら企画（架空）</td><td>個人事業</td><td>非表示</td><td>鈴木</td><td>契約中</td><td>デモ専用</td></tr></tbody></table></div>
+<div class="tplus-notice">既存DPRO TAXの画面構造です。この隔離デモでは顧客DBに接続せず、操作・保存は行いません。</div></section>
+<section data-admin-panel="cases" hidden="">
+<div class="admin-page-head"><div><p class="eyebrow">Case Management</p><h1>案件・申告進捗</h1></div><button class="btn btn-primary" data-open-modal="case-create-modal" disabled="" title="隔離デモでは登録しません" type="button">案件を登録</button></div>
+<div class="toolbar"><input class="search" disabled="" id="case-search" placeholder="案件名・案件コード・次回対応" type="search"/><select disabled="" id="case-status-filter"><option value="">すべての状態</option><option value="received">受付</option><option value="checking">確認中</option><option value="waiting_client">顧問先待ち</option><option value="waiting_documents">資料待ち</option><option value="in_progress">対応中</option><option value="staff_review">担当確認</option><option value="final_review">最終確認</option><option value="completed">完了</option></select><button class="btn btn-secondary" disabled="" id="case-search-button" type="button">検索</button></div>
+<div class="table-wrap"><table><thead><tr><th>案件</th><th>顧問先</th><th>期限</th><th>進捗</th><th>状態</th><th>操作</th></tr></thead><tbody id="cases-table-body"></tbody></table></div>
+<div class="tplus-notice">既存DPRO TAXの画面構造です。この隔離デモでは顧客DBに接続せず、操作・保存は行いません。</div></section>
+<section data-admin-panel="documents" hidden="">
+<div class="admin-page-head"><div><p class="eyebrow">Documents</p><h1>資料依頼・提出確認</h1></div><button class="btn btn-primary" data-open-modal="request-create-modal" disabled="" title="隔離デモでは登録しません" type="button">資料依頼を作成</button></div>
+<div class="tabs"><button class="tab-button active" data-document-tab="submissions" disabled="" type="button">提出書類</button><button class="tab-button" data-document-tab="requests" disabled="" type="button">資料依頼</button></div>
+<div class="toolbar" style="margin-top:16px"><select disabled="" id="document-status-filter"><option value="">すべての状態</option><option value="new">新着</option><option value="reviewing">確認中</option><option value="accepted">確認済み</option><option value="rejected">差戻し</option><option value="quarantined">隔離</option></select><input class="search" disabled="" id="document-search" placeholder="顧問先・ファイル名・受付番号" type="search"/><button class="btn btn-secondary" disabled="" id="document-filter-button" type="button">絞り込む</button></div>
+<div class="table-wrap" id="document-submission-table" style="margin-top:16px"><table><thead><tr><th>提出日時</th><th>顧問先</th><th>ファイル</th><th>状態</th><th>操作</th></tr></thead><tbody id="documents-table-body"></tbody></table></div>
+<div class="table-wrap" hidden="" id="document-request-table" style="margin-top:16px"><table><thead><tr><th>依頼</th><th>顧問先</th><th>期限</th><th>状態</th><th>操作</th></tr></thead><tbody id="requests-table-body"><tr><td>月次資料依頼</td><td>青葉商事</td><td>10月25日</td><td>未提出</td><td>模擬</td></tr></tbody></table></div>
+</section>
+<section data-admin-panel="appointments" hidden="">
+<div class="admin-page-head"><div><p class="eyebrow">Appointments</p><h1>面談予約・電話受付</h1><p class="muted">電話予約では先に既存顧問先を検索して選択します。</p></div><button class="btn btn-primary" data-open-modal="appointment-create-modal" disabled="" title="隔離デモでは登録しません" type="button">電話・来所予約を登録</button></div>
+<div class="toolbar"><select disabled="" id="appointment-status-filter"><option value="">すべて</option><option value="requested">希望受付</option><option value="confirmed">確定</option><option value="change_requested">変更希望</option><option value="cancel_requested">取消希望</option><option value="completed">完了</option><option value="cancelled">取消済み</option></select><button class="btn btn-secondary" disabled="" id="appointment-filter-button" type="button">絞り込む</button></div>
+<div class="table-wrap"><table><thead><tr><th>日時</th><th>予約者</th><th>方法</th><th>担当</th><th>状態</th><th>操作</th></tr></thead><tbody id="appointments-table-body"></tbody></table></div>
+<div class="tplus-notice">既存DPRO TAXの画面構造です。この隔離デモでは顧客DBに接続せず、操作・保存は行いません。</div></section>
+<section data-admin-panel="inquiries" hidden="">
+<div class="admin-page-head"><div><p class="eyebrow">Inquiries</p><h1>相談・問い合わせ</h1></div></div>
+<div class="toolbar"><select disabled="" id="inquiry-status-filter"><option value="">すべて</option><option value="new">新着</option><option value="open">対応中</option><option value="waiting_client">顧問先待ち</option><option value="waiting_office">事務所対応待ち</option><option value="resolved">解決</option><option value="closed">終了</option></select><button class="btn btn-secondary" disabled="" id="inquiry-filter-button" type="button">絞り込む</button></div>
+<div class="table-wrap"><table><thead><tr><th>受付</th><th>件名・内容</th><th>区分</th><th>優先度</th><th>状態</th><th>操作</th></tr></thead><tbody id="inquiries-table-body"></tbody></table></div>
+<div class="tplus-notice">既存DPRO TAXの画面構造です。この隔離デモでは顧客DBに接続せず、操作・保存は行いません。</div></section>
+<section data-admin-panel="tasks" hidden="">
+<div class="admin-page-head"><div><p class="eyebrow">Tasks</p><h1>タスク・期限</h1></div><button class="btn btn-primary" data-open-modal="task-create-modal" disabled="" title="隔離デモでは登録しません" type="button">タスクを登録</button></div>
+<div class="table-wrap"><table><thead><tr><th>期限</th><th>タスク</th><th>顧問先</th><th>優先度</th><th>状態</th><th>操作</th></tr></thead><tbody id="tasks-table-body"></tbody></table></div>
+<div class="tplus-notice">既存DPRO TAXの画面構造です。この隔離デモでは顧客DBに接続せず、操作・保存は行いません。</div></section>
+<section data-admin-panel="staff" hidden="">
+<div class="admin-page-head"><div><p class="eyebrow">Staff</p><h1>職員</h1></div><button class="btn btn-primary" data-open-modal="staff-create-modal" disabled="" title="隔離デモでは登録しません" type="button">職員を登録</button></div>
+<div class="table-wrap"><table><thead><tr><th>職員</th><th>権限</th><th>連絡先</th><th>書類確認</th><th>状態</th><th>操作</th></tr></thead><tbody id="staff-table-body"></tbody></table></div>
+<div class="tplus-notice">既存DPRO TAXの画面構造です。この隔離デモでは顧客DBに接続せず、操作・保存は行いません。</div></section>
+<section data-admin-panel="settings" hidden="">
+<div class="admin-page-head"><div><p class="eyebrow">Office Settings</p><h1>事務所・予約設定</h1><p class="muted">顧客向け画面に表示する事務所情報と、面談予約の受付範囲を管理します。</p></div></div>
+<div class="settings-layout">
+<form class="card form-card settings-main" id="settings-form" onsubmit="return false">
+<div class="section-title"><div><p class="eyebrow">Office Profile</p><h2>事務所情報</h2></div><span class="status" data-tone="success">Supabase保存</span></div>
+<div class="form-grid">
+<div class="field"><label for="setting-office-name">事務所名</label><input disabled="" id="setting-office-name" name="office_name" required="" type="text"/></div>
+<div class="field"><label for="setting-phone">電話番号</label><input disabled="" id="setting-phone" name="phone" type="text"/></div>
+<div class="field"><label for="setting-email">メールアドレス</label><input disabled="" id="setting-email" name="email" type="email"/></div>
+<div class="field"><label for="setting-booking-days">予約受付日数</label><input disabled="" id="setting-booking-days" max="365" min="1" name="booking_open_days" type="number"/></div>
+<div class="field"><label for="setting-postal-code">郵便番号</label><input disabled="" id="setting-postal-code" inputmode="numeric" name="postal_code" placeholder="例：812-0000" type="text"/></div>
+<div class="field"><label for="setting-address">所在地</label><input disabled="" id="setting-address" name="address" placeholder="都道府県・市区町村・番地" type="text"/></div>
+<div class="field field-full"><label for="setting-subtitle">説明</label><textarea disabled="" id="setting-subtitle" name="subtitle"></textarea></div>
+<div class="field field-full"><label for="setting-security">セキュリティ注意文</label><textarea disabled="" id="setting-security" name="security_notice"></textarea></div>
+<div class="field field-full"><div class="small muted" id="settings-save-status">変更後に保存してください。</div><button class="btn btn-primary btn-block" disabled="" type="submit">事務所・予約設定を保存</button></div>
+</div>
+</form>
+<div class="settings-side">
+<div class="panel-card"><div class="section-title"><div><p class="eyebrow">Consultation</p><h2>面談メニュー</h2></div><button class="btn btn-primary btn-sm" data-new-service="" data-open-modal="service-edit-modal" disabled="" title="隔離デモでは登録しません" type="button">追加</button></div><div class="list" id="settings-services"></div></div>
+<form class="panel-card" id="business-hours-form" onsubmit="return false"><div class="section-title"><div><p class="eyebrow">Business Hours</p><h2>曜日別受付時間</h2></div><span class="status" data-tone="info">30分単位</span></div><div class="hours-editor" id="business-hours-editor"></div><button class="btn btn-primary btn-block" disabled="" type="submit">受付時間を保存</button></form>
+<div class="panel-card"><div class="section-title"><div><p class="eyebrow">Closed Dates</p><h2>休業日・特別時間</h2></div></div><form class="compact-form" id="closed-date-form" onsubmit="return false"><div class="field"><label for="closed-date-value">対象日</label><input disabled="" id="closed-date-value" name="closed_date" required="" type="date"/></div><div class="field"><label for="closed-date-type">設定</label><select disabled="" id="closed-date-type" name="closed_type"><option value="closed">終日休業</option><option value="special">特別受付時間</option></select></div><div class="form-grid field-full" hidden="" id="closed-date-time-fields"><div class="field"><label for="closed-date-open">開始</label><select data-half-hour-options="" disabled="" id="closed-date-open" name="open_time"></select></div><div class="field"><label for="closed-date-close">終了</label><select data-half-hour-options="" disabled="" id="closed-date-close" name="close_time"></select></div></div><div class="field field-full"><label for="closed-date-reason">理由・名称</label><input disabled="" id="closed-date-reason" name="reason" placeholder="例：年末年始休業" type="text"/></div><button class="btn btn-secondary btn-block field-full" disabled="" type="submit">休業日・特別時間を登録</button></form><div class="closed-date-list" id="closed-date-list"></div></div>
+<div class="panel-card notice-card"><strong>設定反映について</strong><p class="small muted">この画面は安全な隔離デモです。Worker APIおよびSupabaseには接続しておらず、保存は行いません。</p></div>
+</div>
+</div>
+<div class="tplus-notice">既存DPRO TAXの画面構造です。この隔離デモでは顧客DBに接続せず、操作・保存は行いません。</div></section>
+<section data-admin-panel="visits" hidden="">
+  <div class="admin-page-head"><div><p class="eyebrow">Visit &amp; LINE Reminder</p><h1>次回訪問・前日通知</h1><p class="muted">顧問先別に訪問を登録。前日通知は予定・停止・取消をまとめて確認できます。</p></div></div>
+  <div class="tplus-metrics">
+    <div class="tplus-stat">登録中の訪問<strong id="visit-total">2件</strong></div>
+    <div class="tplus-stat">前日通知予定<strong id="visit-scheduled">2件</strong></div>
+    <div class="tplus-stat">通知停止・調整中<strong id="visit-attention">0件</strong></div>
+  </div>
+  <div class="tplus-panel"><h2>訪問予定一覧（架空データ）</h2><div class="tplus-scroll"><table class="tplus-visits-table"><thead><tr><th>顧問先</th><th>訪問日時</th><th>担当</th><th>通知状態</th><th>操作</th></tr></thead><tbody id="visits-list"></tbody></table></div><p class="small muted">「編集」を押すと下の入力欄に対象顧問先を表示します。すべて模擬操作です。</p></div>
+  <div class="tplus-panel"><h2>訪問日を登録・変更（模擬）</h2>
+    <div class="tplus-visit-fields"><div class="field"><label for="visit-client">顧問先</label><select id="visit-client"><option>青葉商事（架空）</option><option>さくら企画（架空）</option></select></div>
+    <div class="field"><label for="visit-date">訪問日</label><input id="visit-date" type="date" value="2026-10-20"/></div>
+    <div class="field"><label for="visit-time">訪問時刻（30分単位）</label><select id="visit-time"></select></div>
+    <div class="field"><label for="visit-staff">担当者</label><select id="visit-staff"><option>佐藤</option><option>鈴木</option></select></div></div>
+    <div class="tplus-row"><button class="btn btn-primary" data-action="save-visit" type="button">訪問予定を模擬登録</button><button class="btn btn-secondary" data-action="preview-visit" type="button">前日通知の文面を確認</button><button class="btn btn-secondary" data-action="toggle-visit-reminder" type="button" id="visit-toggle">通知を停止</button><button class="btn btn-secondary" data-action="cancel-visit" type="button">訪問を取消（模擬）</button></div>
+    <div class="tplus-notice" id="visit-feedback" role="status" aria-live="polite">変更はこの画面の架空データだけに反映され、LINEには送信しません。</div>
+  </div>
+</section><section data-admin-panel="notes" hidden=""><div class="admin-page-head"><div><p class="eyebrow">Shared Notes / Album</p><h1>担当者・共有ノート・アルバム</h1><p class="muted">所内専用と顧問先公開を明確に区別します。</p></div></div><div class="tplus-panel"><h2 id="memo-client-title">青葉商事（架空）｜担当者：佐藤・副担当：鈴木</h2><div class="tplus-row"><label for="memo-client">顧問先</label><select id="memo-client"><option>青葉商事（架空）</option><option>さくら企画（架空）</option></select></div><div class="tplus-row"><label for="memo-scope">公開範囲</label><select id="memo-scope"><option value="internal">所内専用（顧問先には非公開）</option><option value="shared">顧問先と共有</option></select></div><div class="tplus-row"><textarea id="memo-text" placeholder="メモを入力（架空データのみ）"></textarea></div><button class="btn btn-primary" data-action="add-note" type="button">メモを模擬登録</button><div id="memo-office-list"></div></div><div class="tplus-panel" style="margin-top:15px"><h2>共有アルバム・所内アルバム（デモ）</h2><p>写真の代わりに架空のサンプルカードを表示します。実ファイルは扱いません。</p><div id="memo-album-grid" class="tplus-album-grid"></div><h3>アルバムカードの模擬追加</h3><div class="tplus-row"><label for="album-label">カード名</label><input id="album-label" type="text" maxlength="80" placeholder="例：今月の打合せ資料（架空のみ）"/><label for="album-scope">公開範囲</label><select id="album-scope"><option value="internal">🔒 所内専用</option><option value="shared">顧問先と共有</option></select><button class="btn btn-secondary" data-action="add-album" type="button">カードを模擬追加</button></div><p class="small muted">画像・ファイルはアップロードしません。公開範囲と一覧の操作確認用です。</p></div></section><section data-admin-panel="reminders" hidden=""><div class="admin-page-head"><div><p class="eyebrow">Document Reminders</p><h1>資料依頼・定期自動通知</h1><p class="muted">顧問先ごとの資料提出期限と依頼周期を確認できます。</p></div></div><div class="tplus-panel"><h2>依頼設定（模擬）</h2><div class="tplus-row"><label for="doc-client">顧問先</label><select id="doc-client"><option>青葉商事（架空）</option><option>さくら企画（架空）</option></select><label for="doc-cycle">依頼周期</label><select id="doc-cycle"><option value="毎月">毎月</option><option value="3か月ごと">3か月ごと</option></select></div><div class="tplus-row"><label for="doc-due">提出期限</label><input id="doc-due" type="date" value="2026-10-25"/><label><input checked="" id="doc-push" type="checkbox"/> 定期案内（模擬）</label></div><div class="tplus-row"><button class="btn btn-primary" data-action="save-cycle" type="button">模擬保存</button><button class="btn btn-secondary" data-action="preview-cycle" type="button">通知文面を確認</button></div><div class="tplus-notice" id="doc-feedback">通知を実送信せず、送信予定を表示します。</div><h3>通知の模擬確認履歴（実送信0件）</h3><div id="doc-preview-log" aria-live="polite"></div></div><div class="tplus-panel" style="margin-top:15px"><h2>資料回収一覧（顧問先別）</h2><p class="small muted">提出状況は「模擬受領／未提出に戻す」で切り替えられます。LINE送信・実資料保存は行いません。</p><div class="tplus-scroll"><table class="tplus-visits-table" aria-label="資料回収一覧"><thead><tr><th>必要資料</th><th>期限</th><th>状態</th><th>模擬操作</th></tr></thead><tbody id="doc-items-list"></tbody></table></div><div id="doc-stats" class="tplus-notice" role="status" aria-live="polite"></div></div></section><section data-admin-panel="liff" hidden=""><div class="admin-page-head"><div><p class="eyebrow">Client LIFF Mock</p><h1>顧問先LIFF画面プレビュー</h1><p class="muted">顧問先に公開する画面だけを表示します。所内専用メモは表示しません。</p></div></div><div class="tplus-row"><label for="liff-client">表示する顧問先（デモ切替）</label><select id="liff-client"><option>青葉商事（架空）</option><option>さくら企画（架空）</option></select></div><div class="tplus-phone"><h2 style="font-size:20px">DPRO TAX 顧問先メニュー</h2><p id="liff-client-label">青葉商事（架空）／担当：佐藤</p><div class="tplus-liff-menu"><button data-liff-tab="visit">次回訪問</button><button data-liff-tab="docs">必要資料</button><button data-liff-tab="upload">資料提出</button><button data-liff-tab="staff">担当者</button><button data-liff-tab="contact">相談・連絡</button><button data-liff-tab="notes">共有ノート</button></div><div class="tplus-content" id="liff-content"></div><div class="tplus-notice">LINE公式とは未連携の画面デモです。</div></div></section></div>
+</main>
+</div>
+
+
+
+
+
+
+
+
+
+<div aria-live="polite" class="toast-stack" id="toast-stack"></div>
+<script>(()=>{'use strict';
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const OFFICE_NAMES=['青葉商事（架空）','さくら企画（架空）'];
+const store={
+ '青葉商事（架空）':{visit:'2026-10-20T10:00',reminder:'scheduled',staff:'佐藤',assistant:'鈴木',cycle:'毎月',due:'2026-10-25',push:true,documents:[{title:'請求書・領収書',status:'missing'},{title:'通帳コピー',status:'submitted'}],notes:[{scope:'shared',text:'10月の月次資料をご準備ください。',by:'佐藤'},{scope:'internal',text:'所内確認：次回訪問前に処理状況を確認する。',by:'鈴木'}],albums:[{scope:'shared',label:'10月の訪問資料',kind:'📄'},{scope:'internal',label:'所内打ち合わせ記録',kind:'🗂️'}]},
+ 'さくら企画（架空）':{visit:'2026-10-23T13:30',reminder:'scheduled',staff:'鈴木',assistant:'佐藤',cycle:'3か月ごと',due:'2026-10-31',push:false,documents:[{title:'支払明細',status:'missing'},{title:'取引明細一覧',status:'missing'}],notes:[{scope:'shared',text:'四半期資料を確認します。',by:'鈴木'},{scope:'internal',text:'所内専用：契約更新時期を確認する。',by:'佐藤'}],albums:[{scope:'shared',label:'四半期共有資料',kind:'📁'},{scope:'internal',label:'所内確認画像',kind:'🖼️'}]}
+};
+let liffTab='visit';const previews=[];
+const get=(name)=>store[name]||store[OFFICE_NAMES[0]];
+const selected=(id)=>$(id)?.value||OFFICE_NAMES[0];
+const fmt=local=>local?local.slice(0,10).replace(/-/g,'/')+' '+local.slice(11,16):'未設定';
+const prevDate=(local)=>{if(!local)return '';const d=new Date(local.slice(0,10)+'T12:00:00');d.setDate(d.getDate()-1);return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('/');};
+const localNow=()=>{const d=new Date();return [d.getFullYear(),'-',String(d.getMonth()+1).padStart(2,'0'),'-',String(d.getDate()).padStart(2,'0'),'T',String(d.getHours()).padStart(2,'0'),':',String(d.getMinutes()).padStart(2,'0')].join('');};
+function notify(msg){const el=$('owner-alert');if(el)el.innerHTML='<div class="tplus-notice" role="status">'+esc(msg)+'</div>';}
+function renderAlbum(name,sharedOnly){return get(name).albums.filter(a=>!sharedOnly||a.scope==='shared').map(a=>'<div class="tplus-album-card"><span aria-hidden="true" class="tplus-album-icon">'+esc(a.kind)+'</span><span><strong>'+esc(a.label)+'</strong><small>'+esc(a.scope==='shared'?'顧問先と共有':'🔒 所内専用・顧問先には表示しません')+'</small></span></div>').join('')||'<p>アルバムはまだありません。</p>';}
+function renderNotes(){const name=selected('memo-client'),c=get(name);$('memo-client-title').textContent=name+'｜主担当：'+c.staff+'・副担当：'+c.assistant;$('memo-office-list').innerHTML=c.notes.map(n=>'<div class="tplus-item"><strong>'+esc(n.scope==='internal'?'🔒 所内専用':'顧問先と共有')+'</strong>｜'+esc(n.by)+'<div>'+esc(n.text)+'</div></div>').join('');$('memo-album-grid').innerHTML=renderAlbum(name,false);if(liffTab==='notes')renderLiff();}
+function renderLiff(){const name=selected('liff-client'),c=get(name);$('liff-client-label').textContent=name+'／主担当：'+c.staff;const contents={
+ visit:'<h3>次回訪問日</h3><p><strong>'+esc(c.reminder==='canceled'?'調整中（訪問予定なし）':fmt(c.visit))+'</strong></p><p>担当：'+esc(c.staff)+'</p><p>前日通知：'+esc(c.reminder==='canceled'?'なし（取消済み）':c.reminder==='off'?'停止中':prevDate(c.visit)+' 10:00送信予定（模擬）')+'</p>',
+ docs:'<h3>必要資料・提出期限</h3><p>提出期限：'+esc(c.due)+'</p><div>'+c.documents.map(d=>'<div class="tplus-item">'+esc(d.title)+'：'+esc(d.status==='submitted'?'提出済み':'未提出')+'</div>').join('')+'</div><p>案内周期：'+esc(c.cycle)+'</p><p>定期案内：'+esc(!c.push?'OFF':c.documents.every(d=>d.status==='submitted')?'提出済みにつき催促なし':'未提出分のみ予定（模擬）')+'</p>',
+ upload:'<h3>資料提出</h3><p>資料のアップロードはできません（隔離デモ）。</p>',
+ staff:'<h3>担当者のご案内</h3><p>主担当：'+esc(c.staff)+'</p><p>副担当：'+esc(c.assistant)+'</p>',
+ contact:'<h3>相談・連絡</h3><p>送信は行いません（隔離デモ）。</p>',
+ notes:'<h3>共有ノート・アルバム</h3>'+c.notes.filter(n=>n.scope==='shared').map(n=>'<p class="tplus-item">'+esc(n.text)+'</p>').join('')+'<div class="tplus-album-grid">'+renderAlbum(name,true)+'</div>'
+ };$('liff-content').innerHTML=contents[liffTab]||'';document.querySelectorAll('[data-liff-tab]').forEach(b=>{const active=b.dataset.liffTab===liffTab;b.setAttribute('aria-pressed',active?'true':'false');b.classList.toggle('active',active);});}
+function visitStatus(c){return c.reminder==='canceled'?'訪問取消':c.reminder==='off'?'通知停止':'前日通知予定';}
+function renderVisitList(){
+ let total=0,scheduled=0,attention=0;
+ $('visits-list').innerHTML=OFFICE_NAMES.map((name,i)=>{
+  const c=get(name),active=c.reminder!=='canceled';if(active)total++;if(c.reminder==='scheduled')scheduled++;else attention++;
+  return '<tr><td><strong>'+esc(name)+'</strong></td><td>'+esc(active?fmt(c.visit):'調整中')+'</td><td>'+esc(c.staff)+'</td><td>'+esc(visitStatus(c))+'</td><td><button class="btn btn-secondary btn-sm" type="button" data-edit-visit="'+i+'">編集</button></td></tr>';
+ }).join('');
+ $('visit-total').textContent=total+'件';$('visit-scheduled').textContent=scheduled+'件';$('visit-attention').textContent=attention+'件';
+ $('dashboard-contact-work').innerHTML=OFFICE_NAMES.filter(n=>get(n).reminder!=='canceled').map(n=>'<div class="tplus-item">'+esc(fmt(get(n).visit))+' '+esc(n)+'｜主担当：'+esc(get(n).staff)+'</div>').join('')||'<div class="tplus-item">今後の訪問予定はありません。</div>';
+ $('dashboard-visit-highlight').textContent=OFFICE_NAMES.filter(n=>get(n).reminder!=='canceled').map(n=>fmt(get(n).visit)+'｜'+n+'／担当 '+get(n).staff).join('、 ')||'訪問予定はありません';
+ $('dashboard-tasks').innerHTML=OFFICE_NAMES.filter(n=>get(n).reminder==='scheduled').map(n=>'<div class="tplus-item">'+esc(prevDate(get(n).visit))+' 10:00｜'+esc(n)+'へ前日LINE案内予定（模擬）</div>').join('')+'<div class="tplus-item">10/25｜月次資料の回収期限（模擬）</div>';
+}
+function syncVisit(){const c=get(selected('visit-client'));$('visit-date').value=c.visit?.slice(0,10)||'';$('visit-time').value=c.visit?.slice(11,16)||'10:00';$('visit-staff').value=c.staff;$('visit-toggle').textContent=c.reminder==='off'?'通知を再開':'通知を停止';$('visit-feedback').textContent='選択中：'+selected('visit-client')+'｜'+visitStatus(c)+'（デモデータ）';}
+
+function renderDocuments(){
+ const name=selected('doc-client'),c=get(name),docs=c.documents||[],missing=docs.filter(d=>d.status==='missing').length;
+ $('doc-items-list').innerHTML=docs.map((d,i)=>'<tr><td><strong>'+esc(d.title)+'</strong></td><td>'+esc(c.due)+'</td><td>'+esc(d.status==='submitted'?'提出済み':'未提出')+'</td><td><button class="btn btn-secondary btn-sm" type="button" data-toggle-doc="'+i+'">'+esc(d.status==='submitted'?'未提出に戻す':'模擬受領')+'</button></td></tr>').join('');
+ $('doc-stats').textContent=name+'｜'+docs.length+'点のうち未提出 '+missing+'点｜'+(!c.push?'案内OFF':missing===0?'すべて提出済み：催促を停止':'未提出の資料のみ案内予定（模擬）');
+ if(selected('liff-client')===name&&liffTab==='docs')renderLiff();
+}
+function syncDoc(){const c=get(selected('doc-client'));$('doc-cycle').value=c.cycle;$('doc-due').value=c.due;$('doc-push').checked=c.push;$('doc-feedback').textContent='選択中：'+selected('doc-client')+'（通知の実送信なし）';renderDocuments();}
+function logPreview(msg){const key=msg;if(!previews.includes(key))previews.unshift(key);const box=$('doc-preview-log');box.innerHTML=previews.slice(0,6).map(n=>'<div class="tplus-item">'+esc(n)+'</div>').join('');}
+function show(key){const title=document.querySelector('[data-admin-view="'+key+'"]')?.textContent.trim()||'ダッシュボード';document.querySelectorAll('[data-admin-panel]').forEach(el=>el.hidden=el.getAttribute('data-admin-panel')!==key);document.querySelectorAll('[data-admin-view]').forEach(el=>{const active=el.getAttribute('data-admin-view')===key;el.classList.toggle('active',active);el.setAttribute('aria-current',active?'page':'false')});$('admin-view-title').textContent=title;$('owner-alert').innerHTML='';if(key==='liff')renderLiff();if(key==='notes')renderNotes();document.getElementById('admin-sidebar')?.classList.remove('open');}
+document.addEventListener('change',ev=>{const id=ev.target?.id;if(id==='visit-client')syncVisit();if(id==='doc-client')syncDoc();if(id==='memo-client')renderNotes();if(id==='liff-client')renderLiff();});
+document.addEventListener('click',ev=>{const docBtn=ev.target.closest('[data-toggle-doc]');if(docBtn){const name=selected('doc-client'),c=get(name),item=c.documents[Number(docBtn.dataset.toggleDoc)];if(item){item.status=item.status==='submitted'?'missing':'submitted';renderDocuments();if(selected('liff-client')===name)renderLiff();}return;}const edit=ev.target.closest('[data-edit-visit]');if(edit){$('visit-client').value=OFFICE_NAMES[Number(edit.dataset.editVisit)];syncVisit();show('visits');return;}const v=ev.target.closest('[data-admin-view],[data-go-view]');if(v){show(v.dataset.adminView||v.dataset.goView);return;}const tab=ev.target.closest('[data-liff-tab]');if(tab){liffTab=tab.dataset.liffTab;renderLiff();return;}const action=ev.target.closest('[data-action]')?.dataset.action;if(!action)return;
+if(action==='save-visit'){
+ const date=$('visit-date').value,time=$('visit-time').value,name=selected('visit-client'),dt=date+'T'+time;
+ if(!/^20[0-9]{2}-[0-9]{2}-[0-9]{2}T([01][0-9]|2[0-3]):(00|30)$/.test(dt)||new Date(date+'T12:00').toString()==='Invalid Date'){notify('訪問日時を正しく入力してください');return;}
+ if(dt<=localNow()){notify('過去日時の訪問は登録できません。未来の日時を選択してください。');return;}
+ const c=get(name);c.visit=dt;c.staff=$('visit-staff').value;c.reminder='scheduled';renderVisitList();syncVisit();
+ $('visit-feedback').textContent='模擬登録：'+name+'｜'+fmt(dt)+'　担当 '+c.staff+'｜前日通知 '+prevDate(dt)+' 10:00に再設定（LINE送信なし）';if(selected('liff-client')===name)renderLiff();
+}
+if(action==='preview-visit'){const name=selected('visit-client'),c=get(name);$('visit-feedback').textContent=c.reminder==='canceled'?'【訪問取消】通知予定はありません。':c.reminder==='off'?'【通知停止中】送信しません。':'【前日通知プレビュー／模擬】'+name+'様／送信予定 '+prevDate(c.visit)+' 10:00／訪問 '+fmt(c.visit)+'・担当 '+c.staff+'（LINE送信なし）';}
+if(action==='toggle-visit-reminder'){const name=selected('visit-client'),c=get(name);if(c.reminder==='canceled'){notify('取消済みの訪問です。訪問日時を再登録してください。');return;}c.reminder=c.reminder==='off'?'scheduled':'off';renderVisitList();syncVisit();if(selected('liff-client')===name)renderLiff();}
+if(action==='cancel-visit'){const name=selected('visit-client'),c=get(name);c.reminder='canceled';renderVisitList();syncVisit();$('visit-feedback').textContent='訪問を模擬取消：'+name+'｜前日通知も取消しました（DB保存・LINE送信なし）';if(selected('liff-client')===name)renderLiff();}
+if(action==='save-cycle'){const name=selected('doc-client'),c=get(name),due=$('doc-due').value;if(!due){notify('資料の提出期限を指定してください');return;}c.cycle=$('doc-cycle').value;c.due=due;c.push=$('doc-push').checked;$('doc-feedback').textContent='模擬保存：'+name+'｜'+c.cycle+'／提出期限 '+c.due+'／通知 '+(c.push?'ON':'OFF')+'（DB保存なし）';renderDocuments();if(selected('liff-client')===name)renderLiff();}
+if(action==='preview-cycle'){const name=selected('doc-client'),c=get(name),pending=c.documents.filter(d=>d.status==='missing'),msg=!c.push?'【通知停止】'+name+'様の自動案内はOFF（LINE送信なし）':pending.length===0?'【提出済み】'+name+'様は必要資料がすべて提出済みです。催促なし（LINE送信なし）':'【定期資料依頼プレビュー／LINE送信なし】'+name+'様／'+c.cycle+'・提出期限 '+c.due+'／未提出：'+pending.map(d=>d.title).join('、');$('doc-feedback').textContent=msg;logPreview(msg);}
+if(action==='add-album'){const label=$('album-label').value.trim(),name=selected('memo-client');if(!label){notify('アルバム名を入力してください。');return;}if(label.length>80){notify('アルバム名は80文字以内にしてください。');return;}get(name).albums.push({scope:$('album-scope').value,label,kind:'📁'});$('album-label').value='';renderNotes();if(selected('liff-client')===name&&liffTab==='notes')renderLiff();notify(name+'にアルバムカードを模擬追加しました（画像ファイルなし）。');}
+if(action==='add-note'){const t=$('memo-text').value.trim();if(!t){notify('メモを入力してください');return;}if(t.length>400){notify('メモは400文字以内にしてください');return;}const name=selected('memo-client');get(name).notes.push({scope:$('memo-scope').value,text:t,by:'デモ担当'});$('memo-text').value='';renderNotes();if(selected('liff-client')===name&&liffTab==='notes')renderLiff();notify(name+'に模擬登録しました。公開範囲を反映しています。');}
+});
+$('sidebar-toggle')?.addEventListener('click',()=>document.getElementById('admin-sidebar')?.classList.toggle('open'));
+$('owner-logout')?.addEventListener('click',()=>notify('このデモには認証・ログアウト処理はありません。'));
+document.querySelectorAll('[data-refresh-admin]').forEach(b=>b.addEventListener('click',()=>notify('架空データを表示中です。外部へ再読込しません。')));
+$('visit-time').innerHTML=Array.from({length:48},(_,i)=>{const hh=String(Math.floor(i/2)).padStart(2,'0'),mm=i%2?'30':'00',t=hh+':'+mm;return '<option value="'+t+'">'+t+'</option>'}).join('');syncVisit();renderVisitList();syncDoc();renderNotes();show('dashboard');
+})();</script></body></html>

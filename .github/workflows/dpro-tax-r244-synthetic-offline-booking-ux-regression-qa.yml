@@ -1,0 +1,326 @@
+name: DPRO TAX R244 Offline Chromium Booking Reselection and Mobile UX QA
+
+on:
+  push:
+    branches: ['qa/r225-synthetic-pg17-backup-restore-20261014']
+    paths: ['.github/workflows/dpro-tax-r244-synthetic-offline-booking-ux-regression-qa.yml']
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches: [main]
+    paths: ['.github/workflows/dpro-tax-r244-synthetic-offline-booking-ux-regression-qa.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  r244-offline-browser-only:
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/qa/r225-synthetic-pg17-backup-restore-20261014') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Read actual product files without any GitHub write credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Install isolated headless Chromium test runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv .r244-browser-venv
+          .r244-browser-venv/bin/python -m pip install --disable-pip-version-check playwright==1.56.0
+          .r244-browser-venv/bin/python -m playwright install --with-deps chromium
+          echo 'PASS: isolated disposable Playwright Chromium ready; product source is untouched'
+
+      - name: Start localhost-only static server (no production API proxy)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s index.html && test -s owner.html && test -s member.html
+          test -s owner-ipad.html && test -s system-check.html
+          python3 -m http.server 8765 --bind 127.0.0.1 > r244-local-http.log 2>&1 &
+          echo $! > r244-local-http.pid
+          for n in $(seq 1 30); do
+            if curl --fail --silent --show-error --noproxy '*' http://127.0.0.1:8765/index.html -o /dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent --show-error --noproxy '*' http://127.0.0.1:8765/index.html -o /dev/null
+          echo 'PASS: only localhost static demo source served; external host calls blocked inside browser'
+
+      - name: Render real desktop and mobile pages and exercise synthetic-only controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          .r244-browser-venv/bin/python - <<'PY_R244_BROWSER'
+          from pathlib import Path
+          from urllib.parse import urlsplit, parse_qs
+          import json
+          from playwright.sync_api import sync_playwright
+
+          ROOT = 'http://127.0.0.1:8765'
+          API_HOST = 'dpro-tax-accounting-line-api.dpromstk2000.workers.dev'
+          OUT = Path('r244-browser-evidence')
+          OUT.mkdir(exist_ok=True)
+          SCREENS = ['index.html','owner.html','member.html','owner-ipad.html','system-check.html','guide-center.html','demo-guide.html']
+          report={'suite':'R244 OFFLINE ACTUAL CHROMIUM synthetic UI','screens':{},'interactions':[],
+                  'blocked_requests':0,'synthetic_get_fixtures':0,'attempted_mutations':0,
+                  'real_api_responses':0,'production_deploy':False,'commercial_release':'NO_GO/HOLD'}
+
+          with sync_playwright() as pw:
+              browser=pw.chromium.launch(headless=True,args=['--no-sandbox'])
+              for preset,width,height in [('desktop',1280,800),('mobile',390,844)]:
+                  ctx=browser.new_context(viewport={'width':width,'height':height},
+                      device_scale_factor=1,is_mobile=(preset=='mobile'),has_touch=(preset=='mobile'),
+                      reduced_motion='reduce',service_workers='block',java_script_enabled=True)
+                  def safe_route(route):
+                      u=urlsplit(route.request.url)
+                      if (u.scheme=='http' and u.hostname=='127.0.0.1' and u.port==8765):
+                          return route.continue_()
+                      if u.hostname==API_HOST and route.request.method=='GET' and u.path=='/api/public/office':
+                          report['synthetic_get_fixtures']+=1
+                          return route.fulfill(status=200,content_type='application/json',
+                              headers={'Access-Control-Allow-Origin':'*'},body=json.dumps({
+                              'ok':True,'office':{'security_notice':'架空デモ：機密情報は送らないでください','booking_open_days':90},
+                              'services':[{'id':'r244-fake-service','service_name':'架空の税務相談',
+                                           'duration_minutes':30,'channel_options':['in_person','online','phone']}]
+                          },ensure_ascii=False))
+                      if u.hostname==API_HOST and route.request.method=='GET' and u.path=='/api/public/slots':
+                          report['synthetic_get_fixtures']+=1
+                          d=parse_qs(u.query).get('date',['2030-01-01'])[0]
+                          return route.fulfill(status=200,content_type='application/json',
+                              headers={'Access-Control-Allow-Origin':'*'},body=json.dumps({
+                              'ok':True,'slots':[{'start_at':f'{d}T10:00:00+09:00',
+                                      'local_time':'10:00','available':True}]
+                          }))
+                      if route.request.method not in ('GET','HEAD','OPTIONS'):
+                          report['attempted_mutations']+=1
+                      report['blocked_requests']+=1
+                      return route.abort('blockedbyclient')
+
+                  ctx.route('**/*',safe_route)
+                  for path in SCREENS:
+                      page=ctx.new_page()
+                      res=page.goto(f'{ROOT}/{path}',wait_until='domcontentloaded',timeout=15000)
+                      assert res and res.status==200,(preset,path,'local HTTP status')
+                      page.wait_for_timeout(220)
+                      title=page.title()
+                      assert title and len(title.strip())>2,(preset,path,'missing title')
+                      assert page.locator('html').get_attribute('lang')=='ja',(preset,path,'lang')
+                      assert page.locator('body').is_visible(),(preset,path,'body invisible')
+                      geometry=page.evaluate("""() => ({width:innerWidth, documentWidth:document.documentElement.scrollWidth,
+                          bodyWidth:document.body.scrollWidth, height:innerHeight})""")
+                      over=max(geometry['documentWidth'],geometry['bodyWidth'])-geometry['width']
+                      # Record all overflows; gross breakage fails, small ones remain flagged for followup.
+                      assert over<=64,(preset,path,'severe horizontal overflow',over)
+                      fname=f'{preset}-{path.replace(".html", "")}.png'
+                      page.screenshot(path=str(OUT/fname),full_page=False,animations='disabled')
+                      report['screens'][f'{preset}/{path}']={
+                          'title':title,'horizontal_overflow_px':over,'screenshot':fname,
+                          'visible_buttons':page.get_by_role('button').count()}
+                      if path=='index.html':
+                          button=page.locator('[data-open-modal="register-modal"]')
+                          assert button.count()==1,(preset,'register trigger missing')
+                          button.click()
+                          assert page.locator('#register-modal').is_visible(),(preset,'register modal did not open')
+                          page.keyboard.press('Escape')
+                          assert not page.locator('#register-modal').is_visible(),(preset,'Escape did not close registration')
+                          report['interactions'].append(f'{preset}: registration open + Escape close')
+                          page.locator('#booking-service').select_option('r244-fake-service')
+                          minday=page.locator('#booking-date').get_attribute('min')
+                          assert minday and len(minday)==10,(preset,'booking date min missing')
+                          page.locator('#booking-date').fill(minday)
+                          page.locator('#booking-date').dispatch_event('change')
+                          page.locator('#slot-grid [data-slot]').first.wait_for(state='visible',timeout=7500)
+                          page.locator('#slot-grid [data-slot]').first.click()
+                          assert page.locator('#booking-start').input_value().startswith(minday), (preset,'slot selection not retained')
+                          report['interactions'].append(f'{preset}: fake service/date/slot selected, NO submit')
+                      if path=='owner.html':
+                          page.locator('#owner-admin-code').fill('1234')
+                          page.locator('#owner-code-clear').click()
+                          assert page.locator('#owner-admin-code').input_value()=='',(preset,'owner clear broken')
+                          assert page.locator('[data-admin-view]').count()==9,(preset,'owner nav count')
+                          report['interactions'].append(f'{preset}: owner code clear + nine menu anchors')
+                      if path=='owner-ipad.html':
+                          page.locator('#ipad-admin-code').fill('1234')
+                          page.locator('#ipad-code-clear').click()
+                          assert page.locator('#ipad-admin-code').input_value()=='',(preset,'iPad clear broken')
+                          report['interactions'].append(f'{preset}: iPad code clear')
+                      if path=='system-check.html':
+                          page.locator('#check-admin-code').fill('1234')
+                          page.locator('#check-code-clear').click()
+                          assert page.locator('#check-admin-code').input_value()=='',(preset,'system check clear broken')
+                          report['interactions'].append(f'{preset}: system check code clear')
+                      page.close()
+                  ctx.close()
+              browser.close()
+
+          assert report['synthetic_get_fixtures']>=4, 'offline synthetic fixtures never used'
+          assert report['attempted_mutations']==0, 'UI unexpectedly tried a mutating request during tests'
+          assert report['real_api_responses']==0
+          (OUT/'qa-results.json').write_text(json.dumps(report,ensure_ascii=False,indent=2,sort_keys=True),encoding='utf8')
+          print('R244_BROWSER_QA='+json.dumps(report,ensure_ascii=False,sort_keys=True))
+          print('PASS: 7 actual pages x desktop/mobile rendered; fake booking + modal/clear actions; no real API requests')
+          PY_R244_BROWSER
+
+      - name: Check screenshot and result inventory without exposing real data
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY_R244_INV'
+          from pathlib import Path
+          import json
+          d=Path('r244-browser-evidence')
+          report=json.loads((d/'qa-results.json').read_text(encoding='utf8'))
+          shots=list(d.glob('*.png'))
+          assert len(shots)==14,('expected 7 desktop + 7 mobile',len(shots))
+          assert len(report['screens'])==14
+          assert len(report['interactions'])==10
+          assert report['attempted_mutations']==0
+          assert report['real_api_responses']==0
+          assert all(s.stat().st_size>500 for s in shots)
+          print('PASS: 14 actual Chromium viewport screenshots, 10 synthetic-only interactions; no data mutations')
+          PY_R244_INV
+
+      - name: Exercise fake booking reselection disabled slots and keyboard-safe registration on desktop and mobile
+        shell: bash
+        run: |
+          set -euo pipefail
+          .r244-browser-venv/bin/python - <<'PY_R244_MORE'
+          from pathlib import Path
+          from datetime import date,timedelta
+          from urllib.parse import urlsplit,parse_qs
+          from playwright.sync_api import sync_playwright
+          import json
+          ROOT='http://127.0.0.1:8765'
+          API_HOST='dpro-tax-accounting-line-api.dpromstk2000.workers.dev'
+          EVIDENCE=Path('r244-browser-evidence')
+          EVIDENCE.mkdir(exist_ok=True)
+          record={'suite':'R244 deterministic offline booking UX','viewport_checks':{},'external_network_allowed':0,
+                  'mutation_attempts':0,'real_api_responses':0,'no_booking_submit':True}
+          with sync_playwright() as p:
+            browser=p.chromium.launch(headless=True,args=['--no-sandbox'])
+            for preset,w,h in [('desktop',1280,800),('mobile',390,844)]:
+              ctx=browser.new_context(viewport={'width':w,'height':h},device_scale_factor=1,
+                                      is_mobile=preset=='mobile',has_touch=preset=='mobile',
+                                      reduced_motion='reduce',service_workers='block')
+              events={'mock_GET':0,'blocked':0,'mutations':0}
+              def offline(route):
+                req=route.request
+                u=urlsplit(req.url)
+                if u.scheme=='http' and u.hostname=='127.0.0.1' and u.port==8765:
+                  return route.continue_()
+                if req.method=='GET' and u.hostname==API_HOST and u.path=='/api/public/office':
+                  events['mock_GET']+=1
+                  return route.fulfill(status=200,content_type='application/json',
+                    headers={'Access-Control-Allow-Origin':'*'},body=json.dumps({'ok':True,
+                      'office':{'security_notice':'架空デモ。機密情報は入力しないでください。','booking_open_days':90},
+                      'services':[{'id':'r244-fake-onsite','service_name':'架空：対面相談',
+                         'duration_minutes':30,'channel_options':['in_person','online']},
+                         {'id':'r244-fake-online','service_name':'架空：オンライン相談',
+                         'duration_minutes':30,'channel_options':['online']}]},ensure_ascii=False))
+                if req.method=='GET' and u.hostname==API_HOST and u.path=='/api/public/slots':
+                  events['mock_GET']+=1
+                  d=parse_qs(u.query).get('date',['2030-01-01'])[0]
+                  return route.fulfill(status=200,content_type='application/json',
+                    headers={'Access-Control-Allow-Origin':'*'},body=json.dumps({'ok':True,'slots':[
+                     {'start_at':f'{d}T10:00:00+09:00','local_time':'10:00','available':True},
+                     {'start_at':f'{d}T10:30:00+09:00','local_time':'10:30','available':False}]}))
+                if req.method not in ('GET','HEAD','OPTIONS'):
+                  events['mutations']+=1
+                events['blocked']+=1
+                return route.abort('blockedbyclient')
+              ctx.route('**/*',offline)
+              page=ctx.new_page()
+              response=page.goto(ROOT+'/index.html',wait_until='domcontentloaded',timeout=15000)
+              assert response and response.status==200,(preset,'local page unavailable')
+              page.locator('#booking-service option[value="r244-fake-onsite"]').wait_for(state='attached',timeout=10000)
+              assert not page.locator('#booking-form').evaluate('(e)=>e.checkValidity()'),(preset,'empty form should be invalid')
+              open_button=page.locator('[data-open-modal="register-modal"]')
+              open_button.click()
+              modal=page.locator('#register-modal')
+              assert modal.is_visible(),(preset,'registration did not open')
+              page.wait_for_timeout(150)
+              assert page.evaluate('!!document.activeElement?.closest("#register-modal")'),(preset,'focus escaped registration modal')
+              page.screenshot(path=str(EVIDENCE/f'{preset}-registration-open.png'),animations='disabled')
+              page.keyboard.press('Escape')
+              assert not modal.is_visible(),(preset,'Escape failed to close registration')
+              page.locator('#booking-service').select_option('r244-fake-onsite')
+              d0=page.locator('#booking-date').get_attribute('min')
+              assert d0 and len(d0)==10,(preset,'valid earliest selectable date absent')
+              d1=(date.fromisoformat(d0)+timedelta(days=1)).isoformat()
+              page.locator('#booking-date').fill(d0)
+              page.locator('#booking-date').dispatch_event('change')
+              slot=page.locator('#slot-grid [data-slot]')
+              slot.first.wait_for(state='visible',timeout=7500)
+              assert slot.count()==2,(preset,'expected two fake slots')
+              assert slot.nth(1).is_disabled(),(preset,'unavailable fake slot remained enabled')
+              slot.first.click()
+              assert page.locator('#booking-start').input_value().startswith(d0),(preset,'selected slot lost')
+              page.locator('#booking-date').fill(d1)
+              page.locator('#booking-date').dispatch_event('change')
+              assert page.locator('#booking-start').input_value()=='',(preset,'stale selected slot kept after date change')
+              page.locator('#slot-grid [data-slot]').first.wait_for(state='visible',timeout=7500)
+              page.locator('#slot-grid [data-slot]').first.click()
+              assert page.locator('#booking-start').input_value().startswith(d1),(preset,'new day slot not chosen')
+              page.locator('#booking-service').select_option('r244-fake-online')
+              assert page.locator('#booking-start').input_value()=='',(preset,'stale slot remained after service changed')
+              assert page.locator('#appointment-channel').input_value()=='online',(preset,'service-specific channel not selected')
+              assert page.locator('#appointment-channel option[value="in_person"]').evaluate('(e)=>e.hidden'),(preset,'disallowed in-person option not marked hidden')
+              page.locator('#slot-grid [data-slot]').first.wait_for(state='visible',timeout=7500)
+              page.locator('#slot-grid [data-slot]').first.click()
+              assert page.locator('#booking-start').input_value().startswith(d1),(preset,'online service slot not retained')
+              page.locator('#booking').screenshot(path=str(EVIDENCE/f'{preset}-booking-after-reselection.png'),animations='disabled')
+              overflow=page.evaluate('Math.max(document.documentElement.scrollWidth,document.body.scrollWidth)-innerWidth')
+              assert overflow==0,(preset,'horizontal overflow after booking controls',overflow)
+              assert events['mock_GET']>=4,(preset,'fake fixtures not used enough',events)
+              assert events['mutations']==0,(preset,'mutating network request unexpectedly fired')
+              record['mutation_attempts']+=events['mutations']
+              record['viewport_checks'][preset]={'modal_focus':True,'escape_close':True,
+                'disabled_slot':True,'date_change_cleared_slot':True,'service_change_cleared_slot':True,
+                'online_service_channel':'online','horizontal_overflow_px':overflow,
+                'fake_get_requests':events['mock_GET'],'blocked_requests':events['blocked']}
+              page.close();ctx.close()
+            browser.close()
+          assert record['mutation_attempts']==0 and record['real_api_responses']==0
+          (EVIDENCE/'r244-booking-ux-results.json').write_text(json.dumps(record,ensure_ascii=False,indent=2,sort_keys=True),encoding='utf8')
+          print('R244_BOOKING_UX_QA='+json.dumps(record,ensure_ascii=False,sort_keys=True))
+          print('PASS: desktop/mobile fake booking reselection, unavailable slot, modal focus, channel guard, no network mutation')
+          PY_R244_MORE
+
+      - name: Verify offline R244 post-interaction screenshots and all legacy captures
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY_R244_INVENTORY'
+          from pathlib import Path
+          import json
+          d=Path('r244-browser-evidence')
+          r=json.loads((d/'r244-booking-ux-results.json').read_text(encoding='utf8'))
+          shots=list(d.glob('*.png'))
+          assert len(shots)==18,('14 initial screens + 4 after interactions',len(shots))
+          assert len(r['viewport_checks'])==2
+          assert all(not v['horizontal_overflow_px'] for v in r['viewport_checks'].values())
+          assert r['mutation_attempts']==0 and r['real_api_responses']==0
+          assert all(p.stat().st_size>500 for p in shots)
+          print('PASS: 18 offline-only screenshots and two post-selection UI scenarios; no API mutation')
+          PY_R244_INVENTORY
+
+      - name: Preserve synthetic screenshot evidence as an Actions-only artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r244-offline-browser-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: r244-browser-evidence/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Declare product and production safety boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'PASS: R244 browser UI verification is localhost-only with synthetic read-only fixture GETs.'
+          echo 'No real API egress, no booking POST, no LINE dispatch, no Supabase connection, no Worker Deploy.'
+          echo 'This is not a signed LINE/JWT test, accessibility certification, production reservation test, or full UI acceptance.'
+          echo 'R244 adds desktop/mobile interaction screenshots and safe booking reselection guards; actual bookings remain untested.'
+          echo 'NO_GO / HOLD / NO MERGE / NO DEPLOY; keep all seven Workers and unchanged GitHub main.'

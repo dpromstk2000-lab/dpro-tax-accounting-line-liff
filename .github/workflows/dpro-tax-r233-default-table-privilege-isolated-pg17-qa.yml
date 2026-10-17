@@ -1,0 +1,185 @@
+name: DPRO TAX R233 Isolated PG17 Future Table Default Privileges QA
+
+on:
+  push:
+    branches: ['qa/r225-synthetic-pg17-backup-restore-20261014']
+    paths:
+      - '.github/workflows/dpro-tax-r233-default-table-privilege-isolated-pg17-qa.yml'
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches: [main]
+    paths:
+      - '.github/workflows/dpro-tax-r233-default-table-privilege-isolated-pg17-qa.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  r233-disposable-only:
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/qa/r225-synthetic-pg17-backup-restore-20261014') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: r233_fake_local_only
+          POSTGRES_DB: r233_ephemeral_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d r233_ephemeral_only"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: r233_fake_local_only
+      PGDATABASE: r233_ephemeral_only
+      PGCONNECT_TIMEOUT: '5'
+    steps:
+      - name: Prepare fake default grants for two independent creators
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$PGHOST" = '127.0.0.1'
+          test "$PGDATABASE" = 'r233_ephemeral_only'
+          test "$PGUSER" = 'postgres'
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+          psql -qAtX -v ON_ERROR_STOP=1 -c 'SHOW server_version;' | grep -E '^17\.'
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE qa_anon NOLOGIN;
+          CREATE ROLE qa_creator_a NOLOGIN;
+          CREATE ROLE qa_creator_b NOLOGIN;
+          CREATE SCHEMA qa_lab;
+          GRANT USAGE ON SCHEMA qa_lab TO qa_anon;
+          GRANT USAGE, CREATE ON SCHEMA qa_lab TO qa_creator_a,qa_creator_b;
+          ALTER DEFAULT PRIVILEGES FOR ROLE qa_creator_a
+            GRANT SELECT, TRUNCATE ON TABLES TO qa_anon;
+          ALTER DEFAULT PRIVILEGES FOR ROLE qa_creator_b
+            GRANT SELECT, TRUNCATE ON TABLES TO qa_anon;
+          SET ROLE qa_creator_a;
+          CREATE TABLE qa_lab.old_a (id integer PRIMARY KEY, label text);
+          RESET ROLE;
+          SET ROLE qa_creator_b;
+          CREATE TABLE qa_lab.old_b (id integer PRIMARY KEY, label text);
+          RESET ROLE;
+          INSERT INTO qa_lab.old_a VALUES (1,'fake-a');
+          INSERT INTO qa_lab.old_b VALUES (2,'fake-b');
+          DO $check$
+          BEGIN
+            IF NOT has_table_privilege('qa_anon','qa_lab.old_a','SELECT')
+              OR NOT has_table_privilege('qa_anon','qa_lab.old_b','SELECT')
+              OR NOT has_table_privilege('qa_anon','qa_lab.old_a','TRUNCATE') THEN
+              RAISE EXCEPTION 'Expected fake default overgrant not reproduced';
+            END IF;
+          END $check$;
+          SQL
+          n=$(psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE qa_anon; SELECT count(*) FROM qa_lab.old_a;' | tail -n 1)
+          test "$n" = '1'
+          echo 'PASS: two synthetic creators generated legacy anonymously readable tables'
+
+      - name: Prove per-schema revoke cannot override global default grants
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          ALTER DEFAULT PRIVILEGES FOR ROLE qa_creator_a IN SCHEMA qa_lab
+            REVOKE SELECT, TRUNCATE ON TABLES FROM qa_anon;
+          SET ROLE qa_creator_a;
+          CREATE TABLE qa_lab.still_exposed_a (id integer PRIMARY KEY);
+          RESET ROLE;
+          DO $check$
+          BEGIN
+            IF NOT has_table_privilege('qa_anon','qa_lab.still_exposed_a','SELECT')
+              OR NOT has_table_privilege('qa_anon','qa_lab.still_exposed_a','TRUNCATE') THEN
+              RAISE EXCEPTION 'Expected global defaults to remain effective';
+            END IF;
+          END $check$;
+          SQL
+          echo 'PASS: schema-local revoke cannot cancel creator global default overgrant'
+
+      - name: Fix creator A global defaults without altering existing fake tables
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          ALTER DEFAULT PRIVILEGES FOR ROLE qa_creator_a
+            REVOKE SELECT, TRUNCATE ON TABLES FROM qa_anon;
+          SET ROLE qa_creator_a;
+          CREATE TABLE qa_lab.clean_a (id integer PRIMARY KEY);
+          RESET ROLE;
+          DO $check$
+          BEGIN
+            IF has_table_privilege('qa_anon','qa_lab.clean_a','SELECT')
+              OR has_table_privilege('qa_anon','qa_lab.clean_a','TRUNCATE') THEN
+              RAISE EXCEPTION 'Creator A future defaults not closed';
+            END IF;
+            IF NOT has_table_privilege('qa_anon','qa_lab.old_a','SELECT') THEN
+              RAISE EXCEPTION 'Default ACL change unexpectedly edited existing fake table';
+            END IF;
+          END $check$;
+          SET ROLE qa_creator_b;
+          CREATE TABLE qa_lab.still_exposed_b (id integer PRIMARY KEY);
+          RESET ROLE;
+          DO $check$
+          BEGIN
+            IF NOT has_table_privilege('qa_anon','qa_lab.still_exposed_b','TRUNCATE') THEN
+              RAISE EXCEPTION 'Creator B defaults unexpectedly changed';
+            END IF;
+          END $check$;
+          SQL
+          echo 'PASS: global default fix protects new A table, not prior A table or creator B'
+
+      - name: Fix creator B then explicitly revoke legacy grants and distinguish RLS
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          ALTER DEFAULT PRIVILEGES FOR ROLE qa_creator_b
+            REVOKE SELECT, TRUNCATE ON TABLES FROM qa_anon;
+          SET ROLE qa_creator_b;
+          CREATE TABLE qa_lab.clean_b (id integer PRIMARY KEY);
+          RESET ROLE;
+          ALTER TABLE qa_lab.old_a ENABLE ROW LEVEL SECURITY;
+          DO $check$
+          BEGIN
+            IF NOT has_table_privilege('qa_anon','qa_lab.old_a','TRUNCATE') THEN
+              RAISE EXCEPTION 'RLS should not revoke TRUNCATE';
+            END IF;
+            IF has_table_privilege('qa_anon','qa_lab.clean_b','TRUNCATE') THEN
+              RAISE EXCEPTION 'Creator B new table unexpectedly TRUNCATE exposed';
+            END IF;
+          END $check$;
+          SQL
+          n=$(psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE qa_anon; SELECT count(*) FROM qa_lab.old_a;' | tail -n 1)
+          test "$n" = '0'
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          REVOKE SELECT, TRUNCATE ON qa_lab.old_a,qa_lab.old_b,qa_lab.still_exposed_a,qa_lab.still_exposed_b FROM qa_anon;
+          DO $check$
+          BEGIN
+            IF has_table_privilege('qa_anon','qa_lab.old_a','TRUNCATE')
+              OR has_table_privilege('qa_anon','qa_lab.old_b','SELECT')
+              OR has_table_privilege('qa_anon','qa_lab.still_exposed_a','TRUNCATE')
+              OR has_table_privilege('qa_anon','qa_lab.still_exposed_b','TRUNCATE') THEN
+              RAISE EXCEPTION 'Explicit fake legacy revoke was incomplete';
+            END IF;
+          END $check$;
+          SQL
+          echo 'PASS: separate legacy revoke closes permissions; RLS alone did not revoke TRUNCATE'
+
+      - name: Confirm synthetic-only security and immutable production HOLD
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$PGHOST" = '127.0.0.1'
+          test "$PGDATABASE" = 'r233_ephemeral_only'
+          test "$PGUSER" = 'postgres'
+          echo 'PASS: two synthetic creator roles; zero production or real customer data accessed'
+          echo 'NO_GO / HOLD / NO MERGE: no Supabase changes, Worker Deploy, LINE send, or GitHub main commit'

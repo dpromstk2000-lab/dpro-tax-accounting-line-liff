@@ -1,0 +1,177 @@
+name: DPRO TAX R230 Isolated PG17 Function ACL and Search Path QA
+
+on:
+  push:
+    branches: ['qa/r225-synthetic-pg17-backup-restore-20261014']
+    paths:
+      - '.github/workflows/dpro-tax-r230-function-default-acl-search-path-isolated-pg17-qa.yml'
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches: [main]
+    paths:
+      - '.github/workflows/dpro-tax-r230-function-default-acl-search-path-isolated-pg17-qa.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  r230-synthetic-function-acl:
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/qa/r225-synthetic-pg17-backup-restore-20261014') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: r230_synthetic_local_only
+          POSTGRES_DB: r230_disposable_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d r230_disposable_only"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: r230_synthetic_local_only
+      PGDATABASE: r230_disposable_only
+      PGCONNECT_TIMEOUT: '5'
+    steps:
+      - name: Prepare disposable PostgreSQL 17 and fake roles
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+          test "$PGHOST" = '127.0.0.1'
+          test "$PGDATABASE" = 'r230_disposable_only'
+          test "$PGUSER" = 'postgres'
+          psql -AtX -v ON_ERROR_STOP=1 -c 'SHOW server_version;' | grep -E '^17\.'
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE r230_anon NOLOGIN;
+          CREATE ROLE r230_staff NOLOGIN;
+          CREATE SCHEMA r230_private;
+          CREATE SCHEMA r230_attack;
+          CREATE TABLE r230_private.fake_rows(id integer PRIMARY KEY, tenant text NOT NULL);
+          INSERT INTO r230_private.fake_rows VALUES(1,'fake-A'),(2,'fake-B');
+          CREATE FUNCTION r230_private.legacy_fake_count()
+            RETURNS integer LANGUAGE sql SECURITY DEFINER
+            SET search_path=pg_catalog,r230_private,pg_temp
+            AS $$ SELECT count(*)::integer FROM r230_private.fake_rows $$;
+          DO $test$
+          BEGIN
+            IF NOT has_function_privilege('r230_anon','r230_private.legacy_fake_count()','EXECUTE') THEN
+              RAISE EXCEPTION 'Expected PostgreSQL default PUBLIC function EXECUTE';
+            END IF;
+            IF has_schema_privilege('r230_anon','r230_private','USAGE') THEN
+              RAISE EXCEPTION 'Private schema should initially deny anonymous USAGE';
+            END IF;
+          END $test$;
+          SQL
+          echo 'PASS: fake PG17 function default PUBLIC EXECUTE exists but schema USAGE is blocked'
+
+      - name: Prove schema USAGE and function EXECUTE are separate controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          if psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE r230_anon; SELECT r230_private.legacy_fake_count();' >/dev/null 2>&1; then
+            echo 'FAIL: anonymous function unexpectedly callable without schema USAGE'; exit 1
+          fi
+          psql -X -v ON_ERROR_STOP=1 -c 'GRANT USAGE ON SCHEMA r230_private TO r230_anon;'
+          fake_count=$(psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE r230_anon; SELECT r230_private.legacy_fake_count();' | tail -n 1)
+          test "$fake_count" = '2'
+          psql -X -v ON_ERROR_STOP=1 -c 'REVOKE EXECUTE ON FUNCTION r230_private.legacy_fake_count() FROM PUBLIC;'
+          if psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE r230_anon; SELECT r230_private.legacy_fake_count();' >/dev/null 2>&1; then
+            echo 'FAIL: anonymous function callable after revoking PUBLIC EXECUTE'; exit 1
+          fi
+          psql -X -v ON_ERROR_STOP=1 -c 'REVOKE USAGE ON SCHEMA r230_private FROM r230_anon;'
+          echo 'PASS: synthetic schema USAGE plus legacy PUBLIC EXECUTE was required; both controls now closed'
+
+      - name: Change future function default privileges in disposable database
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          ALTER DEFAULT PRIVILEGES FOR ROLE postgres REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+          CREATE FUNCTION r230_private.safe_fake_count()
+            RETURNS integer LANGUAGE sql SECURITY DEFINER
+            SET search_path = pg_catalog, r230_private, pg_temp
+            AS $$ SELECT count(*)::integer FROM r230_private.fake_rows $$;
+          DO $test$
+          BEGIN
+            IF has_function_privilege('r230_anon','r230_private.safe_fake_count()','EXECUTE') THEN
+              RAISE EXCEPTION 'New fake function still inherits unwanted PUBLIC EXECUTE';
+            END IF;
+            IF has_function_privilege('r230_staff','r230_private.safe_fake_count()','EXECUTE') THEN
+              RAISE EXCEPTION 'New fake function executable by staff without explicit grant';
+            END IF;
+          END $test$;
+          GRANT USAGE ON SCHEMA r230_private TO r230_staff;
+          GRANT EXECUTE ON FUNCTION r230_private.safe_fake_count() TO r230_staff;
+          SQL
+          echo 'PASS: synthetic future functions default to restricted EXECUTE; staff explicitly allowed'
+
+      - name: Prove attacker search_path cannot redirect hardened SECURITY DEFINER function
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE FUNCTION r230_attack.safe_fake_count()
+            RETURNS integer LANGUAGE sql AS $$ SELECT -999::integer $$;
+          GRANT USAGE ON SCHEMA r230_attack TO r230_staff;
+          GRANT EXECUTE ON FUNCTION r230_attack.safe_fake_count() TO r230_staff;
+          DO $test$
+          BEGIN
+            IF has_table_privilege('r230_staff','r230_private.fake_rows','SELECT') THEN
+              RAISE EXCEPTION 'Staff must not have direct fake row SELECT';
+            END IF;
+          END $test$;
+          SQL
+          bad=$(psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE r230_staff; SET search_path = r230_attack, public; SELECT safe_fake_count();' | tail -n 1)
+          test "$bad" = '-999'
+          good=$(psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE r230_staff; SET search_path = r230_attack, public; SELECT r230_private.safe_fake_count();' | tail -n 1)
+          test "$good" = '2'
+          echo 'PASS: attacker search_path resolves fake spoof to -999; hardened qualified definer returns two fake rows'
+
+      - name: Verify function revoke and rollback deny unauthorized call
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          REVOKE EXECUTE ON FUNCTION r230_private.safe_fake_count() FROM r230_staff;
+          BEGIN;
+          GRANT EXECUTE ON FUNCTION r230_private.safe_fake_count() TO r230_staff;
+          DO $test$
+          BEGIN
+            IF NOT has_function_privilege('r230_staff','r230_private.safe_fake_count()','EXECUTE') THEN
+              RAISE EXCEPTION 'Synthetic grant missing inside transaction';
+            END IF;
+          END $test$;
+          ROLLBACK;
+          DO $test$
+          BEGIN
+            IF has_function_privilege('r230_staff','r230_private.safe_fake_count()','EXECUTE') THEN
+              RAISE EXCEPTION 'Rolled-back function grant remained visible';
+            END IF;
+          END $test$;
+          SQL
+          if psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE r230_staff; SELECT r230_private.safe_fake_count();' >/dev/null 2>&1; then
+            echo 'FAIL: staff function call succeeded after revoke and rollback'; exit 1
+          fi
+          echo 'PASS: synthetic function EXECUTE revoke and transaction rollback block callable RPC'
+
+      - name: Confirm isolated QA boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$PGHOST" = '127.0.0.1'
+          test "$PGDATABASE" = 'r230_disposable_only'
+          test "$PGUSER" = 'postgres'
+          echo 'PASS: all R230 checks use ephemeral PostgreSQL 17 and synthetic rows'
+          echo 'NO_GO / HOLD / NO MERGE: no production database access, migrations, worker changes, or deploy'

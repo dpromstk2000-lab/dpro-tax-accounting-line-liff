@@ -1,0 +1,170 @@
+name: DPRO TAX R236 Isolated PG17 Permissive vs Restrictive Tenant RLS QA
+
+on:
+  push:
+    branches: ['qa/r225-synthetic-pg17-backup-restore-20261014']
+    paths:
+      - '.github/workflows/dpro-tax-r236-permissive-restrictive-rls-isolated-pg17-qa.yml'
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches: [main]
+    paths:
+      - '.github/workflows/dpro-tax-r236-permissive-restrictive-rls-isolated-pg17-qa.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  r236-fake-tenant-policies:
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/qa/r225-synthetic-pg17-backup-restore-20261014') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: r236_fake_local_only
+          POSTGRES_DB: r236_disposable_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d r236_disposable_only"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: r236_fake_local_only
+      PGDATABASE: r236_disposable_only
+      PGCONNECT_TIMEOUT: '5'
+    steps:
+      - name: Set up fake PG17 tenant rows with an initially narrow permissive SELECT policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$PGHOST" = '127.0.0.1'
+          test "$PGDATABASE" = 'r236_disposable_only'
+          test "$PGUSER" = 'postgres'
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+          psql -qAtX -v ON_ERROR_STOP=1 -c 'SHOW server_version;' | grep -E '^17\.'
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE qa_r236_member NOLOGIN;
+          CREATE ROLE qa_r236_anon NOLOGIN;
+          CREATE SCHEMA qa_r236;
+          GRANT USAGE ON SCHEMA qa_r236 TO qa_r236_member,qa_r236_anon;
+          CREATE TABLE qa_r236.fake_records (
+            id integer PRIMARY KEY,
+            tenant_label text NOT NULL,
+            payload text NOT NULL
+          );
+          INSERT INTO qa_r236.fake_records VALUES
+            (1,'fake-A','A1'),(2,'fake-A','A2'),(3,'fake-B','B1');
+          GRANT SELECT, INSERT, UPDATE, DELETE ON qa_r236.fake_records TO qa_r236_member;
+          ALTER TABLE qa_r236.fake_records ENABLE ROW LEVEL SECURITY;
+          ALTER TABLE qa_r236.fake_records FORCE ROW LEVEL SECURITY;
+          CREATE POLICY qa_r236_narrow_read ON qa_r236.fake_records
+            AS PERMISSIVE FOR SELECT TO qa_r236_member
+            USING (tenant_label = current_setting('qa.r236_tenant',true));
+          SQL
+          a=$(psql -qAtX -v ON_ERROR_STOP=1 -c "BEGIN; SET LOCAL ROLE qa_r236_member; SET LOCAL qa.r236_tenant='fake-A'; SELECT count(*) FROM qa_r236.fake_records; COMMIT;" | grep -E '^[0-9]+$' | tail -n 1)
+          missing=$(psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE qa_r236_member; SELECT count(*) FROM qa_r236.fake_records;' | tail -n 1)
+          test "$a" = 2
+          test "$missing" = 0
+          if psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE qa_r236_anon; SELECT count(*) FROM qa_r236.fake_records;' >/dev/null 2>&1; then
+            echo 'FAIL: synthetic anon SELECT unexpectedly allowed'; exit 1
+          fi
+          echo 'PASS: initial one-permissive policy filters fake-A=2; missing tenant=0; anon denied'
+
+      - name: Reproduce OR-composition exposure from a second permissive policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE POLICY qa_r236_accidental_broad_read ON qa_r236.fake_records
+            AS PERMISSIVE FOR SELECT TO qa_r236_member USING (true);
+          SQL
+          a=$(psql -qAtX -v ON_ERROR_STOP=1 -c "BEGIN; SET LOCAL ROLE qa_r236_member; SET LOCAL qa.r236_tenant='fake-A'; SELECT count(*) FROM qa_r236.fake_records; COMMIT;" | grep -E '^[0-9]+$' | tail -n 1)
+          test "$a" = 3
+          echo 'PASS: two permissive SELECT policies OR together exposed 3 fictional rows to fake-A'
+
+      - name: Apply restrictive ALL tenant fence and prove it ANDs with permissive policies
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE POLICY qa_r236_restrictive_fence ON qa_r236.fake_records
+            AS RESTRICTIVE FOR ALL TO qa_r236_member
+            USING (tenant_label = current_setting('qa.r236_tenant',true))
+            WITH CHECK (tenant_label = current_setting('qa.r236_tenant',true));
+          SQL
+          a=$(psql -qAtX -v ON_ERROR_STOP=1 -c "BEGIN; SET LOCAL ROLE qa_r236_member; SET LOCAL qa.r236_tenant='fake-A'; SELECT count(*) FROM qa_r236.fake_records; COMMIT;" | grep -E '^[0-9]+$' | tail -n 1)
+          b=$(psql -qAtX -v ON_ERROR_STOP=1 -c "BEGIN; SET LOCAL ROLE qa_r236_member; SET LOCAL qa.r236_tenant='fake-B'; SELECT count(*) FROM qa_r236.fake_records; COMMIT;" | grep -E '^[0-9]+$' | tail -n 1)
+          missing=$(psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE qa_r236_member; SELECT count(*) FROM qa_r236.fake_records;' | tail -n 1)
+          test "$a" = 2
+          test "$b" = 1
+          test "$missing" = 0
+          echo 'PASS: restrictive tenant fence ANDs broad permissive policy; fake-A=2 fake-B=1 missing=0'
+
+      - name: Verify permissive mutations cannot override restrictive USING and WITH CHECK
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE POLICY qa_r236_broad_update ON qa_r236.fake_records
+            AS PERMISSIVE FOR UPDATE TO qa_r236_member USING (true) WITH CHECK (true);
+          CREATE POLICY qa_r236_broad_delete ON qa_r236.fake_records
+            AS PERMISSIVE FOR DELETE TO qa_r236_member USING (true);
+          CREATE POLICY qa_r236_broad_insert ON qa_r236.fake_records
+            AS PERMISSIVE FOR INSERT TO qa_r236_member WITH CHECK (true);
+          SQL
+          foreign_update_output=$(psql -qAtX -v ON_ERROR_STOP=1 -c "BEGIN; SET LOCAL ROLE qa_r236_member; SET LOCAL qa.r236_tenant='fake-A'; UPDATE qa_r236.fake_records SET payload='not-allowed' WHERE id=3 RETURNING id; COMMIT;")
+          foreign_update=$(printf '%s\n' "$foreign_update_output" | grep -E '^[0-9]+$' || true)
+          foreign_delete_output=$(psql -qAtX -v ON_ERROR_STOP=1 -c "BEGIN; SET LOCAL ROLE qa_r236_member; SET LOCAL qa.r236_tenant='fake-A'; DELETE FROM qa_r236.fake_records WHERE id=3 RETURNING id; COMMIT;")
+          foreign_delete=$(printf '%s\n' "$foreign_delete_output" | grep -E '^[0-9]+$' || true)
+          test -z "$foreign_update"
+          test -z "$foreign_delete"
+          if psql -qAtX -v ON_ERROR_STOP=1 -c "BEGIN; SET LOCAL ROLE qa_r236_member; SET LOCAL qa.r236_tenant='fake-A'; INSERT INTO qa_r236.fake_records VALUES (4,'fake-B','not-allowed'); COMMIT;" >/dev/null 2>&1; then
+            echo 'FAIL: synthetic cross-tenant INSERT unexpectedly allowed'; exit 1
+          fi
+          if psql -qAtX -v ON_ERROR_STOP=1 -c "BEGIN; SET LOCAL ROLE qa_r236_member; SET LOCAL qa.r236_tenant='fake-A'; UPDATE qa_r236.fake_records SET tenant_label='fake-B' WHERE id=1; COMMIT;" >/dev/null 2>&1; then
+            echo 'FAIL: synthetic UPDATE ownership change unexpectedly allowed'; exit 1
+          fi
+          own_insert=$(psql -qAtX -v ON_ERROR_STOP=1 -c "BEGIN; SET LOCAL ROLE qa_r236_member; SET LOCAL qa.r236_tenant='fake-A'; INSERT INTO qa_r236.fake_records VALUES (5,'fake-A','allowed'); SELECT count(*) FROM qa_r236.fake_records; COMMIT;" | grep -E '^[0-9]+$' | tail -n 1)
+          test "$own_insert" = 3
+          b_actual=$(psql -qAtX -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM qa_r236.fake_records WHERE tenant_label='fake-B'" | tail -n 1)
+          test "$b_actual" = 1
+          echo 'PASS: permissive mutation policies cannot bypass restrictive tenant fence; allowed own INSERT works'
+
+      - name: Verify policy metadata and isolated trust boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          DO $verify$
+          BEGIN
+            IF (SELECT count(*) FROM pg_policies WHERE schemaname='qa_r236'
+                AND tablename='fake_records' AND permissive='RESTRICTIVE') <> 1 THEN
+              RAISE EXCEPTION 'Required single synthetic RESTRICTIVE fence is missing';
+            END IF;
+            IF (SELECT count(*) FROM pg_policies WHERE schemaname='qa_r236'
+                AND tablename='fake_records' AND permissive='PERMISSIVE') <> 5 THEN
+              RAISE EXCEPTION 'Expected five synthetic permissive policies missing';
+            END IF;
+            IF NOT (SELECT relrowsecurity AND relforcerowsecurity
+                FROM pg_class WHERE oid='qa_r236.fake_records'::regclass) THEN
+              RAISE EXCEPTION 'RLS or FORCE RLS flag missing';
+            END IF;
+          END $verify$;
+          SQL
+          test "$PGHOST" = '127.0.0.1'
+          test "$PGDATABASE" = 'r236_disposable_only'
+          test "$PGUSER" = 'postgres'
+          echo 'PASS: restrictive policy, permissions and FORCE RLS remain enabled on fake PostgreSQL 17 only'
+          echo 'NOTE: qa.r236_tenant is an unsigned test setting; this does not verify a real JWT or trusted claim source.'
+          echo 'NO_GO / HOLD / NO MERGE / NO DEPLOY; no shared Supabase, LINE, Worker7 or GitHub main changed.'

@@ -1,0 +1,162 @@
+name: DPRO TAX R234 Isolated PG17 Mock JWT Claim and Tenant RLS QA
+
+on:
+  push:
+    branches: ['qa/r225-synthetic-pg17-backup-restore-20261014']
+    paths:
+      - '.github/workflows/dpro-tax-r234-jwt-rls-tenant-isolation-pg17-qa.yml'
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches: [main]
+    paths:
+      - '.github/workflows/dpro-tax-r234-jwt-rls-tenant-isolation-pg17-qa.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  r234-fake-tenant-rls-only:
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/qa/r225-synthetic-pg17-backup-restore-20261014') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: r234_disposable_fake_only
+          POSTGRES_DB: r234_ephemeral_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d r234_ephemeral_only"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: r234_disposable_fake_only
+      PGDATABASE: r234_ephemeral_only
+      PGCONNECT_TIMEOUT: '5'
+    steps:
+      - name: Create fake tenant rows and locked-down RLS policies
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$PGHOST" = '127.0.0.1'
+          test "$PGDATABASE" = 'r234_ephemeral_only'
+          test "$PGUSER" = 'postgres'
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+          psql -AtX -v ON_ERROR_STOP=1 -c 'SHOW server_version;' | grep -E '^17\.'
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE qa_anon NOLOGIN;
+          CREATE ROLE qa_authenticated NOLOGIN;
+          CREATE SCHEMA qa_lab;
+          GRANT USAGE ON SCHEMA qa_lab TO qa_anon, qa_authenticated;
+          CREATE TABLE qa_lab.fake_customers (
+            id integer PRIMARY KEY,
+            owner_uid uuid NOT NULL,
+            description text NOT NULL
+          );
+          INSERT INTO qa_lab.fake_customers VALUES
+            (1,'11111111-1111-4111-8111-111111111111','fake-a1'),
+            (2,'11111111-1111-4111-8111-111111111111','fake-a2'),
+            (3,'22222222-2222-4222-8222-222222222222','fake-b1');
+          GRANT SELECT,INSERT,UPDATE,DELETE ON qa_lab.fake_customers TO qa_authenticated;
+          ALTER TABLE qa_lab.fake_customers ENABLE ROW LEVEL SECURITY;
+          ALTER TABLE qa_lab.fake_customers FORCE ROW LEVEL SECURITY;
+          CREATE POLICY qa_read_own ON qa_lab.fake_customers
+            FOR SELECT TO qa_authenticated
+            USING (owner_uid = NULLIF(current_setting('request.jwt.claim.sub',true),'')::uuid);
+          CREATE POLICY qa_insert_own ON qa_lab.fake_customers
+            FOR INSERT TO qa_authenticated
+            WITH CHECK (owner_uid = NULLIF(current_setting('request.jwt.claim.sub',true),'')::uuid);
+          CREATE POLICY qa_update_own ON qa_lab.fake_customers
+            FOR UPDATE TO qa_authenticated
+            USING (owner_uid = NULLIF(current_setting('request.jwt.claim.sub',true),'')::uuid)
+            WITH CHECK (owner_uid = NULLIF(current_setting('request.jwt.claim.sub',true),'')::uuid);
+          CREATE POLICY qa_delete_own ON qa_lab.fake_customers
+            FOR DELETE TO qa_authenticated
+            USING (owner_uid = NULLIF(current_setting('request.jwt.claim.sub',true),'')::uuid);
+          SQL
+          echo 'PASS: fake PostgreSQL 17 row-owner policies and three fictional rows ready'
+
+      - name: Verify no claim and anon deny, A and B read only own rows
+        shell: bash
+        run: |
+          set -euo pipefail
+          uid_a='11111111-1111-4111-8111-111111111111'
+          uid_b='22222222-2222-4222-8222-222222222222'
+          read_rows() {
+            psql -AtX -v ON_ERROR_STOP=1 -c "BEGIN; SET LOCAL ROLE qa_authenticated; SET LOCAL request.jwt.claim.sub = '$1'; SELECT count(*) FROM qa_lab.fake_customers; COMMIT;" | grep -E '^[0-9]+$' | tail -n 1
+          }
+          no_claim=$(psql -AtX -v ON_ERROR_STOP=1 -c 'SET ROLE qa_authenticated; SELECT count(*) FROM qa_lab.fake_customers;' | tail -n 1)
+          test "$no_claim" = '0'
+          test "$(read_rows "$uid_a")" = '2'
+          test "$(read_rows "$uid_b")" = '1'
+          if psql -AtX -v ON_ERROR_STOP=1 -c 'SET ROLE qa_anon; SELECT count(*) FROM qa_lab.fake_customers;' >/dev/null 2>&1; then
+            echo 'FAIL: anonymous role can SELECT fake private rows'; exit 1
+          fi
+          echo 'PASS: no mock claim gives zero; anon has no table SELECT; fake tenant A=2, B=1'
+
+      - name: Verify malicious claim fails closed and cross-tenant mutations blocked
+        shell: bash
+        run: |
+          set -euo pipefail
+          uid_a='11111111-1111-4111-8111-111111111111'
+          uid_b='22222222-2222-4222-8222-222222222222'
+          if psql -qAtX -v ON_ERROR_STOP=1 -c "BEGIN; SET LOCAL ROLE qa_authenticated; SET LOCAL request.jwt.claim.sub = 'not-a-uuid'; SELECT count(*) FROM qa_lab.fake_customers; COMMIT;" >/dev/null 2>&1; then
+            echo 'FAIL: malformed mock claim unexpectedly accepted'; exit 1
+          fi
+          sql="BEGIN; SET LOCAL ROLE qa_authenticated; SET LOCAL request.jwt.claim.sub = '$uid_a'; UPDATE qa_lab.fake_customers SET description='forbidden' WHERE id=3 RETURNING id; COMMIT;"
+          result=$(psql -qAtX -v ON_ERROR_STOP=1 -c "$sql")
+          test -z "$result"
+          sql="BEGIN; SET LOCAL ROLE qa_authenticated; SET LOCAL request.jwt.claim.sub = '$uid_a'; DELETE FROM qa_lab.fake_customers WHERE id=3 RETURNING id; COMMIT;"
+          result=$(psql -qAtX -v ON_ERROR_STOP=1 -c "$sql")
+          test -z "$result"
+          if psql -qAtX -v ON_ERROR_STOP=1 -c "BEGIN; SET LOCAL ROLE qa_authenticated; SET LOCAL request.jwt.claim.sub = '$uid_a'; INSERT INTO qa_lab.fake_customers VALUES(4,'$uid_b','fake-forbidden'); COMMIT;" >/dev/null 2>&1; then
+            echo 'FAIL: cross-tenant fake INSERT succeeded'; exit 1
+          fi
+          still_b=$(psql -qAtX -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM qa_lab.fake_customers WHERE owner_uid = '$uid_b'" | tail -n 1)
+          test "$still_b" = '1'
+          echo 'PASS: fake cross-tenant UPDATE DELETE and INSERT blocked; invalid claim rejected'
+
+      - name: Verify own insert and transaction-local claims do not persist
+        shell: bash
+        run: |
+          set -euo pipefail
+          uid_a='11111111-1111-4111-8111-111111111111'
+          result=$(psql -qAtX -v ON_ERROR_STOP=1 -c "BEGIN; SET LOCAL ROLE qa_authenticated; SET LOCAL request.jwt.claim.sub = '$uid_a'; INSERT INTO qa_lab.fake_customers VALUES(5,'$uid_a','fake-own'); SELECT count(*) FROM qa_lab.fake_customers; COMMIT;" | grep -E '^[0-9]+$' | tail -n 1)
+          test "$result" = '3'
+          # Simulate two requests on the SAME physical session using SET LOCAL.
+          counts=$(psql -qAtX -v ON_ERROR_STOP=1 <<SQL | grep -E '^[0-9]+$'
+          BEGIN;
+          SET LOCAL ROLE qa_authenticated;
+          SET LOCAL request.jwt.claim.sub = '$uid_a';
+          SELECT count(*) FROM qa_lab.fake_customers;
+          COMMIT;
+          BEGIN;
+          SET LOCAL ROLE qa_authenticated;
+          SELECT count(*) FROM qa_lab.fake_customers;
+          COMMIT;
+          SQL
+          )
+          test "$counts" = "$(printf '3\n0')"
+          echo 'PASS: fictional own write allowed; SET LOCAL claim cleared across transaction boundary'
+
+      - name: Declare test trust boundary and production release HOLD
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$PGHOST" = '127.0.0.1'
+          test "$PGDATABASE" = 'r234_ephemeral_only'
+          test "$PGUSER" = 'postgres'
+          echo 'PASS: mock JWT claims via SQL test fixtures, NOT actual signed JWT or PostgREST validation'
+          echo 'Never allow untrusted SQL clients to set request.jwt.claim.sub as an authorization boundary.'
+          echo 'No production Supabase credentials, data, migrations, LINE API, Worker deploy, or main commits.'
+          echo 'NO_GO / HOLD / NO MERGE'

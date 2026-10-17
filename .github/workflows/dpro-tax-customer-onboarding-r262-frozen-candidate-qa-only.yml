@@ -1,0 +1,189 @@
+name: DPRO TAX Customer Onboarding Frozen R262 Candidate Package QA Only
+
+on:
+  push:
+    branches:
+      - qa/r225-synthetic-pg17-backup-restore-20261014
+    paths:
+      - .github/workflows/dpro-tax-customer-onboarding-r262-frozen-candidate-qa-only.yml
+  workflow_dispatch:
+
+# Read-only snapshot packaging: never write GitHub files, deploy workers or contact production.
+permissions:
+  contents: read
+
+jobs:
+  build-frozen-customer-candidate-with-release-hold:
+    if: github.ref == 'refs/heads/qa/r225-synthetic-pg17-backup-restore-20261014'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout frozen R262 QA sources (not R263)
+        uses: actions/checkout@v4
+        with:
+          ref: 30d0656c4f626e2ceaca0072cf345911f4913552
+          path: qa
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Checkout unchanged main baseline snapshot
+        uses: actions/checkout@v4
+        with:
+          ref: ea3c1161f9673c3d55e0de99e7f3b068304b7ce7
+          path: baseline
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify no mutation authority or production secrets
+        shell: bash
+        run: |
+          test "${{ github.event_name }}" = push -o "${{ github.event_name }}" = workflow_dispatch
+          test "${{ github.ref }}" = refs/heads/qa/r225-synthetic-pg17-backup-restore-20261014
+          node --check qa/app.js
+          test -f baseline/index.html
+          test -f baseline/owner.html
+          test -f baseline/member.html
+          echo 'PASS: no production access, no Worker deploy, no main merge'
+      - name: Assemble frozen candidate without secrets or production config
+        shell: bash
+        run: |
+          cat > build_candidate.py <<'PY'
+          #!/usr/bin/env python3
+          """GitHub Actions QA-only: create no-secret deployment candidate artifact, never deploy."""
+          from pathlib import Path
+          import subprocess, json, hashlib, zipfile, datetime, re, sys
+          
+          ROOT=Path(__file__).resolve().parent
+          BASE=ROOT/'baseline'
+          QA=ROOT/'qa'
+          OUT=ROOT/'out'
+          FILES=[
+              'index.html','member.html','owner.html','owner-ipad.html',
+              'system-check.html','demo-guide.html','guide-center.html',
+              'dpro-tutorial-v1.1.css','dpro-tutorial-v1.1.js'
+          ]
+          QA_FILES=['app.js','styles.css']
+          EXPECTED_BLOBS={
+              'app.js':'69184b790eea3b87fcdab0a6ee1f894a2eff07ec',
+              'styles.css':'79ec412078623962431ddaec7437419e13160b3a'
+          }
+          RELEASE_SHA='30d0656c4f626e2ceaca0072cf345911f4913552'
+          BASE_SHA='ea3c1161f9673c3d55e0de99e7f3b068304b7ce7'
+          
+          CFG='''/* DPRO TAX CUSTOMER CANDIDATE -- NOT DEPLOYABLE UNTIL GATES PASS.\n   Replace every placeholder, audit auth, replace all demo pathways. Never embed secrets. */
+          window.DPRO_TAX_CONFIG = Object.freeze({
+            APP_NAME: "DPRO 税理士・会計事務所 LINE",
+            VERSION: "TAX-CUSTOMER-CANDIDATE-R262-20261015",
+            API_BASE: "https://api.invalid/NOT_CONFIGURED",
+            OFFICE_CODE: "__CUSTOMER_OFFICE_CODE_REQUIRED__",
+            DEFAULT_ADMIN_CODE: "",
+            DEMO_LINE_USER_ID: "",
+            DEMO_CLIENT_CODE: "",
+            TIMEZONE: "Asia/Tokyo",
+            REPOSITORY: "__CUSTOMER_REPOSITORY_REQUIRED__",
+            PAGES_BASE: "https://pages.invalid/NOT_CONFIGURED/",
+            CUSTOMER_DEPLOY_BLOCKED: true
+          });
+          '''
+          INTRO='''DPRO TAX｜顧客導入候補スナップショット R262（自動生成）
+          
+          状態：導入準備用・本番公開禁止（COMMERCIAL HOLD）。これはデプロイ済みではありません。
+          
+          採用：GitHub QA 92/92実ブラウザ検査PASS時点の app.js/styles.css を固定採用。
+          基準：その他の公開ページは main ea3c1161... からコピー。
+          R263以降の未確認ブラッシュアップは含みません。
+          
+          生成物はあくまでフロント側の顧客用候補です。Worker/APIやDBマイグレーション、
+          Supabase RLS、顧客テナント、LINE公式連携、実ユーザー認証・承認は含みません。
+          config.js は安全な無効アドレス（.invalid）を初期値とし本番動作しません。
+          既存の demo=1 等のデモ経路が残る可能性があるため、顧客にそのまま公開しないでください。
+          
+          手順：
+          1. 顧客情報確認と契約条件確認（同梱CUSTOMER_INTAKE）
+          2. 顧客専用API・DB/テナント・LINE・認証境界を設計し、実環境のアクセス制御を検査
+          3. Cloudflareの秘密情報は環境Secretsにのみ設定（GitHubに入れない）
+          4. config.js を顧客専用値に変更して隔離検証環境で結合テスト
+          5. 動作・権限・復元テストと顧客受入を完了し、個別承認後に公開判断
+          
+          今後のブラッシュアップは別レーンで継続。Worker7件/本番DB/main変更なし。
+          '''
+          
+          
+          def hashblob(p):
+              return subprocess.check_output(['git','hash-object',str(p)],text=True).strip()
+          
+          def sha256(p):
+              return hashlib.sha256(p.read_bytes()).hexdigest()
+          
+          def do_build():
+              if OUT.exists():
+                  raise RuntimeError('out already exists; refusing non-clean release preparation')
+              OUT.mkdir()
+              www=OUT/'CUSTOMER_CANDIDATE_NO_DEPLOY';www.mkdir()
+              for n,blob in EXPECTED_BLOBS.items():
+                  src=QA/n
+                  if not src.is_file():raise RuntimeError('missing QA source '+n)
+                  actual=hashblob(src)
+                  if actual != blob:raise RuntimeError(f'{n}: frozen verified SHA mismatch: {actual} != {blob}')
+              for marker in ['R254 QA-only','R255B QA-only','R256 QA-only','R257C QA-only','R258 QA-only','R259 QA-only','R260 QA-only','R261 QA-only','R262 QA-only']:
+                  if marker not in (QA/'app.js').read_text(encoding='utf-8'):
+                      raise RuntimeError('regression marker missing: '+marker)
+              for n in FILES:
+                  src=BASE/n
+                  if not src.is_file():raise RuntimeError('missing baseline UI '+n)
+                  (www/n).write_bytes(src.read_bytes())
+              for n in QA_FILES:(www/n).write_bytes((QA/n).read_bytes())
+              (www/'config.js').write_text(CFG,encoding='utf-8')
+              (www/'00_START_HERE.txt').write_text(INTRO,encoding='utf-8')
+              # Inspect remaining demo pathways. Presence is a release blocker, not a passing security test.
+              demo_files={n:len(re.findall(r'demo=1|DEFAULT_ADMIN_CODE|isDemo', (www/n).read_text(encoding='utf-8'))) for n in FILES+QA_FILES if n.endswith(('.html','.js'))}
+              manifest={
+                 'purpose':'CUSTOMER_ONBOARDING_CANDIDATE_ONLY',
+                 'commercial_release':'HOLD','production_deploy_performed':False,
+                 'source_qa_commit':RELEASE_SHA,'source_main_commit':BASE_SHA,
+                 'regression_real_browser_screens_last_passed':92,
+                 'frozen_qa_git_blobs':EXPECTED_BLOBS,
+                 'customer_config_ready':False,'actual_worker_api_audited':False,
+                 'actual_customer_db_rls_verified':False,
+                 'real_backup_restored':False,'real_line_auth_verified':False,
+                 'customer_acceptance':False,
+                 'demo_pathway_mentions_by_file':demo_files,
+                 'sha256_by_file':{p.name:sha256(p) for p in sorted(www.iterdir()) if p.is_file()}
+              }
+              (OUT/'CANDIDATE_MANIFEST.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+              zpath=OUT/'DPRO_TAX_CUSTOMER_CANDIDATE_R262_NO_DEPLOY.zip'
+              with zipfile.ZipFile(zpath,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=8) as z:
+                  for p in sorted(www.iterdir()):
+                      if p.is_file():z.write(p,p.name)
+                  z.write(OUT/'CANDIDATE_MANIFEST.json','CANDIDATE_MANIFEST.json')
+              with zipfile.ZipFile(zpath) as z:
+                  if z.testzip() is not None:raise RuntimeError('ZIP CRC failed')
+                  if 'config.js' not in z.namelist():raise RuntimeError('config missing')
+                  cfg=z.read('config.js').decode()
+                  assert 'api.invalid/NOT_CONFIGURED' in cfg and 'CUSTOMER_DEPLOY_BLOCKED: true' in cfg
+                  assert 'dpromstk2000.workers.dev' not in cfg
+              print('PASS: immutable R262 candidate zip; no prod deployment or Git writes; sources verified')
+              print('RELEASE_BLOCKED_CANDIDATE_MANIFEST='+json.dumps(manifest,ensure_ascii=False,separators=(',',':')))
+          
+          if __name__=='__main__':
+              do_build()
+          PY
+          python3 build_candidate.py
+          node --check out/CUSTOMER_CANDIDATE_NO_DEPLOY/config.js
+          python3 - <<'PY'
+          import json,pathlib
+          d=json.loads(pathlib.Path('out/CANDIDATE_MANIFEST.json').read_text(encoding='utf-8'))
+          assert d['commercial_release']=='HOLD' and not d['production_deploy_performed']
+          assert d['regression_real_browser_screens_last_passed']==92
+          assert d['customer_config_ready'] is False
+          print('PASS: release hold, no secrets in candidate configuration')
+          PY
+      - name: Store no-deploy customer candidate as downloadable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dpro-tax-customer-onboarding-r262-no-deploy-${{ github.run_id }}
+          path: |
+            out/DPRO_TAX_CUSTOMER_CANDIDATE_R262_NO_DEPLOY.zip
+            out/CANDIDATE_MANIFEST.json
+          retention-days: 14
+          if-no-files-found: error
+      - name: Keep production untouched and require human release gate
+        run: echo 'CANDIDATE PREPARED; COMMERCIAL HOLD; NO WORKER OR SUPABASE OR MAIN CHANGES'

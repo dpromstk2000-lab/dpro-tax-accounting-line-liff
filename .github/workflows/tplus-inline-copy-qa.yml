@@ -1,0 +1,89 @@
+name: TPLUS Demo Copy-Paste QA (No Download)
+on:
+  push:
+    branches: [qa/r225-synthetic-pg17-backup-restore-20261014]
+    paths: [.github/workflows/tplus-inline-copy-qa.yml]
+permissions:
+  contents: write
+jobs:
+  standalone-demo:
+    if: github.ref == 'refs/heads/qa/r225-synthetic-pg17-backup-restore-20261014'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build isolated interactive sample
+        run: |
+          mkdir -p tplus-inline-demo
+          cat > tplus-inline-demo/index.html <<'HTML'
+          <!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>DPRO TAX | TPLUS 顧問先共有デモ</title>
+          <style>
+          *{box-sizing:border-box}body{margin:0;background:#f3f5f9;color:#1b3046;font-family:system-ui,'Yu Gothic',sans-serif}header{background:#17354f;color:white;padding:22px 5vw}h1{font-size:24px;margin:0}main{max-width:950px;margin:26px auto;padding:0 15px}.card{background:white;border:1px solid #dbe2ea;border-radius:16px;padding:20px;margin:12px 0;box-shadow:0 2px 9px #10294208}.nav{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}button,select,input{font:inherit}button{background:#eef4f8;border:1px solid #b9cbd7;border-radius:9px;padding:14px;cursor:pointer;color:#183a54}button:hover{background:#dcebf4}.nav button{min-height:74px;font-weight:bold}button.active,.primary{background:#17354f;color:white}small,.muted{color:#63788c}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.notice{padding:11px;background:#fff3d9;border-radius:8px}.danger{color:#ad5e22}select,input{padding:9px;border:1px solid #c1cfdb;border-radius:8px}li{margin:9px 0}@media(max-width:480px){.nav{grid-template-columns:repeat(2,1fr)}h1{font-size:20px}}
+          </style><header><h1>DPRO TAX｜税理士事務所向け共通デモ</h1><small style="color:#d4e3ee">田中様ご要望①〜③・架空データ・本番送信なし</small></header>
+          <main><div class="row"><button class="primary" id="client" onclick="mode='client';draw()">顧問先画面</button><button id="owner" onclick="mode='owner';draw()">事務所画面</button></div><div class="card"><h2>6つのメニュー</h2><div class="nav" id="nav"></div></div><section class="card" id="content" aria-live="polite"></section><div class="notice">このデモはブラウザ内だけで動きます。LINE通知・DB更新・外部送信は行いません。</div></main>
+          <script>
+          let mode='client',tab=0,date='2026-10-20',cycle='毎月';
+          const titles=['📅 次回訪問','📄 必要資料','📤 資料提出','👤 担当者','💬 相談・連絡','🗂 共有ノート'];
+          const notes=['月次資料の確認をお願いします。'];
+          const internal=['所内専用：進捗確認済み（顧問先に非表示）'];
+          const $=id=>document.getElementById(id);
+          const safe=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+          function draw(){
+            $('client').className=mode==='client'?'primary':'';
+            $('owner').className=mode==='owner'?'primary':'';
+            $('nav').innerHTML=titles.map((x,i)=>'<button data-tab="'+i+'" class="'+(tab===i?'active':'')+'">'+x+'</button>').join('');
+            let h='';
+            if(tab===0){
+              h='<h2>次回訪問予定</h2><p><b>'+date+' 10:00</b> ／ 主担当：佐藤</p>';
+              if(mode==='owner')h+='<p>訪問日を変更： <input type="date" id="visitDate" value="'+date+'"><button data-action="savevisit">登録</button></p><button data-action="visitpreview">前日通知を確認</button>';
+              else h+='<p class="muted">訪問前日にお知らせする予定です（デモ表示）。</p>';
+            }else if(tab===1){
+              h='<h2>必要資料と提出期限</h2><ul><li>月次試算表　期限：10月25日　未提出</li><li>請求書一覧　期限：10月25日　提出済み</li></ul><p>依頼の周期：'+cycle+'</p>';
+              if(mode==='owner')h+='<select id="cycle"><option>毎月</option><option>3か月ごと</option></select><button data-action="savecycle">周期を設定</button><button data-action="cyclepreview">依頼通知プレビュー</button>';
+            }else if(tab===2){
+              h='<h2>資料提出</h2><p>必要資料の提出状況を確認します。</p><button data-action="submitpreview">資料を選択（デモ）</button>';
+            }else if(tab===3){
+              h='<h2>担当者</h2><p>主担当：佐藤　副担当：鈴木</p><p>所内担当者名を確認できます。</p>';
+            }else if(tab===4){
+              h='<h2>相談・連絡</h2><p>担当者への相談窓口</p><button data-action="inquirypreview">相談内容を確認（デモ）</button>';
+            }else{
+              h='<h2>共有ノート・アルバム</h2><ul>'+notes.map(n=>'<li>'+safe(n)+'</li>').join('')+'</ul><button data-action="albumpath">アルバムを開く</button>';
+              if(mode==='owner')h+='<button data-action="addnote">共有メモを追加</button><h3>所内専用メモ（顧問先には表示しません）</h3><p>'+internal.map(safe).join('<br>')+'</p>';
+            }
+            $('content').innerHTML=h;
+          }
+          document.addEventListener('click',e=>{
+            const tabButton=e.target.closest('[data-tab]');
+            if(tabButton){tab=Number(tabButton.dataset.tab);draw();return;}
+            const action=e.target.closest('[data-action]')?.dataset.action;
+            if(action==='savevisit'){date=$('visitDate').value||date;draw();}
+            else if(action==='savecycle'){cycle=$('cycle').value;draw();}
+            else if(action==='addnote'){const n=prompt('共有メモ（架空データのみ）');if(n&&n.trim()){notes.push(n.trim());draw();}}
+            else if(action==='visitpreview')alert('模擬通知：訪問前日にLINE通知予定。実際には送信しません。');
+            else if(action==='cyclepreview')alert('模擬通知：'+cycle+'ごとの資料依頼。実際には送信しません。');
+            else if(action)alert('デモのため、外部送信・保存は行いません。');
+          });
+          draw();
+          </script></html>
+          HTML
+      - name: Isolated static QA (no API calls or external writes)
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path('tplus-inline-demo/index.html').read_text()
+          for x in ['次回訪問','必要資料','資料提出','担当者','相談・連絡','共有ノート','所内専用','3か月ごと','前日通知','外部送信は行いません']:
+              assert x in s,x
+          js=re.search(r'<script>([\s\S]*?)</script>',s).group(1)
+          Path('/tmp/tplus.js').write_text(js)
+          print('PASS: 10 static scenario keywords; mock-only HTML')
+          PY
+          node --check /tmp/tplus.js
+      - name: Save tested isolated demo in QA branch only
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tplus-inline-demo/index.html
+          if ! git diff --cached --quiet; then
+            git commit -m 'qa: add TPLUS copy-paste fallback interactive demo'
+            git push origin HEAD:qa/r225-synthetic-pg17-backup-restore-20261014
+          fi

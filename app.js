@@ -148,6 +148,11 @@
 
   function closeModal(modal) {
     const target = typeof modal === "string" ? document.getElementById(modal) : modal?.closest?.(".modal-backdrop") || modal;
+    if (target?.id === "appointment-create-modal") {
+      // R257C QA-only: reset form and invalidate pending selection on every close.
+      $("#admin-appointment-form")?.reset();
+      clearAppointmentClientSelection();
+    }
     if (target) target.hidden = true;
     document.body.style.overflow = "";
   }
@@ -174,13 +179,18 @@
     const serviceSelect = $("#booking-service");
     serviceSelect.innerHTML = `<option value="">選択してください</option>${officeData.services.map((service) => `<option value="${esc(service.id)}" data-duration="${service.duration_minutes}" data-channels="${esc((service.channel_options || []).join(","))}">${esc(service.service_name)}（${service.duration_minutes}分）</option>`).join("")}`;
     $("#security-notice-text").textContent = office.security_notice;
+    // R262 QA-only: announce loading, failure, and successful slot messages to assistive technology.
+    $("#slot-message").setAttribute("role", "status");
     const dateInput = $("#booking-date");
     dateInput.min = todayJst();
     const max = new Date(`${todayJst()}T12:00:00+09:00`);
     max.setDate(max.getDate() + Number(office.booking_open_days || 90));
     dateInput.max = new Intl.DateTimeFormat("en-CA", { timeZone: CONFIG.TIMEZONE }).format(max);
 
+    let slotRequestSeq = 0;
     async function loadSlots() {
+      // R258 QA-only: ignore stale slot replies after another date/service selection.
+      const requestSeq = ++slotRequestSeq;
       const serviceId = serviceSelect.value;
       const date = dateInput.value;
       $("#booking-start").value = "";
@@ -189,10 +199,16 @@
       $("#slot-message").textContent = "空き時間を確認中...";
       try {
         const data = await api(`/api/public/slots?date=${encodeURIComponent(date)}&service_id=${encodeURIComponent(serviceId)}`);
+        if (requestSeq !== slotRequestSeq) return;
         $("#slot-message").textContent = data.slots.length ? "希望時間を選択してください。" : "この日は予約可能な時間がありません。別の日を選択してください。";
-        $("#slot-grid").innerHTML = data.slots.map((slot) => `<button class="slot-button" type="button" data-slot="${esc(slot.start_at)}" ${slot.available ? "" : "disabled"}>${esc(slot.local_time)}</button>`).join("");
+        // R260 QA-only: expose slot selection to keyboard and screen-reader users.
+        $("#slot-grid").innerHTML = data.slots.map((slot) => `<button class="slot-button" type="button" data-slot="${esc(slot.start_at)}" aria-pressed="false" ${slot.available ? "" : "disabled"}>${esc(slot.local_time)}</button>`).join("");
       } catch (error) {
-        $("#slot-message").textContent = error.message;
+        if (requestSeq === slotRequestSeq) {
+          // R261 QA-only: preserve date/service and offer a safe retry for transient slot errors.
+          $("#slot-message").textContent = "空き時間を取得できませんでした。再試行してください。";
+          $("#slot-grid").innerHTML = '<button class="btn btn-secondary" type="button" data-retry-slots>再試行</button>';
+        }
       }
     }
     serviceSelect.addEventListener("change", () => {
@@ -204,9 +220,20 @@
     });
     dateInput.addEventListener("change", loadSlots);
     $("#slot-grid").addEventListener("click", (event) => {
+      if (event.target.closest("[data-retry-slots]")) {
+        // Restore keyboard focus after the retry replaces the original button with available times.
+        const retrySeq = slotRequestSeq + 1;
+        loadSlots().then(() => {
+          if (retrySeq === slotRequestSeq) $("#slot-grid [data-slot]:not(:disabled)")?.focus();
+        });
+        return;
+      }
       const button = event.target.closest("[data-slot]");
       if (!button) return;
-      $$(".slot-button", $("#slot-grid")).forEach((node) => node.classList.toggle("selected", node === button));
+      $$(".slot-button", $("#slot-grid")).forEach((node) => {
+        node.classList.toggle("selected", node === button);
+        node.setAttribute("aria-pressed", String(node === button));
+      });
       $("#booking-start").value = button.dataset.slot;
     });
 
@@ -216,6 +243,19 @@
       const submit = $("button[type=submit]", form);
       const values = formObject(form);
       if (!values.requested_start_at) { $("#public-alert").innerHTML = alertBox("希望時間を選択してください。"); return; }
+      // R259 QA-only: allow submission only for currently selected, available, future half-hour slot.
+const requestedSlot = new Date(values.requested_start_at);
+const selectedButton = $("#slot-grid .slot-button.selected:not(:disabled)");
+const requestedDateJst = Number.isFinite(requestedSlot.getTime())
+  ? new Intl.DateTimeFormat("en-CA", { timeZone: CONFIG.TIMEZONE, year: "numeric", month: "2-digit", day: "2-digit" }).format(requestedSlot) : "";
+if (!serviceSelect.value || !dateInput.value || !dateInput.checkValidity() ||
+    !selectedButton || selectedButton.dataset.slot !== values.requested_start_at ||
+    !Number.isFinite(requestedSlot.getTime()) || requestedSlot <= new Date() ||
+    requestedSlot.getMinutes() % 30 !== 0 || requestedSlot.getSeconds() !== 0 ||
+    requestedDateJst !== dateInput.value) {
+  $("#public-alert").innerHTML = alertBox("希望日時を選び直してください。");
+  return;
+}
       delete values.booking_date;
       if (lineUserId) values.line_user_id = lineUserId;
       try {
@@ -406,15 +446,20 @@
   }
 
   function renderClients() {
-    const q = normalizePhone($("#client-search")?.value) || $("#client-search")?.value?.toLowerCase() || "";
+    const rawQuery = String($("#client-search")?.value || "").trim().normalize("NFKC").toLowerCase();
+    const phoneOnly = /^[+0-9\s()\-]+$/.test(rawQuery) && /[0-9]/.test(rawQuery);
+    const q = phoneOnly ? normalizePhone(rawQuery) : rawQuery;
     const status = $("#client-status-filter")?.value || "";
-    const list = adminState.clients.filter((item) => (!status || item.status === status) && (!q || [item.client_code, item.legal_name, item.trade_name, item.representative_name, item.phone_normalized, item.phone, item.email].some((value) => String(value || "").normalize("NFKC").toLowerCase().includes(q))));
+    const list = adminState.clients.filter((item) => (!status || item.status === status) && (!q || [item.client_code, item.legal_name, item.trade_name, item.representative_name, item.phone_normalized, item.phone, item.email].some((value, index) => {
+      const candidate = String(value || "").normalize("NFKC").toLowerCase();
+      return candidate.includes(q) || (phoneOnly && (index === 4 || index === 5) && normalizePhone(candidate).includes(q));
+    })));
     $("#clients-table-body").innerHTML = list.length ? list.map((item) => `<tr><td><strong>${esc(item.legal_name)}</strong><div class="small muted">${esc(item.client_code)}${item.representative_name ? ` ／ ${esc(item.representative_name)}` : ""}</div></td><td>${esc(label(item.client_type))}</td><td>${esc(item.phone || "－")}</td><td>${esc(staffName(item.assigned_staff_id))}</td><td>${badge(item.status)}</td><td><div class="table-actions"><button class="btn btn-secondary btn-sm" data-client-detail="${item.id}" type="button">詳細</button><button class="btn btn-danger btn-sm" data-soft-delete="client" data-id="${item.id}" type="button">終了</button></div></td></tr>`).join("") : `<tr><td colspan="6">${empty("一致する顧問先がありません。")}</td></tr>`;
   }
 
   function renderCases() {
-    const q = $("#case-search")?.value?.toLowerCase() || ""; const status = $("#case-status-filter")?.value || "";
-    const list = adminState.cases.filter((item) => (!status || item.status === status) && (!q || [item.case_code, item.title, item.next_action, item.public_summary].some((value) => String(value || "").toLowerCase().includes(q))));
+    const q = String($("#case-search")?.value || "").trim().normalize("NFKC").toLowerCase(); const status = $("#case-status-filter")?.value || "";
+    const list = adminState.cases.filter((item) => (!status || item.status === status) && (!q || [item.case_code, item.title, item.next_action, item.public_summary].some((value) => String(value || "").normalize("NFKC").toLowerCase().includes(q))));
     $("#cases-table-body").innerHTML = list.length ? list.map((item) => `<tr><td><strong>${esc(item.title)}</strong><div class="small muted">${esc(item.case_code)} ／ ${esc(label(item.case_type))}</div></td><td>${esc(clientName(item.client_id))}</td><td>${formatDate(item.deadline_date)}${item.deadline_is_confirmed ? " ✓" : ""}</td><td><div style="min-width:110px"><strong>${item.progress_percent}%</strong><div class="progress"><span style="width:${item.progress_percent}%"></span></div></div></td><td>${badge(item.status)}</td><td><div class="table-actions"><button class="btn btn-secondary btn-sm" data-case-progress="${item.id}" type="button">進捗更新</button><button class="btn btn-danger btn-sm" data-soft-delete="case" data-id="${item.id}" type="button">取消</button></div></td></tr>`).join("") : `<tr><td colspan="6">${empty("案件がありません。")}</td></tr>`;
   }
 
@@ -612,6 +657,17 @@
     ];
     forms.forEach(([selector, path, transform, message]) => $(selector).addEventListener("submit", async (event) => {
       event.preventDefault(); const form = event.currentTarget; const button = $("button[type=submit]", form);
+      // R254 QA-only: do not send a booking request when the page was left open
+      // beyond midnight, or when the requested start is not on a 30-minute boundary.
+      if (selector === "#admin-appointment-form") {
+        const localStart = String(form.querySelector('[name="requested_start_at"]')?.value || "");
+        if (!/^\d{4}-\d{2}-\d{2}T\d{2}:(00|30)$/.test(localStart) ||
+            !Number.isFinite(new Date(toIso(localStart)).getTime()) ||
+            new Date(toIso(localStart)) <= new Date()) {
+          toast("予約日時は未来の30分単位で指定してください。", "error");
+          return;
+        }
+      }
       try { setButtonBusy(button, true, "登録中..."); await api(path, { method: "POST", body: transform(formObject(form)), adminKey: adminState.key }); toast(message); closeModal(form); form.reset(); if (selector === "#admin-appointment-form") clearAppointmentClientSelection(); await refreshOwner(); }
       catch (error) { toast(error.message, "error"); } finally { setButtonBusy(button, false); }
     }));
@@ -624,8 +680,14 @@
     $("#appointment-client-search-button").addEventListener("click", () => {
       const raw = $("#appointment-client-search").value.trim();
       if (!raw) { $("#appointment-client-results").innerHTML = alertBox("名前・電話番号・顧問先コードのいずれかを入力してください。"); return; }
-      const normalized = normalizePhone(raw); const q = (normalized.length >= 10 ? normalized : raw.normalize("NFKC")).toLowerCase();
-      const results = adminState.clients.filter((item) => item.status !== "ended" && [item.legal_name, item.trade_name, item.representative_name, item.client_code, item.phone, item.phone_normalized, item.email].some((value) => String(value || "").normalize("NFKC").toLowerCase().includes(q))).slice(0, 8);
+      // R255B QA-only: search organization names/codes as text, phone fields as normalized digits.
+      const normalizedRaw = raw.normalize("NFKC");
+      const phoneOnly = /^[+0-9\s()\-]+$/.test(normalizedRaw) && /[0-9]/.test(normalizedRaw);
+      const q = phoneOnly ? normalizePhone(normalizedRaw) : normalizedRaw.toLowerCase();
+      const results = adminState.clients.filter((item) => item.status !== "ended" && [item.legal_name, item.trade_name, item.representative_name, item.client_code, item.phone, item.phone_normalized, item.email].some((value, index) => {
+        const candidate = String(value || "").normalize("NFKC").toLowerCase();
+        return candidate.includes(q) || (phoneOnly && (index === 4 || index === 5) && normalizePhone(candidate).includes(q));
+      })).slice(0, 8);
       $("#appointment-client-results").innerHTML = results.length ? results.map((item) => `<button class="client-result" type="button" data-select-appointment-client="${item.id}"><span><strong>${esc(item.legal_name)}</strong><small>${esc(item.client_code)} ／ ${esc(item.representative_name || "代表者未登録")}</small></span><span class="client-result-phone">${esc(item.phone || "電話未登録")}</span></button>`).join("") : `<div class="empty">一致する顧問先がありません。未登録の相談者として予約者情報を入力できます。</div>`;
     });
     $("#appointment-client-results").addEventListener("click", async (event) => {
@@ -692,20 +754,25 @@
   }
 
   function clearAppointmentClientSelection() {
+    adminState.appointmentClientRequestSeq = (adminState.appointmentClientRequestSeq || 0) + 1;
     $("#appointment-client-id").value = ""; $("#appointment-contact-id").value = ""; $("#appointment-client-search").value = ""; $("#appointment-phone-normalized").textContent = ""; $("#appointment-client-results").innerHTML = ""; $("#appointment-selected-client").innerHTML = ""; $("#appointment-selected-client").hidden = true; adminState.appointmentClientDetail = null;
   }
 
   async function selectAppointmentClient(id) {
+    // R256 QA-only: latest click takes precedence over any delayed older API response.
+    const requestSeq = adminState.appointmentClientRequestSeq = (adminState.appointmentClientRequestSeq || 0) + 1;
     const selected = $("#appointment-selected-client");
     try {
       selected.hidden = false; selected.innerHTML = '<div class="loading"><span class="spinner" role="status" aria-label="顧問先情報を読み込み中"></span></div>';
-      const data = await api(`/api/admin/clients/${id}`, { adminKey: adminState.key }); const client = data.client; adminState.appointmentClientDetail = data;
+      const data = await api(`/api/admin/clients/${id}`, { adminKey: adminState.key });
+      if (requestSeq !== adminState.appointmentClientRequestSeq) return;
+      const client = data.client; adminState.appointmentClientDetail = data;
       $("#appointment-client-id").value = client.id; $("#appointment-contact-id").value = ""; $("#admin-requester-name").value = client.representative_name || client.legal_name; $("#admin-requester-phone").value = client.phone || ""; $("#admin-requester-email").value = client.email || "";
       const activeCases = data.cases.filter((item) => !["completed", "cancelled"].includes(item.status));
       const contacts = data.contacts.length ? `<div class="contact-choice"><strong>予約者を連絡先から選択</strong><div class="button-row">${data.contacts.map((item) => `<button class="btn btn-secondary btn-sm" type="button" data-select-appointment-contact="${item.id}">${esc(item.full_name)}${item.position_title ? `（${esc(item.position_title)}）` : ""}</button>`).join("")}</div></div>` : "";
       selected.innerHTML = `<div class="selected-client-head"><div><span class="status" data-tone="success">既存顧問先</span><h3>${esc(client.legal_name)}</h3><p class="small muted">${esc(client.client_code)} ／ ${esc(client.representative_name || "代表者未登録")} ／ ${esc(client.phone || "電話未登録")}</p></div><button class="btn btn-secondary btn-sm" type="button" data-clear-appointment-client>選択解除</button></div><div class="selected-client-metrics"><span>進行中案件 <strong>${activeCases.length}</strong></span><span>資料依頼 <strong>${data.document_requests.length}</strong></span><span>予約履歴 <strong>${data.appointments.length}</strong></span><span>相談履歴 <strong>${data.inquiries.length}</strong></span></div>${contacts}`;
       $("#appointment-client-results").innerHTML = "";
-    } catch (error) { selected.hidden = true; toast(error.message, "error"); }
+    } catch (error) { if (requestSeq === adminState.appointmentClientRequestSeq) { selected.hidden = true; toast(error.message, "error"); } }
   }
 
   async function initIpad() {

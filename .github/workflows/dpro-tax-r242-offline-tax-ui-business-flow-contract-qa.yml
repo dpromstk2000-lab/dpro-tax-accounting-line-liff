@@ -1,0 +1,176 @@
+name: DPRO TAX R242 Offline Tax UI Business Flow Contract QA
+
+on:
+  push:
+    branches: ['qa/r225-synthetic-pg17-backup-restore-20261014']
+    paths: ['.github/workflows/dpro-tax-r242-offline-tax-ui-business-flow-contract-qa.yml']
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches: [main]
+    paths: ['.github/workflows/dpro-tax-r242-offline-tax-ui-business-flow-contract-qa.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  r242-offline-static-product-qa:
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/qa/r225-synthetic-pg17-backup-restore-20261014') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out immutable QA branch source without credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Check source inventory and prevent any live API execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in index.html owner.html member.html owner-ipad.html system-check.html guide-center.html demo-guide.html app.js styles.css config.js dpro-tutorial-v1.1.js dpro-tutorial-v1.1.css; do
+            test -s "$path"
+          done
+          test "${{ github.event_name }}" = 'push' -o "${{ github.event_name }}" = 'pull_request'
+          echo 'PASS: 12 real product assets checked out for read-only static QA, without contacting API_BASE'
+
+      - name: Parse seven real HTML screens and validate form label and ID contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYHTML'
+          from html.parser import HTMLParser
+          from pathlib import Path
+          from collections import Counter
+          class Doc(HTMLParser):
+            def __init__(self):
+              super().__init__(convert_charrefs=True)
+              self.ids=[];self.labels=[];self.forms=[];self.links=[];self.sources=[]
+              self.modals=[];self.panels=[];self.nav=[];self.tags=[];self.fields={}
+              self.lang=None;self.viewport=False;self.title=False;self._title=False
+            def handle_starttag(self,tag,attrs):
+              a=dict(attrs);self.tags.append(tag)
+              if tag=='html':self.lang=a.get('lang')
+              if tag=='meta' and a.get('name')=='viewport':self.viewport=True
+              if tag=='title':self._title=True
+              if 'id' in a:
+                self.ids.append(a['id']);self.fields[a['id']]=(tag,a)
+              if tag=='label' and a.get('for'):self.labels.append(a['for'])
+              if tag=='form':self.forms.append(a.get('id'))
+              if tag in ('a','link') and a.get('href'):self.links.append(a['href'])
+              if tag=='script' and a.get('src'):self.sources.append(a['src'])
+              if tag=='button' and a.get('data-open-modal'):self.modals.append(a['data-open-modal'])
+              if a.get('data-admin-panel'):self.panels.append(a['data-admin-panel'])
+              if a.get('data-admin-view'):self.nav.append(a['data-admin-view'])
+            def handle_data(self,data):
+              if self._title and data.strip():self.title=True
+            def handle_endtag(self,tag):
+              if tag=='title':self._title=False
+          paths=['index.html','owner.html','member.html','owner-ipad.html','system-check.html','guide-center.html','demo-guide.html']
+          for path in paths:
+            doc=Doc();doc.feed(Path(path).read_text(encoding='utf-8'))
+            assert doc.lang=='ja',(path,'Japanese lang missing')
+            assert doc.viewport,(path,'mobile viewport missing')
+            assert doc.title,(path,'title missing')
+            assert len(doc.ids)==len(set(doc.ids)),(path,'duplicate ids',Counter(doc.ids))
+            assert all(x in doc.fields for x in doc.labels),(path,'broken label for',doc.labels)
+            assert all(id for id in doc.forms),(path,'form without stable id')
+            assert all(x in doc.fields for x in doc.modals),(path,'modal trigger missing target')
+            assert all(x in doc.panels for x in doc.nav),(path,'left menu target not found')
+            print(f'PASS: {path} ids={len(doc.ids)} labels={len(doc.labels)} forms={len(doc.forms)} menus={len(doc.nav)}')
+          PYHTML
+
+      - name: Check actual customer owner and iPad workflow anchors and local page links
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYFLOW'
+          from html.parser import HTMLParser
+          from pathlib import Path
+          from urllib.parse import urlsplit,unquote
+          class Audit(HTMLParser):
+            def __init__(self):
+              super().__init__();self.ids={};self.sources=[];self.links=[];self.nav=[];self.panels=[]
+            def handle_starttag(self,tag,attrs):
+              a=dict(attrs)
+              if a.get('id'):self.ids[a['id']]=(tag,a)
+              if a.get('data-admin-view'):self.nav.append(a['data-admin-view'])
+              if a.get('data-admin-panel'):self.panels.append(a['data-admin-panel'])
+              if tag in ('a','link') and a.get('href'):self.links.append(a['href'])
+              if tag=='script' and a.get('src'):self.sources.append(a['src'])
+          paths=['index.html','owner.html','member.html','owner-ipad.html','system-check.html','guide-center.html','demo-guide.html']
+          docs={}
+          for path in paths:
+            d=Audit();d.feed(Path(path).read_text(encoding='utf8'));docs[path]=d
+            for url in d.links+d.sources:
+              if '${' in url:continue # source template placeholder, not a navigation URL
+              if url.startswith(('#','mailto:','tel:','//')):continue
+              u=urlsplit(url)
+              if u.scheme or u.netloc:continue
+              target=unquote(u.path)
+              if target:
+                assert not target.startswith('/'),(path,'root-absolute reference unexpected',target)
+                assert Path(target).is_file(),(path,'broken local page/asset link',target)
+          required={
+            'index.html':['booking-form','booking-date','booking-start','requester-phone','inquiry-form','register-form','slot-grid'],
+            'owner.html':['owner-login-form','owner-admin-code','owner-code-clear','owner-app','owner-content','client-search','clients-table-body'],
+            'member.html':['member-alert','member-loading','upload-form','member-inquiry-form'],
+            'owner-ipad.html':['ipad-login-form'],
+          }
+          for path,ids in required.items():
+            missing=[v for v in ids if v not in docs[path].ids]
+            assert not missing,(path,'critical UI anchors missing',missing)
+          owner=docs['owner.html']
+          for view in ('dashboard','clients','cases','documents','appointments','inquiries','tasks','staff','settings'):
+            assert view in owner.nav and view in owner.panels,('missing owner left-menu route',view)
+          assert owner.ids['owner-admin-code'][1].get('type')=='password','owner admin code must be password input'
+          assert owner.ids['owner-code-clear'][0]=='button','owner code clear button missing'
+          assert docs['index.html'].ids['booking-date'][1].get('type')=='date','booking date input should use date semantics'
+          assert docs['index.html'].ids['slot-grid'][1].get('aria-live')=='polite','booking slot announcements missing'
+          assert docs['index.html'].ids['requester-phone'][1].get('inputmode')=='tel','phone should show mobile tel keyboard'
+          print('PASS: owner left menu 9/9, modal anchors, client/member workflows, local page/asset links and input semantics')
+          PYFLOW
+
+      - name: Check real client JavaScript syntax and readable touch sizing without execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check app.js
+          node --check config.js
+          node --check dpro-tutorial-v1.1.js
+          python3 - <<'PYCSS'
+          from pathlib import Path
+          import re
+          css=Path('styles.css').read_text(encoding='utf8')
+          assert re.search(r'body\s*\{[^}]*font-size:\s*17px',css,re.S),'base font should remain readable'
+          assert re.search(r'\.btn\s*\{[^}]*min-height:\s*50px',css,re.S),'button touch target min height missing'
+          assert re.search(r'input,\s*select,\s*textarea\s*\{[^}]*min-height:\s*52px',css,re.S),'form touch target min height missing'
+          assert ':focus-visible' in css,'keyboard focus indicator missing'
+          assert '@media' in css,'responsive CSS media rules missing'
+          config=Path('config.js').read_text(encoding='utf8')
+          assert 'API_BASE' in config,'production config boundary must be documented'
+          print('PASS: actual app/config/tutorial JavaScript parses, base font=17px and large touch controls are preserved')
+          PYCSS
+
+      - name: Publish static-only product QA boundary and keep commercial release HOLD
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYBOUND'
+          import json,os
+          assert os.environ['GITHUB_REPOSITORY']=='dpromstk2000-lab/dpro-tax-accounting-line-liff'
+          report={
+            'suite':'R242 actual source offline product static flow audit',
+            'html_screens':7,
+            'owner_navigation_panels':9,
+            'api_requests_made':0,
+            'functional_click_test':False,
+            'network_api_end_to_end_test':False,
+            'database_test':False,
+            'production_deploy':False,
+            'commercial_release':'NO_GO/HOLD',
+          }
+          print('R242_OFFLINE_AUDIT='+json.dumps(report,ensure_ascii=False,sort_keys=True))
+          print('PASS: read-only UI source contracts; no browser rendering, API traffic, production data or mutations')
+          PYBOUND
+          echo 'NO_GO / HOLD / NO MERGE / NO DEPLOY. Production shared Supabase P0 and actual backup/restore remain OPEN. Worker7 KEEP.'

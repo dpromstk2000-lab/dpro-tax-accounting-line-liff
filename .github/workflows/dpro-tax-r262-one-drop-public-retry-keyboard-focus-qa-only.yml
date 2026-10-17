@@ -1,0 +1,898 @@
+name: DPRO TAX R262 One Drop QA-only Public Retry Focus and Screen Reader Status 92 Screen QA
+
+on:
+  push:
+    branches: ['qa/r225-synthetic-pg17-backup-restore-20261014']
+    paths: ['.github/workflows/dpro-tax-r262-one-drop-public-retry-keyboard-focus-qa-only.yml']
+
+# Scoped to this disposable QA branch. No main, production DB or Worker permissions.
+permissions:
+  contents: write
+
+jobs:
+  r262-owner-modal-lifecycle-qa-isolated:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/qa/r225-synthetic-pg17-backup-restore-20261014'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout QA branch for appointment-client search candidate and QA-only commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 1
+      - name: Prepare R262 retry focus and live status accessibility in QA checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/qa/r225-synthetic-pg17-backup-restore-20261014'
+          python3 - <<'PY_R262_PATCH'
+          from pathlib import Path
+          p=Path('app.js')
+          before=p.read_text(encoding='utf8')
+          old_status='    $("#security-notice-text").textContent = office.security_notice;\n    const dateInput = $("#booking-date");'
+          new_status='    $("#security-notice-text").textContent = office.security_notice;\n    // R262 QA-only: announce loading, failure, and successful slot messages to assistive technology.\n    $("#slot-message").setAttribute("role", "status");\n    const dateInput = $("#booking-date");'
+          old_click='      if (event.target.closest("[data-retry-slots]")) { loadSlots(); return; }'
+          new_click='      if (event.target.closest("[data-retry-slots]")) {\n        // Restore keyboard focus after the retry replaces the original button with available times.\n        const retrySeq = slotRequestSeq + 1;\n        loadSlots().then(() => {\n          if (retrySeq === slotRequestSeq) $("#slot-grid [data-slot]:not(:disabled)")?.focus();\n        });\n        return;\n      }'
+          assert before.count(old_status)==1,'current public init source changed; stop'
+          assert before.count(old_click)==1,'current retry button action changed; stop'
+          for version in ('R254','R255B','R256','R257C','R258','R259','R260','R261'):
+              assert before.count(version+' QA-only')==1,'previous safety patch missing: '+version
+          assert 'R262 QA-only' not in before,'R262 patch already applied'
+          after=before.replace(old_status,new_status,1).replace(old_click,new_click,1)
+          assert after.count('R262 QA-only')==1
+          assert after.count('R261 QA-only')==1
+          for version in ('R254','R255B','R256','R257C','R258','R259','R260'):
+              assert after.count(version+' QA-only')==1
+          p.write_text(after,encoding='utf8')
+          print('PASS: R262 public retry keyboard focus and aria live status only; R254-R261 safeguards preserved; 92-screen test pending')
+          PY_R262_PATCH
+          git diff --check
+          test "$(git diff --name-only)" = app.js
+          git diff --stat -- app.js
+          node --check app.js
+      - name: Install isolated Playwright Chromium for synthetic owner tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv .r262-browser-venv
+          .r262-browser-venv/bin/python -m pip install --disable-pip-version-check playwright==1.56.0
+          .r262-browser-venv/bin/python -m playwright install --with-deps chromium
+          echo 'PASS: disposable localhost browser ready; only QA app.js candidate under test' 
+      - name: Start localhost static site without any proxy to production
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s owner.html && test -s app.js && test -s styles.css && test -s config.js
+          python3 -m http.server 8765 --bind 127.0.0.1 > r262-http.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl --silent --fail --noproxy '*' http://127.0.0.1:8765/owner.html -o /dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent --show-error --noproxy '*' http://127.0.0.1:8765/owner.html -o /dev/null
+          echo 'PASS: isolated localhost-only source ready' 
+      - name: Check R262 retry keyboard focus and screen reader status with prior regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          .r262-browser-venv/bin/python - <<'PY_R262_BROWSER'
+          from pathlib import Path
+          from urllib.parse import urlsplit, parse_qs
+          from datetime import datetime, timezone, timedelta
+          import json
+          from playwright.sync_api import sync_playwright, expect
+          
+          ROOT='http://127.0.0.1:8765'
+          REMOTE='dpro-tax-accounting-line-api.dpromstk2000.workers.dev'
+          EVIDENCE=Path('r262-owner-browser-evidence')
+          DAY_A=(datetime.now(timezone(timedelta(hours=9))).date()+timedelta(days=14)).isoformat()
+          DAY_B=(datetime.now(timezone(timedelta(hours=9))).date()+timedelta(days=15)).isoformat()
+          SLOT_A={'start_at':DAY_A+'T09:00:00+09:00','local_time':'09:00','available':True}
+          SLOT_B={'start_at':DAY_B+'T10:30:00+09:00','local_time':'10:30','available':True}
+          DAY_C=(datetime.now(timezone(timedelta(hours=9))).date()+timedelta(days=16)).isoformat()
+          SLOT_C={'start_at':DAY_C+'T11:00:00+09:00','local_time':'11:00','available':True}
+
+          EVIDENCE.mkdir(exist_ok=True)
+          VIEWS=['dashboard','clients','cases','documents','appointments','inquiries','tasks','staff','settings']
+          FAKE_CLIENT={
+           'id':'r245-c1','legal_name':'架空会計テスト株式会社','client_code':'TX-FAKE-001',
+           'client_type':'corporation','status':'active','representative_name':'架空担当者',
+           'phone':'090-1111-2201','phone_normalized':'09011112201',
+           'assigned_staff_id':None
+          }
+          FAKE_CLIENT_A={
+           'id':'r262-c-a','legal_name':'青葉2026会計サービス',
+           'client_code':'AOBA-2026-X','client_type':'corporation','status':'active',
+           'representative_name':'青葉担当者','phone':'080-2345-6789',
+           'phone_normalized':'08023456789','assigned_staff_id':None
+          }
+          FAKE_CLIENT_B={
+           'id':'r262-c-b','legal_name':'北川2026商事',
+           'client_code':'KITA-2026-Y','client_type':'corporation','status':'active',
+           'representative_name':'北川担当者','phone':'080-9876-5432',
+           'phone_normalized':'08098765432','assigned_staff_id':None
+          }
+          FAKE_CLIENT_C={
+           'id':'r262-c-c','legal_name':'緑2026会計支援',
+           'client_code':'MIDORI-2026-Z','client_type':'corporation','status':'active',
+           'representative_name':'緑担当者','phone':'070-3333-7788',
+           # Deliberately NO phone_normalized; common imported legacy data.
+           'assigned_staff_id':None
+          }
+          FAKE_CLIENT_D={
+           'id':'r262-c-d','legal_name':'特別2026101501税理士事務所',
+           'client_code':'SPEC-2026101501-D','client_type':'corporation','status':'active',
+           'representative_name':'特別担当者','phone':'050-9911-3344',
+           'phone_normalized':'05099113344','assigned_staff_id':None
+          }
+          FAKE_CLIENT_E={
+           'id':'r262-c-e','legal_name':'北条2026101501経営',
+           'client_code':'HOJO-2026101501-E','client_type':'corporation','status':'active',
+           'representative_name':'北条担当者','phone':'050-8877-6655',
+           'phone_normalized':'05088776655','assigned_staff_id':None
+          }
+          FAKE_CASE={
+           'id':'r245-case1','title':'架空の確定申告案件','case_code':'FAKE-CASE-001',
+           'client_id':'r245-c1','case_type':'tax_return','status':'in_progress',
+           'deadline_date':'2027-03-31','progress_percent':30,'deadline_is_confirmed':True,
+           'next_action':'架空の確認作業','public_summary':'架空のテスト案件'
+          }
+          FAKE_CASE_A={
+           'id':'r262-case-a','title':'青葉2026決算','case_code':'CASE-2026-A',
+           'client_id':'r262-c-a','case_type':'corporate_tax_return','status':'in_progress',
+           'deadline_date':'2027-03-31','progress_percent':25,'deadline_is_confirmed':True,
+           'next_action':'架空の決算確認','public_summary':'青葉架空案件'
+          }
+          FAKE_CASE_B={
+           'id':'r262-case-b','title':'北川2026年末','case_code':'CASE-2026-B',
+           'client_id':'r262-c-b','case_type':'year_end_adjustment','status':'checking',
+           'deadline_date':'2027-02-28','progress_percent':50,'deadline_is_confirmed':True,
+           'next_action':'架空の年末調整','public_summary':'北川架空案件'
+          }
+          DASH={
+           'ok':True,'office':{'office_name':'R246架空税理士事務所'},
+           'counts':{'clients':6,'open_cases':3,'new_documents':0,'open_inquiries':0},
+           'urgent_cases':[],'due_tasks':[],'documents_to_review':[],
+           'active_appointments':[],'open_inquiries':[]
+          }
+          FAKE_DOC={
+           'id':'r262-doc1','client_id':'r245-c1','original_filename':'架空_領収書.pdf',
+           'submission_code':'DOC-R262-001','status':'new',
+           'submitted_at':'2026-10-01T09:00:00+09:00','file_size_bytes':2048,
+           'mime_type':'application/pdf','submitted_by_type':'client',
+           'reviewed_at':None,'reviewed_by':None,'rejection_reason':''
+          }
+          FAKE_REQUEST={
+           'id':'r262-request1','client_id':'r245-c1','title':'架空の月次資料提出依頼',
+           'request_code':'REQ-R262-001','due_on':'2027-03-30',
+           'status':'open','items':[{'item_name':'領収書'}]
+          }
+          FAKE_STAFF={
+           'id':'r262-staff1','display_name':'架空事務所スタッフ','staff_code':'FAKE-STAFF-01',
+           'role':'staff','email':'','phone':'','can_review_documents':True,'is_active':True
+          }
+          DOCUMENT_DETAIL={
+           'ok':True,'document':FAKE_DOC,'client':FAKE_CLIENT,
+           'contact':{'full_name':'架空の提出者'},'request':FAKE_REQUEST,
+           'request_item':{'item_name':'領収書'},'reviewers':[FAKE_STAFF],
+           'file':{'available':False},'access_logs':[]
+          }
+          # Deterministic wholly synthetic client detail endpoints for deferred-response race QA.
+          DETAIL_A={'ok':True,'client':FAKE_CLIENT_A,'cases':[],'contacts':[],
+              'document_requests':[],'appointments':[],'inquiries':[]}
+          DETAIL_B={'ok':True,'client':FAKE_CLIENT_B,'cases':[],'contacts':[],
+              'document_requests':[],'appointments':[],'inquiries':[]}
+          FIXTURES={
+           '/api/admin/clients/r262-c-a':DETAIL_A,
+           '/api/admin/clients/r262-c-b':DETAIL_B,
+           '/api/admin/dashboard':DASH,
+           '/api/admin/clients':{'ok':True,'clients':[FAKE_CLIENT,FAKE_CLIENT_A,FAKE_CLIENT_B,FAKE_CLIENT_C,FAKE_CLIENT_D,FAKE_CLIENT_E]},
+           '/api/admin/cases':{'ok':True,'cases':[FAKE_CASE,FAKE_CASE_A,FAKE_CASE_B]},
+           '/api/admin/document-requests':{'ok':True,'document_requests':[FAKE_REQUEST]},
+           '/api/admin/documents':{'ok':True,'documents':[FAKE_DOC]},
+           '/api/admin/documents/r262-doc1':DOCUMENT_DETAIL,
+           '/api/admin/appointments':{'ok':True,'appointments':[]},
+           '/api/admin/inquiries':{'ok':True,'inquiries':[]},
+           '/api/admin/tasks':{'ok':True,'tasks':[]},
+           '/api/admin/staff':{'ok':True,'staff':[FAKE_STAFF]},
+           '/api/admin/settings':{'ok':True,'office':{
+               'office_name':'R246架空税理士事務所','phone':'','email':'',
+               'booking_open_days':90,'security_notice':'架空データのみ'} ,
+               'services':[],'business_hours':[],'closed_dates':[]},
+           '/api/public/office':{'ok':True,'office':{
+               'security_notice':'架空データのみ','booking_open_days':90},'services':[{'id':'synthetic-r262-service','service_name':'架空の税務面談','duration_minutes':30,'channel_options':['in_person','phone']}]}
+          }
+          report={'suite':'R262 validated public booking submission plus slot race and 72 owner regression screens',
+                  'main_modified':False,'production_requests':0,'attempted_mutations':0,
+                  'screenshots':[],'view_checks':{},'searches':{},'blocked_requests':0,
+                  'mock_reads':0,'browser_errors':[],'settings_css_comparison':{},'business_flow_checks':{},'r262_client_search_guards':{},'r262_case_search_guards':{},'r262_booking_guard':{},'r262_booking_client_search':{},'r262_race_guard':{},'r262_modal_close_guard':{},'r262_public_slot_race':{},'r262_submission_guards':{},'r262_slot_accessibility':{},'r262_slot_retry':{},'r262_retry_keyboard_focus':{},'release':'NO_GO/HOLD'}
+          with sync_playwright() as p:
+              browser=p.chromium.launch(headless=True,args=['--no-sandbox'])
+              for preset,w,h in [('desktop',1280,800),('tablet',1024,800),('compact',768,900),('mobile',390,844)]:
+                  ctx=browser.new_context(viewport={'width':w,'height':h},
+                          device_scale_factor=1,is_mobile=preset=='mobile',
+                          has_touch=preset=='mobile',reduced_motion='reduce',
+                          service_workers='block',java_script_enabled=True)
+                  events={'requests':0,'blocked':0,'mutations':0,'api':0}
+                  deferred=[]
+                  deferred_public=[]
+                  slot_c_attempts=[0]
+                  def offline(route):
+                      req=route.request
+                      u=urlsplit(req.url)
+                      if u.scheme=='http' and u.hostname=='127.0.0.1' and u.port==8765:
+                          return route.continue_()
+                      if u.hostname==REMOTE and req.method=='GET' and u.path=='/api/public/slots':
+                          selected_day=parse_qs(u.query).get('date',[''])[0]
+                          if selected_day==DAY_A:
+                              deferred_public.append(route)
+                              return
+                          if selected_day==DAY_B:
+                              events['api']+=1
+                              return route.fulfill(status=200,content_type='application/json',
+                                  headers={'Access-Control-Allow-Origin':'*'},
+                                  body=json.dumps({'ok':True,'slots':[SLOT_B]},ensure_ascii=False))
+                          if selected_day==DAY_C:
+                              slot_c_attempts[0]+=1
+                              events['api']+=1
+                              if slot_c_attempts[0]==1:
+                                  return route.fulfill(status=503,content_type='application/json',
+                                      headers={'Access-Control-Allow-Origin':'*'},
+                                      body=json.dumps({'ok':False,'message':'架空の一時的な取得失敗'},ensure_ascii=False))
+                              return route.fulfill(status=200,content_type='application/json',
+                                  headers={'Access-Control-Allow-Origin':'*'},
+                                  body=json.dumps({'ok':True,'slots':[SLOT_C]},ensure_ascii=False))
+                          events['blocked']+=1
+                          return route.abort('blockedbyclient')
+                      if u.hostname==REMOTE and req.method=='OPTIONS' and u.path in FIXTURES:
+                          # Explicitly mock browser CORS preflight for synthetic admin X-Admin-Key GETs.
+                          # This never reaches the Cloudflare Worker.
+                          return route.fulfill(status=204,headers={
+                              'Access-Control-Allow-Origin':'*',
+                              'Access-Control-Allow-Methods':'GET, OPTIONS',
+                              'Access-Control-Allow-Headers':'X-Admin-Key, X-Line-User-Id, Content-Type, Accept',
+                              'Access-Control-Max-Age':'0'})
+                      if u.hostname==REMOTE and req.method=='GET' and u.path=='/api/admin/clients/r262-c-a':
+                          # Never reach network. Hold response A until synthetic client B has been selected.
+                          assert req.headers.get('x-admin-key')=='1234'
+                          deferred.append(route)
+                          events['api']+=1
+                          return
+                      if u.hostname==REMOTE and req.method=='GET' and u.path in FIXTURES:
+                          if u.path.startswith('/api/admin/') and req.headers.get('x-admin-key')!='1234':
+                              events['blocked']+=1
+                              return route.fulfill(status=403,content_type='application/json',
+                                  headers={'Access-Control-Allow-Origin':'*'},
+                                  body=json.dumps({'ok':False,'error':'SYNTHETIC_INVALID_CODE'}))
+                          events['api']+=1
+                          return route.fulfill(status=200,content_type='application/json',
+                              headers={'Access-Control-Allow-Origin':'*'},
+                              body=json.dumps(FIXTURES[u.path],ensure_ascii=False))
+                      events['blocked']+=1
+                      if req.method not in ('GET','HEAD','OPTIONS'):
+                          events['mutations']+=1
+                      return route.abort('blockedbyclient')
+                  ctx.route('**/*',offline)
+                  page=ctx.new_page()
+                  errs=[]
+                  page.on('pageerror',lambda e:errs.append(str(e)))
+                  response=page.goto(ROOT+'/owner.html?demo=1',wait_until='domcontentloaded',timeout=15000)
+                  assert response and response.status==200,(preset,'local source not loaded')
+                  page.locator('#owner-app').wait_for(state='visible',timeout=15000)
+                  page.locator('#owner-content').wait_for(state='visible',timeout=15000)
+                  expect(page.locator('#owner-auth')).to_be_hidden(timeout=15000)
+                  expect(page.locator('#owner-office-name')).to_have_text('R246架空税理士事務所',timeout=15000)
+                  expect(page.locator('#metric-clients')).to_have_text('6',timeout=15000)
+                  expect(page.locator('#metric-cases')).to_have_text('3',timeout=15000)
+                  expect(page.locator('button[data-admin-view]')).to_have_count(9,timeout=15000)
+                  expect(page.locator('#clients-table-body tr')).to_have_count(6,timeout=15000)
+                  expect(page.locator('#cases-table-body tr')).to_have_count(3,timeout=15000)
+                  expect(page.locator('#clients-table-body')).to_contain_text('架空会計テスト株式会社',timeout=15000)
+                  expect(page.locator('#cases-table-body')).to_contain_text('架空の確定申告案件',timeout=15000)
+                  for view in VIEWS:
+                      # A mobile sidebar is initially hidden; open it via the actual user control.
+                      if preset=='mobile':
+                          page.locator('#sidebar-toggle').click()
+                          assert 'open' in (page.locator('#admin-sidebar').get_attribute('class') or ''),(
+                              preset,view,'sidebar did not open')
+                      button=page.locator('button[data-admin-view="'+view+'"]')
+                      button.click(timeout=10000)
+                      panel=page.locator('[data-admin-panel="'+view+'"]')
+                      assert panel.is_visible(),(preset,view,'selected panel not visible')
+                      assert button.evaluate('(e)=>e.classList.contains("active")'),(preset,view,'active nav state missing')
+                      assert page.locator('[data-admin-panel]:visible').count()==1,(preset,view,'other panels unexpectedly visible')
+                      if preset=='mobile':
+                          assert 'open' not in (page.locator('#admin-sidebar').get_attribute('class') or ''),(
+                              preset,view,'sidebar did not auto-close')
+                      # R262: Only the checked-out QA-branch styles.css is rendered.
+                      # No injected styles, production credentials, or live API responses.
+                      geom=page.evaluate('Math.max(document.documentElement.scrollWidth,document.body.scrollWidth)-innerWidth')
+                      assert geom<=1,(preset,view,'actual product stylesheet overflows',geom)
+                      if view=='settings':
+                          for selector in ('#business-hours-editor [data-business-day]','[data-hour-open]','[data-hour-close]'):
+                              assert page.locator(selector).count()>=7,(preset,'seven weekday controls missing',selector)
+                          report['settings_css_comparison'][preset]={'source_page_overflow_px':geom,
+                              'no_temporary_css':True,'code_under_test':'styles.css',
+                              'real_product_css_in_qa_branch':True}
+                      fname=f'{preset}-owner-{view}.png'
+                      panel.screenshot(path=str(EVIDENCE/fname),animations='disabled',timeout=15000)
+                      report['screenshots'].append(fname)
+                      report['view_checks'][f'{preset}/{view}']={'visible':True,'other_panels_hidden':True,
+                                            'sidebar_closes':True,'page_overflow_px':geom}
+                  # R262: Business flow inspection with actual app.js. No writes are issued.
+                  # Start in documents after the last nine-menu iteration (settings).
+                  if preset=='mobile':
+                      page.locator('#sidebar-toggle').click()
+                  page.locator('button[data-admin-view="documents"]').click()
+                  docs=page.locator('#documents-table-body')
+                  assert docs.locator('tr').count()==1,(preset,'fixture doc missing')
+                  assert '架空_領収書.pdf' in docs.inner_text(),(preset,'doc title absent')
+                  q=page.locator('#document-search')
+                  q.fill('領収書')
+                  assert 'DOC-R262-001' in docs.inner_text(),(preset,'document NFKC search failed')
+                  q.fill('架空でも存在しないファイル')
+                  assert '条件に一致する提出書類がありません' in docs.inner_text(),(preset,'document no-result copy')
+                  q.fill('')
+                  page.locator('#document-status-filter').select_option('accepted')
+                  assert '条件に一致する提出書類がありません' in docs.inner_text(),(preset,'status filtering')
+                  page.locator('#document-status-filter').select_option('new')
+                  assert 'DOC-R262-001' in docs.inner_text(),(preset,'new document filtering')
+                  page.locator('[data-document-tab="requests"]').click()
+                  assert page.locator('#document-submission-table').is_hidden()
+                  assert page.locator('#document-request-table').is_visible()
+                  assert '架空の月次資料提出依頼' in page.locator('#requests-table-body').inner_text()
+                  page.locator('[data-document-tab="submissions"]').click()
+                  assert page.locator('#document-submission-table').is_visible()
+                  assert page.locator('#document-request-table').is_hidden()
+                  page.locator('[data-document-review-open="r262-doc1"]').click()
+                  page.locator('#document-review-content').wait_for(state='visible',timeout=10000)
+                  assert '架空_領収書.pdf' in page.locator('#document-review-summary').inner_text()
+                  assert page.locator('#document-review-open').is_disabled(),(preset,'fake file must not open')
+                  assert page.locator('#document-reviewer option').count()==1
+                  assert '履歴はありません' in page.locator('#document-review-history').inner_text()
+                  before_mutations=events['mutations']
+                  page.locator('#document-review-note').fill('')
+                  page.locator('#document-review-form [data-review-status="rejected"]').click()
+                  assert page.locator('#document-review-note').evaluate('(e)=>document.activeElement===e')
+                  assert events['mutations']==before_mutations,(preset,'rejection without reason attempted API write')
+                  page.locator('#document-review-modal [data-close-modal]').click()
+                  assert page.locator('#document-review-modal').is_hidden()
+                  page.locator('[data-admin-panel="documents"]').screenshot(
+                    path=str(EVIDENCE/f'{preset}-document-guard-flow.png'),animations='disabled',timeout=15000)
+                  report['screenshots'].append(f'{preset}-document-guard-flow.png')
+                  # R262: Settings edits are exercised in the DOM only; do NOT save valid data.
+                  if preset=='mobile':
+                      page.locator('#sidebar-toggle').click()
+                  page.locator('button[data-admin-view="settings"]').click()
+                  editor=page.locator('#business-hours-editor')
+                  assert editor.locator('[data-business-day]').count()==7
+                  monday=editor.locator('[data-business-day="1"]')
+                  opening=monday.locator('[data-hour-open]')
+                  closing=monday.locator('[data-hour-close]')
+                  checkbox=monday.locator('[data-hour-closed]')
+                  assert opening.locator('option').count()==48
+                  assert closing.locator('option').count()==48
+                  assert opening.input_value()=='09:00'
+                  assert closing.input_value()=='17:00'
+                  assert not checkbox.is_checked()
+                  checkbox.check()
+                  assert opening.is_disabled() and closing.is_disabled()
+                  checkbox.uncheck()
+                  assert opening.is_enabled() and closing.is_enabled()
+                  # Invalid hours must be rejected before PATCH /api/admin/business-hours.
+                  opening.select_option('17:00')
+                  closing.select_option('09:00')
+                  page.locator('#business-hours-form button[type="submit"]').click()
+                  assert events['mutations']==before_mutations,(preset,'invalid hours wrote to API')
+                  # Date form: special time fields become visible, impossible interval is rejected.
+                  datevalue=page.evaluate("new Date(Date.now()+86400000*3).toISOString().slice(0,10)")
+                  page.locator('#closed-date-value').fill(datevalue)
+                  page.locator('#closed-date-type').select_option('special')
+                  assert page.locator('#closed-date-time-fields').is_visible()
+                  assert page.locator('#closed-date-open option').count()==48
+                  assert page.locator('#closed-date-close option').count()==48
+                  page.locator('#closed-date-open').select_option('17:00')
+                  page.locator('#closed-date-close').select_option('09:00')
+                  page.locator('#closed-date-form button[type="submit"]').click()
+                  assert events['mutations']==before_mutations,(preset,'invalid special time wrote to API')
+                  page.locator('#closed-date-type').select_option('closed')
+                  assert page.locator('#closed-date-time-fields').is_hidden()
+                  # Service modal: at least one consultation channel is required.
+                  page.locator('[data-new-service]').click()
+                  page.locator('#service-edit-name').fill('架空オンライン相談')
+                  boxes=page.locator('#service-edit-form [name="channel_options"]')
+                  assert boxes.count()>=3
+                  for i in range(boxes.count()): boxes.nth(i).uncheck()
+                  page.locator('#service-edit-form button[type="submit"]').click()
+                  assert events['mutations']==before_mutations,(preset,'empty service channels wrote to API')
+                  page.locator('#service-edit-modal [data-close-modal]').click()
+                  assert page.locator('#service-edit-modal').is_hidden()
+                  page.locator('[data-admin-panel="settings"]').screenshot(
+                    path=str(EVIDENCE/f'{preset}-settings-guard-flow.png'),animations='disabled',timeout=15000)
+                  report['screenshots'].append(f'{preset}-settings-guard-flow.png')
+                  report['business_flow_checks'][preset]={
+                      'document_search_and_no_result':True,'document_status_filter':True,
+                      'request_submission_tabs':True,'fake_document_nonopenable':True,
+                      'rejection_requires_reason':True,'seven_business_days':True,
+                      'half_hour_option_count':48,'closed_disables_times':True,
+                      'invalid_hours_blocked':True,'special_time_toggle':True,
+                      'invalid_special_time_blocked':True,'service_channel_required':True,
+                      'attempted_mutations':events['mutations']
+                  }
+                  # Exercise fuzzy/normalized phone search without any write request.
+                  if preset=='mobile':page.locator('#sidebar-toggle').click()
+                  page.locator('button[data-admin-view="clients"]').click()
+                  search=page.locator('#client-search')
+                  search.fill('+81 90-1111-2201')
+                  assert page.locator('#clients-table-body tr').count()==1,(preset,'phone search did not match')
+                  assert '架空会計テスト株式会社' in page.locator('#clients-table-body').inner_text()
+                  # R262 targeted regression: mixed-name text must not degrade to its digit fragment.
+                  # Both fake records contain 2026, so the old renderClients() implementation
+                  # returns BOTH rows for either query; the QA-only patch must return one.
+                  search.fill('青葉2026会計サービス')
+                  rows=page.locator('#clients-table-body tr')
+                  assert rows.count()==1,(preset,'mixed Japanese name collapsed to digits',rows.count())
+                  assert '青葉2026会計サービス' in rows.inner_text()
+                  assert '北川2026商事' not in rows.inner_text()
+                  search.fill('AOBA-2026-X')
+                  assert rows.count()==1,(preset,'mixed alphanumeric client code collapsed to digits',rows.count())
+                  assert '青葉2026会計サービス' in rows.inner_text()
+                  # Telephone and full-width numeric form must keep current standard.
+                  search.fill('０８０－２３４５－６７８９')
+                  assert rows.count()==1,(preset,'full-width phone normalization regressed',rows.count())
+                  assert '青葉2026会計サービス' in rows.inner_text()
+                  search.fill('+81 (80) 9876-5432')
+                  assert rows.count()==1,(preset,'country-code phone normalization regressed',rows.count())
+                  assert '北川2026商事' in rows.inner_text()
+                  # R262 phone fallback: legacy client lacks phone_normalized and has only formatted phone.
+                  search.fill('+81 (70) 3333-7788')
+                  assert rows.count()==1,(preset,'legacy phone without normalized column missed',rows.count())
+                  assert '緑2026会計支援' in rows.inner_text()
+                  search.fill('０７０－３３３３－７７８８')
+                  assert rows.count()==1,(preset,'fullwidth legacy formatted number missed',rows.count())
+                  assert '緑2026会計支援' in rows.inner_text()
+                  search.fill('緑2026会計支援')
+                  assert rows.count()==1,(preset,'legacy Japanese mixed-digit name missed',rows.count())
+                  assert '緑2026会計支援' in rows.inner_text()
+                  search.fill('MIDORI-2026-Z')
+                  assert rows.count()==1,(preset,'legacy alphanumeric code missed',rows.count())
+                  assert '緑2026会計支援' in rows.inner_text()
+                  search.fill('北川2026商事')
+                  assert rows.count()==1,(preset,'second mixed Japanese name search failed',rows.count())
+                  assert '北川2026商事' in rows.inner_text()
+                  fname=f'{preset}-r262-mixed-alphanumeric-client-search.png'
+                  page.locator('[data-admin-panel="clients"]').screenshot(
+                      path=str(EVIDENCE/fname),animations='disabled',timeout=15000)
+                  report['screenshots'].append(fname)
+                  report['r262_client_search_guards'][preset]={
+                    'japanese_name_with_digits':True,'alphanumeric_client_code':True,
+                    'fullwidth_phone':True,'international_phone':True,
+                    'other_client_not_in_results':True,'legacy_missing_normalized_phone':True,
+                    'legacy_fullwidth_phone':True,'legacy_alphanumeric_code':True,'writes':events['mutations']}
+                  search.fill('not-a-fake-client')
+                  assert '一致する顧問先がありません' in page.locator('#clients-table-body').inner_text(),(
+                      preset,'no-results state missing')
+                  search.fill('')
+                  assert '架空会計テスト株式会社' in page.locator('#clients-table-body').inner_text()
+                  report['searches'][preset]={'international_phone_normalization':True,
+                                              'no_results_message':True,'clear_restores_rows':True}
+                  # R262: case search must not return both CASE-2026 rows for a fullwidth code or spaced title.
+                  if preset=='mobile':page.locator('#sidebar-toggle').click()
+                  page.locator('button[data-admin-view="cases"]').click()
+                  cases=page.locator('#cases-table-body')
+                  case_search=page.locator('#case-search')
+                  case_status=page.locator('#case-status-filter')
+                  case_search.fill('ＣＡＳＥ－２０２６－Ａ')
+                  assert cases.locator('tr').count()==1,(preset,'NFKC code search should find precisely one case')
+                  assert '青葉2026決算' in cases.inner_text()
+                  assert '北川2026年末' not in cases.inner_text()
+                  case_search.fill('　青葉２０２６決算　')
+                  assert cases.locator('tr').count()==1,(preset,'padded fullwidth case name search failed')
+                  assert '青葉2026決算' in cases.inner_text()
+                  case_search.fill('ＣＡＳＥ－２０２６－Ｂ')
+                  assert cases.locator('tr').count()==1,(preset,'second NFKC code search failed')
+                  assert '北川2026年末' in cases.inner_text()
+                  case_search.fill('')
+                  case_status.select_option('checking')
+                  assert cases.locator('tr').count()==1,(preset,'status filter checking should return one case')
+                  assert '北川2026年末' in cases.inner_text()
+                  case_status.select_option('')
+                  case_search.fill('does-not-exist-abcdef')
+                  assert '案件がありません' in cases.inner_text(),(preset,'empty search message')
+                  case_search.fill('')
+                  assert cases.locator('tr').count()==3,(preset,'clear search should restore all cases')
+                  fname=f'{preset}-r262-fullwidth-case-search.png'
+                  page.locator('[data-admin-panel="cases"]').screenshot(path=str(EVIDENCE/fname),animations='disabled',timeout=15000)
+                  report['screenshots'].append(fname)
+                  report['r262_case_search_guards'][preset]={
+                     'nfkc_case_code_a':True,'padded_fullwidth_japanese_title':True,
+                     'nfkc_case_code_b':True,'status_filter':True,
+                     'no_results_message':True,'clearing_restores_cases':True,
+                     'no_api_writes':events['mutations']==0}
+                  # R262: direct synthetic submit intentionally bypasses the HTML native min/step
+                  # so the actual JS handler, not the browser widget, must reject invalid times.
+                  if preset=='mobile':page.locator('#sidebar-toggle').click()
+                  page.locator('button[data-admin-view="appointments"]').click()
+                  page.locator('[data-open-modal="appointment-create-modal"]').click()
+                  form=page.locator('#admin-appointment-form')
+                  assert form.is_visible()
+                  dt_input=form.locator('[name="requested_start_at"]')
+                  before_invalid=events['mutations']
+                  for invalid,why in [('2020-01-01T09:00','past_date'),('2035-01-01T09:15','quarter_hour')]:
+                      dt_input.fill(invalid)
+                      form.dispatch_event('submit')
+                      assert events['mutations']==before_invalid,(preset,why,'unexpected API write')
+                      assert page.locator('#toast-stack').inner_text().find('予約日時は未来の30分単位で指定してください。')!=-1,(
+                          preset,why,'validation toast absent')
+                      assert form.is_visible(),(preset,why,'modal closed unexpectedly')
+                  dt_input.fill('')
+                  form.dispatch_event('submit')
+                  assert events['mutations']==before_invalid,(preset,'blank date sent business mutation')
+                  assert form.is_visible()
+                  fname=f'{preset}-r262-invalid-admin-booking-blocked.png'
+                  page.locator('#appointment-create-modal').screenshot(path=str(EVIDENCE/fname),animations='disabled',timeout=15000)
+                  report['screenshots'].append(fname)
+                  report['r262_booking_guard'][preset]={
+                      'past_date_blocked':True,'off_grid_time_blocked':True,
+                      'blank_start_blocked':True,'no_write':events['mutations']==before_invalid,
+                      'validation_visible':True}
+                  page.locator('#appointment-create-modal [data-close-modal]').click()
+                  assert page.locator('#appointment-create-modal').is_hidden()
+                  # R262 appointment-client search. Each action uses the real owner.html/app.js
+                  # with six wholly synthetic clients and no remote HTTP business requests.
+                  page.locator('[data-open-modal="appointment-create-modal"]').click()
+                  assert page.locator('#appointment-create-modal').is_visible()
+                  search=page.locator('#appointment-client-search')
+                  search_button=page.locator('#appointment-client-search-button')
+                  matches=page.locator('#appointment-client-results [data-select-appointment-client]')
+                  tests=[
+                      ('+81 70-3333-7788','r262-c-c','legacy +81 phone without normalized'),
+                      ('０７０－３３３３－７７８８','r262-c-c','legacy fullwidth phone without normalized'),
+                      ('  AOBA-2026-X  ','r262-c-a','alphanumeric client code'),
+                      ('青葉２０２６会計サービス','r262-c-a','fullwidth Japanese company name'),
+                      ('特別２０２６１０１５０１税理士事務所','r262-c-d','long digit company name not broad numeric search'),
+                      ('北条2026101501経営','r262-c-e','same digits different business name'),
+                  ]
+                  for query,target,why in tests:
+                      search.fill(query)
+                      search_button.click()
+                      assert matches.count()==1,(preset,why,'expected exactly one matched client',matches.count())
+                      assert matches.first.get_attribute('data-select-appointment-client')==target,(preset,why,'wrong client matched')
+                  search.fill('存在しない法人234546789013')
+                  search_button.click()
+                  assert matches.count()==0,(preset,'no-match query unexpectedly returned clients')
+                  assert '一致する顧問先がありません' in page.locator('#appointment-client-results').inner_text()
+                  search.fill('+81 70-3333-7788')
+                  search_button.click()
+                  assert matches.count()==1
+                  fname=f'{preset}-r262-booking-legacy-phone-lookup.png'
+                  page.locator('#appointment-create-modal').screenshot(path=str(EVIDENCE/fname),animations='disabled')
+                  report['screenshots'].append(fname)
+                  # R262 out-of-order synthetic API response: click A, keep A pending, then click B.
+                  # The real app.js must show B even after A's old response is released.
+                  search.fill('青葉２０２６会計サービス')
+                  search_button.click()
+                  assert matches.count()==1 and matches.first.get_attribute('data-select-appointment-client')=='r262-c-a'
+                  matches.first.click()
+                  page.wait_for_timeout(80)
+                  assert len(deferred)==1,(preset,'client A deferred GET missing',len(deferred))
+                  search.fill('北川2026商事')
+                  search_button.click()
+                  assert matches.count()==1 and matches.first.get_attribute('data-select-appointment-client')=='r262-c-b'
+                  matches.first.click()
+                  page.wait_for_function("document.querySelector('#appointment-client-id').value === 'r262-c-b'",timeout=12000)
+                  assert '北川2026商事' in page.locator('#appointment-selected-client').inner_text()
+                  # Delayed A resolves after B, but must be ignored.
+                  deferred.pop().fulfill(status=200,content_type='application/json',
+                      headers={'Access-Control-Allow-Origin':'*'},body=json.dumps(DETAIL_A,ensure_ascii=False))
+                  page.wait_for_timeout(160)
+                  assert page.locator('#appointment-client-id').input_value()=='r262-c-b',(preset,'stale A overwrote latest B id')
+                  assert '北川2026商事' in page.locator('#appointment-selected-client').inner_text(),(preset,'stale A overwrote latest B UI')
+                  assert '青葉2026会計サービス' not in page.locator('#appointment-selected-client').inner_text()
+                  assert page.locator('#admin-requester-name').input_value()=='北川担当者'
+                  assert events['mutations']==0,(preset,'race generated a business write')
+                  fname=f'{preset}-r262-latest-selected-client-wins.png'
+                  page.locator('#appointment-create-modal').screenshot(path=str(EVIDENCE/fname),animations='disabled')
+                  report['screenshots'].append(fname)
+                  report['r262_race_guard'][preset]={
+                      'delayed_first_response':True,'second_selected_first':True,
+                      'stale_first_response_ignored':True,'latest_client_id_preserved':True,
+                      'latest_client_name_preserved':True,'no_business_mutations':True}
+                  page.locator('#appointment-create-modal [data-close-modal]').click()
+                  # R262: after B was selected in the R256 race, closing must clear identity.
+                  assert page.locator('#appointment-client-id').input_value()==''
+                  assert page.locator('#appointment-contact-id').input_value()==''
+                  assert page.locator('#admin-requester-name').input_value()==''
+                  assert page.locator('#admin-requester-phone').input_value()==''
+                  assert page.locator('#admin-requester-email').input_value()==''
+                  assert page.locator('#appointment-selected-client').is_hidden()
+                  page.locator('[data-open-modal="appointment-create-modal"]').click()
+                  assert page.locator('#appointment-client-id').input_value()==''
+                  assert page.locator('#appointment-selected-client').is_hidden()
+                  # Start A's synthetic lookup, then close and reopen before its delayed reply.
+                  search.fill('青葉２０２６会計サービス')
+                  search_button.click()
+                  assert matches.count()==1 and matches.first.get_attribute('data-select-appointment-client')=='r262-c-a'
+                  matches.first.click()
+                  page.wait_for_timeout(90)
+                  assert len(deferred)==1,(preset,'pending A response not held',len(deferred))
+                  page.locator('#appointment-create-modal [data-close-modal]').click()
+                  assert page.locator('#appointment-client-id').input_value()==''
+                  page.locator('[data-open-modal="appointment-create-modal"]').click()
+                  deferred.pop().fulfill(status=200,content_type='application/json',
+                      headers={'Access-Control-Allow-Origin':'*'},body=json.dumps(DETAIL_A,ensure_ascii=False))
+                  page.wait_for_timeout(180)
+                  assert page.locator('#appointment-client-id').input_value()=='',(preset,'old response resurrected closed modal selection')
+                  assert page.locator('#appointment-selected-client').is_hidden(),(preset,'old detail UI appeared after reopen')
+                  assert page.locator('#admin-requester-name').input_value()==''
+                  assert page.locator('#admin-requester-phone').input_value()==''
+                  assert page.locator('#appointment-client-search').input_value()==''
+                  fname=f'{preset}-r262-modal-reopen-ignores-old-response.png'
+                  page.locator('#appointment-create-modal').screenshot(path=str(EVIDENCE/fname),animations='disabled')
+                  report['screenshots'].append(fname)
+                  # Select actual B, dismiss with Escape, reopen: no identity should linger.
+                  search.fill('北川2026商事')
+                  search_button.click()
+                  assert matches.count()==1 and matches.first.get_attribute('data-select-appointment-client')=='r262-c-b'
+                  matches.first.click()
+                  page.wait_for_function("document.querySelector('#appointment-client-id').value === 'r262-c-b'",timeout=12000)
+                  page.keyboard.press('Escape')
+                  assert page.locator('#appointment-create-modal').is_hidden(),(preset,'Escape did not close')
+                  assert page.locator('#appointment-client-id').input_value()==''
+                  page.locator('[data-open-modal="appointment-create-modal"]').click()
+                  assert page.locator('#appointment-selected-client').is_hidden()
+                  assert page.locator('#appointment-contact-id').input_value()==''
+                  assert page.locator('#admin-requester-name').input_value()==''
+                  assert page.locator('#admin-requester-phone').input_value()==''
+                  fname=f'{preset}-r262-escape-reopen-clears-client.png'
+                  page.locator('#appointment-create-modal').screenshot(path=str(EVIDENCE/fname),animations='disabled')
+                  report['screenshots'].append(fname)
+                  report['r262_modal_close_guard'][preset]={
+                      'close_clears_selected_identity':True,'booking_form_reset':True,
+                      'reopen_has_empty_identity':True,
+                      'pending_old_reply_discarded':True,
+                      'escape_clears_identity':True,
+                      'reopen_after_escape_empty':True,
+                      'no_business_mutations':events['mutations']==0}
+                  page.locator('#appointment-create-modal [data-close-modal]').click()
+                  assert events['mutations']==0,(preset,'unexpected business mutation from search')
+                  report['r262_booking_client_search'][preset]={
+                      'legacy_plus81':True,'legacy_fullwidth':True,'alphanumeric_code':True,
+                      'fullwidth_company':True,'long_digit_name_not_overbroad':True,
+                      'same_digit_other_company_distinct':True,'no_match_empty':True,
+                      'attempted_mutations':events['mutations']}
+                  assert not errs,(preset,'uncaught UI JavaScript exceptions',errs)
+                  assert events['mutations']==0,(preset,'mutating request emitted')
+                  assert events['api']>=12,(preset,'synthetic endpoints not exercised',events)
+                  report['attempted_mutations']+=events['mutations']
+                  report['mock_reads']+=events['api']
+                  report['blocked_requests']+=events['blocked']
+                  # R262: exercise public index.html using exact checked-out app.js with simulated delayed slots.
+                  public_page=ctx.new_page()
+                  public_errors=[]
+                  public_page.on('pageerror',lambda e:public_errors.append(str(e)))
+                  public_response=public_page.goto(ROOT+'/index.html?demo=1',wait_until='domcontentloaded',timeout=15000)
+                  assert public_response and public_response.status==200,(preset,'public source not served')
+                  public_page.locator('#booking-service option[value="synthetic-r262-service"]').wait_for(state='attached',timeout=15000)
+                  public_page.locator('#booking-service').select_option('synthetic-r262-service')
+                  public_page.locator('#booking-date').fill(DAY_A)
+                  public_page.wait_for_timeout(150)
+                  assert len(deferred_public)==1,(preset,'first date GET not delayed',len(deferred_public))
+                  public_page.locator('#booking-date').fill(DAY_B)
+                  public_page.locator('#slot-grid [data-slot]').first.wait_for(state='visible',timeout=12000)
+                  assert public_page.locator('#slot-grid [data-slot]').count()==1,(preset,'second-date slot not loaded')
+                  assert public_page.locator('#slot-grid [data-slot]').first.get_attribute('data-slot')==SLOT_B['start_at']
+                  assert '10:30' in public_page.locator('#slot-grid').inner_text()
+                  deferred_public.pop().fulfill(status=200,content_type='application/json',
+                      headers={'Access-Control-Allow-Origin':'*'},
+                      body=json.dumps({'ok':True,'slots':[SLOT_A]},ensure_ascii=False))
+                  public_page.wait_for_timeout(170)
+                  assert public_page.locator('#slot-grid [data-slot]').count()==1,(preset,'stale slot row appeared')
+                  assert public_page.locator('#slot-grid [data-slot]').first.get_attribute('data-slot')==SLOT_B['start_at'],(preset,'old-day slot replaced latest')
+                  assert '09:00' not in public_page.locator('#slot-grid').inner_text(),(preset,'stale time rendered')
+                  assert public_page.locator('#booking-start').input_value()==''
+                  # R262 keyboard focus + Enter must select same slot and update accessibility state.
+                  slot_button=public_page.locator('#slot-grid [data-slot]').first
+                  assert slot_button.get_attribute('aria-pressed')=='false',(preset,'new slot missing default ARIA')
+                  slot_button.focus()
+                  slot_button.press('Enter')
+                  assert slot_button.get_attribute('aria-pressed')=='true',(preset,'selected slot not announced')
+                  assert slot_button.evaluate('(e)=>e.classList.contains("selected")'),(preset,'keyboard selection not visualized')
+                  assert public_page.locator('#booking-start').input_value()==SLOT_B['start_at'],(preset,'wrong selected slot')
+                  assert not public_errors,(preset,'public JS error',public_errors)
+                  assert events['mutations']==0,(preset,'public test caused business write')
+                  fname=f'{preset}-r262-public-latest-date-slots-win.png'
+                  public_page.locator('#booking').screenshot(path=str(EVIDENCE/fname),animations='disabled')
+                  report['screenshots'].append(fname)
+                  report['r262_public_slot_race'][preset]={
+                     'date_a_response_delayed':True,'date_b_latest_slots_shown':True,
+                     'stale_date_a_response_ignored':True,'latest_slot_selectable':True,
+                     'no_business_mutations':True}
+                  # R262: separate evidence for public booking screen reader and keyboard pressed state.
+                  assert public_page.locator('#slot-grid button[aria-pressed="true"]').count()==1
+                  assert public_page.locator('#slot-grid button[aria-pressed="false"]').count()==0
+                  fname=f'{preset}-r262-public-keyboard-aria-pressed.png'
+                  public_page.locator('#booking').screenshot(path=str(EVIDENCE/fname),animations='disabled')
+                  report['screenshots'].append(fname)
+                  report['r262_slot_accessibility'][preset]={
+                      'unselected_button_aria_false':True,
+                      'keyboard_enter_selects':True,
+                      'selected_button_aria_true':True,
+                      'visual_selected_and_aria_match':True,
+                      'no_business_mutations':events['mutations']==0}
+                  # R262: tamper only synthetic page values. Every invalid attempt must be rejected before any API POST.
+                  public_page.locator('#requester-name').fill('架空 テスト')
+                  public_page.locator('#requester-phone').fill('090-1111-2201')
+                  def invalid_booking(slot, reason):
+                      public_page.locator('#booking-start').evaluate('(e,v) => e.value=v',slot)
+                      public_page.locator('#public-alert').evaluate('(e)=>e.textContent=""')
+                      public_page.locator('#booking-form').evaluate('(f)=>f.requestSubmit()')
+                      public_page.wait_for_function("document.querySelector('#public-alert').textContent.includes('希望日時を選び直してください')",timeout=8000)
+                      assert events['mutations']==0,(preset,reason,'invalid booking attempted write')
+                      assert public_page.locator('#booking-start').input_value()==slot
+                  invalid_booking('2020-01-01T09:00:00+09:00','past_time')
+                  invalid_booking(DAY_B+'T10:15:00+09:00','not_half_hour')
+                  invalid_booking(DAY_A+'T09:00:00+09:00','wrong_date')
+                  public_page.locator('#booking-start').evaluate('(e,v)=>e.value=v',SLOT_B['start_at'])
+                  public_page.locator('#slot-grid .slot-button.selected').evaluate('(e)=>e.classList.remove("selected")')
+                  public_page.locator('#booking-form').evaluate('(f)=>f.requestSubmit()')
+                  public_page.wait_for_function("document.querySelector('#public-alert').textContent.includes('希望日時を選び直してください')",timeout=8000)
+                  assert events['mutations']==0,(preset,'unselected slot attempted business write')
+                  assert not public_errors,(preset,'public JS errors',public_errors)
+                  fname=f'{preset}-r262-public-invalid-booking-stays-unsent.png'
+                  public_page.locator('#booking').screenshot(path=str(EVIDENCE/fname),animations='disabled')
+                  report['screenshots'].append(fname)
+                  report['r262_submission_guards'][preset]={
+                      'past_slot_rejected':True,'quarter_hour_rejected':True,
+                      'date_mismatch_rejected':True,'unselected_slot_rejected':True,
+                      'attempted_mutations':0,'browser_error_free':True}
+                  # R262: new day fails once (synthetic HTTP 503), then the in-page retry succeeds.
+                  public_page.locator('#booking-date').fill(DAY_C)
+                  retry=public_page.locator('#slot-grid [data-retry-slots]')
+                  retry.wait_for(state='visible',timeout=10000)
+                  assert '再試行' in retry.inner_text(),(preset,'retry label missing')
+                  assert '取得できません' in public_page.locator('#slot-message').inner_text()
+                  assert public_page.locator('#slot-grid [data-slot]').count()==0,(preset,'stale slots shown after failure')
+                  assert public_page.locator('#booking-start').input_value()==''
+                  assert slot_c_attempts[0]==1,(preset,'expected one synthetic 503')
+                  retry.click()
+                  latest=public_page.locator('#slot-grid [data-slot]')
+                  latest.first.wait_for(state='visible',timeout=10000)
+                  assert latest.count()==1 and latest.first.get_attribute('data-slot')==SLOT_C['start_at']
+                  assert public_page.locator('#booking-date').input_value()==DAY_C
+                  assert public_page.locator('#booking-service').input_value()=='synthetic-r262-service'
+                  assert slot_c_attempts[0]==2,(preset,'expected synthetic retry to issue one additional GET')
+                  assert latest.first.get_attribute('aria-pressed')=='false'
+                  assert public_page.locator('#slot-message').get_attribute('role')=='status',(preset,'live status missing')
+                  public_page.wait_for_function("document.activeElement === document.querySelector('#slot-grid [data-slot]:not(:disabled)')",timeout=10000)
+                  assert latest.first.evaluate('(e)=>document.activeElement === e'),(preset,'keyboard focus was lost after retry')
+                  fname=f'{preset}-r262-retry-keyboard-focus-restored.png'
+                  public_page.locator('#booking').screenshot(path=str(EVIDENCE/fname),animations='disabled')
+                  report['screenshots'].append(fname)
+                  report['r262_retry_keyboard_focus'][preset]={
+                      'live_status_role':True,'retry_restores_focus':True,
+                      'focus_on_available_slot':True,'no_business_mutations':True}
+                  latest.first.focus()
+                  latest.first.press('Enter')
+                  assert latest.first.get_attribute('aria-pressed')=='true'
+                  assert public_page.locator('#booking-start').input_value()==SLOT_C['start_at']
+                  assert events['mutations']==0 and not public_errors,(preset,'retry used write or script error')
+                  fname=f'{preset}-r262-public-slot-error-retry-success.png'
+                  public_page.locator('#booking').screenshot(path=str(EVIDENCE/fname),animations='disabled')
+                  report['screenshots'].append(fname)
+                  report['r262_slot_retry'][preset]={
+                      'failed_once':True,'retry_button_visible':True,
+                      'no_stale_slots_after_failure':True,'retry_get_once':True,
+                      'successful_slots_restored':True,'date_service_preserved':True,
+                      'keyboard_aria_state_preserved':True,'no_business_mutations':True}
+                  public_page.close()
+                  page.close();ctx.close()
+              browser.close()
+          assert len(report['screenshots'])==92,len(report['screenshots'])
+          assert len(report['view_checks'])==36
+          assert len(report['settings_css_comparison'])==4
+          assert len(report['business_flow_checks'])==4
+          assert len(report['r262_client_search_guards'])==4
+          assert len(report['r262_case_search_guards'])==4
+          assert len(report['r262_booking_guard'])==4
+          assert len(report['r262_booking_client_search'])==4
+          assert len(report['r262_race_guard'])==4
+          assert len(report['r262_modal_close_guard'])==4
+          assert len(report['r262_public_slot_race'])==4
+          assert len(report['r262_submission_guards'])==4
+          assert len(report['r262_slot_accessibility'])==4
+          assert len(report['r262_slot_retry'])==4
+          assert len(report['r262_retry_keyboard_focus'])==4
+          assert all(all(v.values()) for v in report['r262_retry_keyboard_focus'].values())
+          assert all(all(v.values()) for v in report['r262_slot_retry'].values())
+          assert all(all(v.values()) for v in report['r262_slot_accessibility'].values())
+          assert all(all(v.values()) for v in report['r262_modal_close_guard'].values())
+          assert all(all(v.values()) for v in report['r262_public_slot_race'].values())
+          assert all(v['attempted_mutations']==0 and all(x for k,x in v.items() if k!='attempted_mutations') for v in report['r262_submission_guards'].values())
+          assert all(all(v.values()) for v in report['r262_race_guard'].values())
+          assert all(v['attempted_mutations']==0 for v in report['r262_booking_client_search'].values())
+          assert all(all(v.values()) for v in report['r262_booking_guard'].values())
+          assert all(all(v.values()) for v in report['r262_case_search_guards'].values())
+          assert all(v['writes']==0 and v['legacy_missing_normalized_phone'] for v in report['r262_client_search_guards'].values())
+          assert all(v['attempted_mutations']==0 for v in report['business_flow_checks'].values())
+          assert all(v['source_page_overflow_px']<=1 and v['no_temporary_css'] for v in report['settings_css_comparison'].values())
+          assert len(report['searches'])==4
+          assert report['attempted_mutations']==0
+          assert report['production_requests']==0
+          (EVIDENCE/'qa-results.json').write_text(json.dumps(report,ensure_ascii=False,indent=2,sort_keys=True),encoding='utf-8')
+          print('R262_OWNER_QA='+json.dumps(report,ensure_ascii=False,sort_keys=True))
+          print('PASS: R262 retry focus restored and status announced; prior slot retry/ARIA/date/race regression; 92 screenshots; no writes')
+          PY_R262_BROWSER
+      - name: Verify 92 screenshots including restored focus after retry
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY_R262_INVENTORY'
+          from pathlib import Path
+          import json
+          d=Path('r262-owner-browser-evidence')
+          report=json.loads((d/'qa-results.json').read_text(encoding='utf8'))
+          shots=list(d.glob('*.png'))
+          assert len(shots)==92,('72 owner + 4 public race + 4 invalid booking + 4 accessible keyboard + 4 retry + 4 focus',len(shots))
+          assert len(report['view_checks'])==36
+          assert len(report['settings_css_comparison'])==4
+          assert len(report['business_flow_checks'])==4
+          assert len(report['r262_client_search_guards'])==4
+          assert len(report['r262_case_search_guards'])==4
+          assert len(report['r262_booking_guard'])==4
+          assert len(report['r262_booking_client_search'])==4
+          assert len(report['r262_race_guard'])==4
+          assert len(report['r262_modal_close_guard'])==4
+          assert len(report['r262_public_slot_race'])==4
+          assert len(report['r262_submission_guards'])==4
+          assert len(report['r262_slot_accessibility'])==4
+          assert len(report['r262_slot_retry'])==4
+          assert len(report['r262_retry_keyboard_focus'])==4
+          assert all(all(v.values()) for v in report['r262_retry_keyboard_focus'].values())
+          assert all(all(v.values()) for v in report['r262_slot_retry'].values())
+          assert all(all(v.values()) for v in report['r262_slot_accessibility'].values())
+          assert all(all(v.values()) for v in report['r262_modal_close_guard'].values())
+          assert all(all(v.values()) for v in report['r262_public_slot_race'].values())
+          assert all(v['attempted_mutations']==0 and all(x for k,x in v.items() if k!='attempted_mutations') for v in report['r262_submission_guards'].values())
+          assert all(all(v.values()) for v in report['r262_race_guard'].values())
+          assert all(v['attempted_mutations']==0 for v in report['r262_booking_client_search'].values())
+          assert all(all(v.values()) for v in report['r262_booking_guard'].values())
+          assert all(all(v.values()) for v in report['r262_case_search_guards'].values())
+          assert all(v['writes']==0 and v['legacy_missing_normalized_phone'] for v in report['r262_client_search_guards'].values())
+          assert all(v['attempted_mutations']==0 for v in report['business_flow_checks'].values())
+          assert all(v['source_page_overflow_px']<=1 and v['no_temporary_css'] for v in report['settings_css_comparison'].values()) and len(report['searches'])==4
+          assert all(p.stat().st_size>500 for p in shots)
+          assert report['attempted_mutations']==0
+          assert report['production_requests']==0
+          assert all(x['page_overflow_px']<=16 for x in report['view_checks'].values())
+          print('PASS: 92 screenshots including retry keyboard focus, ARIA status, prior slot and owner regression; zero real writes')
+          PY_R262_INVENTORY
+      - name: Keep screenshot evidence in GitHub Actions only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r262-appointment-modal-close-${{ github.run_id }}-${{ github.run_attempt }}
+          path: r262-owner-browser-evidence/
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Commit tested R262 app.js only to protected QA branch after real 92-screen PASS
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = push
+          test "$GITHUB_REF" = 'refs/heads/qa/r225-synthetic-pg17-backup-restore-20261014'
+          test "$(git branch --show-current)" = 'qa/r225-synthetic-pg17-backup-restore-20261014'
+          git diff --check
+          test "$(git diff --name-only)" = app.js
+          git add -- app.js
+          test "$(git diff --cached --name-only)" = app.js
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'R262 QA-only focus-safe public slot retry (92-screen PASS)'
+          git push origin HEAD:refs/heads/qa/r225-synthetic-pg17-backup-restore-20261014
+          echo 'PASS: app.js tested and committed to QA branch only; main/production untouched.'
+      - name: Keep commercial NO_GO/HOLD regardless of QA outcome
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'PASS: owner UI tests exercised read-only fake API GETs, no real API responses or business mutations.'
+          echo 'No Supabase backup or live restore was performed. No production identity, LINE auth, or Worker deployment. Only a verified app.js QA branch patch is permitted.'
+          echo 'R262 tests modified QA candidate app.js before pushing ONLY after successful 92-screen checks; main and production unchanged; commercial HOLD continues.'
+          echo 'NO_GO / HOLD / NO_MERGE; GitHub main unchanged; Worker7 KEEP.' 

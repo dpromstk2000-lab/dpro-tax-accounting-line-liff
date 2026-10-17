@@ -1,0 +1,160 @@
+name: DPRO TAX R228 Isolated PG17 Rollback and RLS Owner Boundary QA
+
+on:
+  push:
+    branches: ['qa/r225-synthetic-pg17-backup-restore-20261014']
+    paths:
+      - '.github/workflows/dpro-tax-r228-rollback-rls-force-isolated-pg17-qa.yml'
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches: [main]
+    paths:
+      - '.github/workflows/dpro-tax-r228-rollback-rls-force-isolated-pg17-qa.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  r228-synthetic-only:
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/qa/r225-synthetic-pg17-backup-restore-20261014') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: r228_ephemeral_synthetic_only
+          POSTGRES_DB: r228_isolated_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d r228_isolated_only"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: r228_ephemeral_synthetic_only
+      PGDATABASE: r228_isolated_only
+      PGCONNECT_TIMEOUT: '5'
+    steps:
+      - name: Validate disposable PostgreSQL 17 instance
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+          test "$PGHOST" = '127.0.0.1'
+          test "$PGDATABASE" = 'r228_isolated_only'
+          test "$PGUSER" = 'postgres'
+          psql -AtX -v ON_ERROR_STOP=1 -c 'SHOW server_version;' | grep -E '^17\.'
+          echo 'PASS: ephemeral localhost PostgreSQL 17'
+
+      - name: Create fake tenant role permissions and two fake tables
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE qa_owner NOLOGIN;
+          CREATE ROLE qa_anon NOLOGIN;
+          CREATE ROLE qa_authenticated NOLOGIN;
+          CREATE SCHEMA qa_only AUTHORIZATION qa_owner;
+          SET ROLE qa_owner;
+          CREATE TABLE qa_only.customers (id integer PRIMARY KEY, tenant_id text NOT NULL);
+          CREATE TABLE qa_only.izakaya_reservations (id integer PRIMARY KEY, tenant_id text NOT NULL);
+          RESET ROLE;
+          INSERT INTO qa_only.customers VALUES (1,'qa_anon'),(2,'qa_authenticated');
+          INSERT INTO qa_only.izakaya_reservations VALUES (3,'qa_anon');
+          GRANT USAGE ON SCHEMA qa_only TO qa_anon,qa_authenticated;
+          GRANT SELECT,INSERT,UPDATE,DELETE,TRUNCATE ON ALL TABLES IN SCHEMA qa_only TO qa_anon,qa_authenticated;
+          DO $check$
+          BEGIN
+            IF NOT has_table_privilege('qa_anon','qa_only.customers','SELECT') THEN
+              RAISE EXCEPTION 'Expected synthetic overgrant missing';
+            END IF;
+            IF NOT has_table_privilege('qa_anon','qa_only.customers','TRUNCATE') THEN
+              RAISE EXCEPTION 'Expected synthetic TRUNCATE grant missing';
+            END IF;
+          END $check$;
+          SQL
+          n="$(psql -AtX -v ON_ERROR_STOP=1 -c 'SET ROLE qa_anon; SELECT count(*) FROM qa_only.customers;' | tail -n 1)"
+          test "$n" = '2'
+          echo 'PASS: fake baseline permissions replicated'
+
+      - name: Test transactional rollback leaves grants unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          BEGIN;
+          REVOKE SELECT,TRUNCATE ON qa_only.izakaya_reservations FROM qa_anon;
+          DO $check$
+          BEGIN
+            IF has_table_privilege('qa_anon','qa_only.izakaya_reservations','SELECT') THEN
+              RAISE EXCEPTION 'Synthetic REVOKE not effective before rollback';
+            END IF;
+          END $check$;
+          ROLLBACK;
+          DO $check$
+          BEGIN
+            IF NOT has_table_privilege('qa_anon','qa_only.izakaya_reservations','SELECT') THEN
+              RAISE EXCEPTION 'ROLLBACK did not restore synthetic SELECT';
+            END IF;
+            IF NOT has_table_privilege('qa_anon','qa_only.izakaya_reservations','TRUNCATE') THEN
+              RAISE EXCEPTION 'ROLLBACK did not restore synthetic TRUNCATE';
+            END IF;
+          END $check$;
+          SQL
+          echo 'PASS: synthetic transaction ROLLBACK preserved original GRANT state'
+
+      - name: Test owner RLS bypass and FORCE RLS change
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -c 'ALTER TABLE qa_only.customers ENABLE ROW LEVEL SECURITY;'
+          anon="$(psql -AtX -v ON_ERROR_STOP=1 -c 'SET ROLE qa_anon; SELECT count(*) FROM qa_only.customers;' | tail -n 1)"
+          owner="$(psql -AtX -v ON_ERROR_STOP=1 -c 'SET ROLE qa_owner; SELECT count(*) FROM qa_only.customers;' | tail -n 1)"
+          test "$anon" = '0'
+          test "$owner" = '2'
+          psql -v ON_ERROR_STOP=1 -c 'ALTER TABLE qa_only.customers FORCE ROW LEVEL SECURITY;'
+          owner_after="$(psql -AtX -v ON_ERROR_STOP=1 -c 'SET ROLE qa_owner; SELECT count(*) FROM qa_only.customers;' | tail -n 1)"
+          test "$owner_after" = '0'
+          echo 'PASS: RLS owner bypass detected, FORCE RLS prevents fake owner read'
+
+      - name: Test least-privilege read policy and distinct TRUNCATE privilege
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE POLICY qa_fake_tenant_read ON qa_only.customers
+            FOR SELECT TO qa_anon USING (tenant_id = current_user);
+          REVOKE TRUNCATE ON qa_only.customers FROM qa_anon, qa_authenticated;
+          DO $check$
+          BEGIN
+            IF has_table_privilege('qa_anon','qa_only.customers','TRUNCATE') THEN
+              RAISE EXCEPTION 'TRUNCATE still granted';
+            END IF;
+            IF NOT has_table_privilege('qa_anon','qa_only.customers','SELECT') THEN
+              RAISE EXCEPTION 'Policy test needs SELECT grant';
+            END IF;
+          END $check$;
+          SQL
+          anon="$(psql -AtX -v ON_ERROR_STOP=1 -c 'SET ROLE qa_anon; SELECT count(*) FROM qa_only.customers;' | tail -n 1)"
+          authenticated="$(psql -AtX -v ON_ERROR_STOP=1 -c 'SET ROLE qa_authenticated; SELECT count(*) FROM qa_only.customers;' | tail -n 1)"
+          test "$anon" = '1'
+          test "$authenticated" = '0'
+          echo 'PASS: one fake row for anon role, zero for authenticated, TRUNCATE revoked'
+
+      - name: State isolation and release boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$PGHOST" = '127.0.0.1'
+          test "$PGDATABASE" = 'r228_isolated_only'
+          echo 'PASS: disposable PG17 only; no production Supabase, Cloudflare, LINE or Worker changes'
+          echo 'NO_GO / HOLD / NO MERGE: PR remains draft'

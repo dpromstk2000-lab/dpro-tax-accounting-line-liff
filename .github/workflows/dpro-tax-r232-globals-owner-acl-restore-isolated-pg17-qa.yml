@@ -1,0 +1,207 @@
+name: DPRO TAX R232 Isolated PG17 Globals and Ownership Restore QA
+
+on:
+  push:
+    branches: ['qa/r225-synthetic-pg17-backup-restore-20261014']
+    paths:
+      - '.github/workflows/dpro-tax-r232-globals-owner-acl-restore-isolated-pg17-qa.yml'
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches: [main]
+    paths:
+      - '.github/workflows/dpro-tax-r232-globals-owner-acl-restore-isolated-pg17-qa.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  r232-synthetic-only:
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/qa/r225-synthetic-pg17-backup-restore-20261014') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: r232_fake_ci_local_only
+          POSTGRES_DB: r232_source_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d r232_source_only"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: r232_fake_ci_local_only
+      PGDATABASE: r232_source_only
+      PGCONNECT_TIMEOUT: '5'
+    steps:
+      - name: Create synthetic roles, membership, schema, owner and ACL
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$PGHOST" = '127.0.0.1'
+          test "$PGDATABASE" = 'r232_source_only'
+          test "$PGUSER" = 'postgres'
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+          psql -AtX -v ON_ERROR_STOP=1 -c 'SHOW server_version;' | grep -E '^17\.'
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE r232_owner NOLOGIN;
+          CREATE ROLE r232_group NOLOGIN;
+          CREATE ROLE r232_member NOLOGIN;
+          CREATE ROLE r232_anon NOLOGIN;
+          GRANT r232_group TO r232_member;
+          CREATE SCHEMA r232_lab AUTHORIZATION r232_owner;
+          SET ROLE r232_owner;
+          CREATE TABLE r232_lab.fake_clients(id integer PRIMARY KEY, owner_label text NOT NULL);
+          INSERT INTO r232_lab.fake_clients VALUES (1,'r232_member'),(2,'other_fake_label');
+          CREATE FUNCTION r232_lab.safe_count() RETURNS integer
+            LANGUAGE sql SECURITY DEFINER
+            SET search_path=pg_catalog,r232_lab,pg_temp
+            AS $$ SELECT count(*)::integer FROM r232_lab.fake_clients $$;
+          RESET ROLE;
+          REVOKE EXECUTE ON FUNCTION r232_lab.safe_count() FROM PUBLIC;
+          GRANT EXECUTE ON FUNCTION r232_lab.safe_count() TO r232_member;
+          GRANT USAGE ON SCHEMA r232_lab TO r232_group,r232_member;
+          GRANT SELECT ON r232_lab.fake_clients TO r232_group;
+          ALTER TABLE r232_lab.fake_clients ENABLE ROW LEVEL SECURITY;
+          CREATE POLICY fake_member_policy ON r232_lab.fake_clients
+            FOR SELECT TO r232_member USING (owner_label=current_user);
+          DO $check$
+          BEGIN
+            IF NOT has_table_privilege('r232_member','r232_lab.fake_clients','SELECT') THEN
+              RAISE EXCEPTION 'Synthetic role inheritance missing';
+            END IF;
+            IF has_function_privilege('r232_anon','r232_lab.safe_count()','EXECUTE') THEN
+              RAISE EXCEPTION 'Synthetic anonymous RPC improperly executable';
+            END IF;
+          END $check$;
+          SQL
+          c=$(psql -qAtX -v ON_ERROR_STOP=1 -c 'SET ROLE r232_member; SELECT count(*) FROM r232_lab.fake_clients;' | tail -n 1)
+          test "$c" = '1'
+          echo 'PASS: synthetic role membership and RLS work before backup'
+
+      - name: Create disposable schema archive and separate no-password globals manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p r232_ephemeral_out
+          docker run --rm --network host \
+            -v "$PWD/r232_ephemeral_out:/out:rw" \
+            -e PGHOST -e PGPORT -e PGUSER -e PGPASSWORD -e PGDATABASE \
+            postgres:17 sh -euc '
+              test "$PGHOST" = 127.0.0.1
+              test "$PGDATABASE" = r232_source_only
+              pg_dump --version | grep -E "^pg_dump \(PostgreSQL\) 17\."
+              pg_dump -Fc --schema=r232_lab --file=/out/lab_with_acl_and_owner.dump
+              pg_restore --list /out/lab_with_acl_and_owner.dump > /out/archive_catalog.txt
+              grep -E "ACL.*r232_lab|r232_lab.*ACL" /out/archive_catalog.txt >/dev/null
+              pg_dumpall --globals-only --no-role-passwords --file=/out/lab_globals_no_passwords.sql
+              grep -E "CREATE ROLE r232_owner;" /out/lab_globals_no_passwords.sql >/dev/null
+              grep -E "CREATE ROLE r232_member;" /out/lab_globals_no_passwords.sql >/dev/null
+              grep -E "GRANT r232_group TO r232_member([ ;]|$)" /out/lab_globals_no_passwords.sql >/dev/null
+              grep -F "r232_lab" /out/archive_catalog.txt >/dev/null
+              test -s /out/lab_with_acl_and_owner.dump
+              test -s /out/lab_globals_no_passwords.sql
+              echo "SYNTHETIC_ARCHIVE_SHA256=$(sha256sum /out/lab_with_acl_and_owner.dump | cut -d " " -f1)"
+              echo "SYNTHETIC_GLOBALS_SHA256=$(sha256sum /out/lab_globals_no_passwords.sql | cut -d " " -f1)"
+            '
+          echo 'PASS: synthetic archive and separate role/membership globals manifest created'
+
+      - name: Restore fake schema preserving owners and privileges
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network host \
+            -v "$PWD/r232_ephemeral_out:/out:ro" \
+            -e PGHOST -e PGPORT -e PGUSER -e PGPASSWORD -e PGDATABASE \
+            postgres:17 sh -euc '
+              createdb r232_restore_preserved
+              pg_restore --exit-on-error --single-transaction \
+                --dbname=r232_restore_preserved /out/lab_with_acl_and_owner.dump
+              createdb r232_restore_without_security
+              pg_restore --exit-on-error --single-transaction --no-owner --no-acl \
+                --dbname=r232_restore_without_security /out/lab_with_acl_and_owner.dump
+            '
+          psql -d r232_restore_preserved -X -v ON_ERROR_STOP=1 <<'SQL'
+          DO $verify$
+          DECLARE
+            owner_name text;
+          BEGIN
+            SELECT pg_get_userbyid(relowner) INTO owner_name
+            FROM pg_class WHERE oid='r232_lab.fake_clients'::regclass;
+            IF owner_name <> 'r232_owner' THEN
+              RAISE EXCEPTION 'Synthetic owner not restored';
+            END IF;
+            IF (SELECT count(*) FROM r232_lab.fake_clients) <> 2 THEN
+              RAISE EXCEPTION 'Synthetic rows missing';
+            END IF;
+            IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid='r232_lab.fake_clients'::regclass) THEN
+              RAISE EXCEPTION 'Synthetic RLS flag missing';
+            END IF;
+            IF (SELECT count(*) FROM pg_policies WHERE schemaname='r232_lab' AND tablename='fake_clients') <> 1 THEN
+              RAISE EXCEPTION 'Synthetic RLS policy missing';
+            END IF;
+            IF NOT has_table_privilege('r232_member','r232_lab.fake_clients','SELECT') THEN
+              RAISE EXCEPTION 'Inherited synthetic SELECT missing';
+            END IF;
+            IF has_function_privilege('r232_anon','r232_lab.safe_count()','EXECUTE') THEN
+              RAISE EXCEPTION 'RPC security regressed';
+            END IF;
+            IF NOT has_function_privilege('r232_member','r232_lab.safe_count()','EXECUTE') THEN
+              RAISE EXCEPTION 'Explicit function EXECUTE missing';
+            END IF;
+          END $verify$;
+          SQL
+          c=$(psql -qAtX -d r232_restore_preserved -v ON_ERROR_STOP=1 -c 'SET ROLE r232_member; SELECT count(*) FROM r232_lab.fake_clients;' | tail -n 1)
+          test "$c" = '1'
+          echo 'PASS: synthetic owner + ACL + policy + role membership effective after restore'
+
+      - name: Verify no-owner no-acl negative control is not production-safe
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -d r232_restore_without_security -X -v ON_ERROR_STOP=1 <<'SQL'
+          DO $verify$
+          DECLARE
+            owner_name text;
+          BEGIN
+            SELECT pg_get_userbyid(relowner) INTO owner_name
+            FROM pg_class WHERE oid='r232_lab.fake_clients'::regclass;
+            IF owner_name = 'r232_owner' THEN
+              RAISE EXCEPTION 'Expected synthetic ownership loss with --no-owner';
+            END IF;
+            IF has_schema_privilege('r232_member','r232_lab','USAGE') THEN
+              RAISE EXCEPTION 'Unexpected synthetic schema ACL carried over';
+            END IF;
+            IF has_table_privilege('r232_member','r232_lab.fake_clients','SELECT') THEN
+              RAISE EXCEPTION 'Unexpected synthetic table ACL carried over';
+            END IF;
+            IF NOT has_function_privilege('r232_anon','r232_lab.safe_count()','EXECUTE') THEN
+              RAISE EXCEPTION 'Expected unsafe default PUBLIC EXECUTE in negative restore';
+            END IF;
+            IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid='r232_lab.fake_clients'::regclass) THEN
+              RAISE EXCEPTION 'Negative control unexpectedly lost RLS flag';
+            END IF;
+          END $verify$;
+          SQL
+          echo 'PASS: no-owner/no-acl negative restore changes ownership and grants, including PUBLIC EXECUTE'
+
+      - name: Record isolation and full-production-backup limitations
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$PGHOST" = '127.0.0.1'
+          test "$PGDATABASE" = 'r232_source_only'
+          echo 'PASS: GitHub-hosted disposable PG17 only; fake rows and roles; no production credentials or deployments'
+          echo 'The isolated schema archive is not a shared-Supabase full backup.'
+          echo 'Supabase-managed roles/extensions/Auth/Storage/Edge functions require a separate approved recovery plan.'
+          echo 'NO_GO / HOLD / NO MERGE. Do not deploy or apply synthetic SQL to production.'
