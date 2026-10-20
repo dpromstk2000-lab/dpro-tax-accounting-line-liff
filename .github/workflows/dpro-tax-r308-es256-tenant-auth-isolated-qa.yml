@@ -140,36 +140,36 @@ jobs:
             await test('unapproved-membership-denied',async()=>assert.rejects(
               ()=>scope(a,'office-b'),/MEMBERSHIP_DENIED/));
             await test('none-algorithm-denied',async()=>assert.rejects(
-              ()=>verify(await mint(claims(A),trusted.privateKey,{alg:'none'})),
+              async()=>verify(await mint(claims(A),trusted.privateKey,{alg:'none'})),
               /ALGORITHM_OR_KEY_DENIED/));
             await test('hs256-denied',async()=>assert.rejects(
-              ()=>verify(await mint(claims(A),trusted.privateKey,{alg:'HS256'})),
+              async()=>verify(await mint(claims(A),trusted.privateKey,{alg:'HS256'})),
               /ALGORITHM_OR_KEY_DENIED/));
             await test('rs256-denied',async()=>assert.rejects(
-              ()=>verify(await mint(claims(A),trusted.privateKey,{alg:'RS256'})),
+              async()=>verify(await mint(claims(A),trusted.privateKey,{alg:'RS256'})),
               /ALGORITHM_OR_KEY_DENIED/));
             await test('unknown-kid-denied',async()=>assert.rejects(
-              ()=>verify(await mint(claims(A),trusted.privateKey,{kid:'unknown'})),
+              async()=>verify(await mint(claims(A),trusted.privateKey,{kid:'unknown'})),
               /ALGORITHM_OR_KEY_DENIED/));
             await test('attacker-key-denied',async()=>assert.rejects(
-              ()=>verify(await mint(claims(A),attacker.privateKey)),/BAD_SIGNATURE/));
+              async()=>verify(await mint(claims(A),attacker.privateKey)),/BAD_SIGNATURE/));
             const chunks=a.split('.');
             await test('forged-payload-denied',async()=>assert.rejects(
               ()=>verify(chunks[0]+'.'+b64(claims(B))+'.'+chunks[2]),/BAD_SIGNATURE/));
             await test('expired-denied',async()=>assert.rejects(
-              ()=>verify(await mint({...claims(A),exp:NOW-1})),/TIME_INVALID/));
+              async()=>verify(await mint({...claims(A),exp:NOW-1})),/TIME_INVALID/));
             await test('future-nbf-denied',async()=>assert.rejects(
-              ()=>verify(await mint({...claims(A),nbf:NOW+90})),/TIME_INVALID/));
+              async()=>verify(await mint({...claims(A),nbf:NOW+90})),/TIME_INVALID/));
             await test('long-lifetime-denied',async()=>assert.rejects(
-              ()=>verify(await mint({...claims(A),exp:NOW+3601})),/TIME_INVALID/));
+              async()=>verify(await mint({...claims(A),exp:NOW+3601})),/TIME_INVALID/));
             await test('wrong-issuer-denied',async()=>assert.rejects(
-              ()=>verify(await mint({...claims(A),iss:'https://evil.invalid'})),
+              async()=>verify(await mint({...claims(A),iss:'https://evil.invalid'})),
               /CLAIMS_INVALID/));
             await test('wrong-audience-denied',async()=>assert.rejects(
-              ()=>verify(await mint({...claims(A),aud:'service_role'})),
+              async()=>verify(await mint({...claims(A),aud:'service_role'})),
               /CLAIMS_INVALID/));
             await test('missing-sub-denied',async()=>assert.rejects(
-              ()=>verify(await mint({...claims(A),sub:''})),/CLAIMS_INVALID/));
+              async()=>verify(await mint({...claims(A),sub:''})),/CLAIMS_INVALID/));
             await test('office-required',async()=>assert.rejects(
               ()=>scope(c,undefined),/OFFICE_REQUIRED/));
             await test('dual-office-scope-a',async()=>assert.equal(
