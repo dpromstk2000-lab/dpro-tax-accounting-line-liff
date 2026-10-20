@@ -1,0 +1,217 @@
+name: DPRO TAX R308 Isolated ES256 and Tenant Access QA
+
+on:
+  push:
+    branches:
+      - dpro-tax-r308-auth-tenant-integration-qa-20261020
+    paths:
+      - '.github/workflows/dpro-tax-r308-es256-tenant-auth-isolated-qa.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-es256-office-authorization:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Checkout QA branch safely
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Verify QA-only source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s app.js
+          test -s config.js
+          test -s .github/workflows/dpro-tax-r265-synthetic-auth-tenant-contract-qa.yml
+          echo 'R308: isolated synthetic tests only; commercial HOLD'
+
+      - name: Verify ES256 and office-client authorization
+        shell: bash
+        run: |
+          node <<'R308_NODE'
+          'use strict';
+          const assert = require('node:assert/strict');
+          const {webcrypto} = require('node:crypto');
+          const subtle = webcrypto.subtle;
+          const NOW = 1792476000;
+          const ISS = 'https://identity.invalid.test/auth/v1';
+          const AUD = 'authenticated';
+          const A = '11111111-1111-4111-8111-111111111111';
+          const B = '22222222-2222-4222-8222-222222222222';
+          const C = '33333333-3333-4333-8333-333333333333';
+          const D = '44444444-4444-4444-8444-444444444444';
+          let passed = 0;
+          let outbound = 0;
+          globalThis.fetch = async () => {
+            outbound++;
+            throw Error('EGRESS_BLOCKED');
+          };
+          const staff = [
+            {sub:A,office:'office-a',role:'owner',active:true},
+            {sub:B,office:'office-b',role:'staff',active:true},
+            {sub:C,office:'office-a',role:'staff',active:true},
+            {sub:C,office:'office-b',role:'staff',active:true},
+            {sub:D,office:'office-a',role:'staff',active:false}
+          ];
+          const clients = [
+            {id:'client-a',office:'office-a',assigned:C},
+            {id:'client-b',office:'office-b',assigned:B},
+            {id:'client-unassigned',office:'office-a',assigned:null}
+          ];
+          const b64 = v => Buffer.from(JSON.stringify(v)).toString('base64url');
+          const decode = v => {
+            if (!/^[A-Za-z0-9_-]{1,8192}$/.test(v)) throw Error('MALFORMED');
+            return JSON.parse(Buffer.from(v,'base64url').toString('utf8'));
+          };
+          const uuid = s => typeof s==='string' &&
+            /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(s);
+          const claims = (sub=A) => ({
+            iss:ISS,aud:AUD,sub,role:'authenticated',
+            iat:NOW-30,nbf:NOW-30,exp:NOW+900
+          });
+          async function main() {
+            const trusted = await subtle.generateKey(
+              {name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']);
+            const attacker = await subtle.generateKey(
+              {name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']);
+            async function mint(body,privateKey=trusted.privateKey,extra={}) {
+              const header = {alg:'ES256',typ:'JWT',kid:'r308-qa-key',...extra};
+              const message = b64(header)+'.'+b64(body);
+              const sig = await subtle.sign(
+                {name:'ECDSA',hash:'SHA-256'},privateKey,Buffer.from(message));
+              return message+'.'+Buffer.from(sig).toString('base64url');
+            }
+            async function verify(token) {
+              if (typeof token!=='string'||token.length>12000) throw Error('SIZE');
+              const parts=token.split('.');
+              if (parts.length!==3 ||
+                  parts.some(x=>!/^[A-Za-z0-9_-]+$/.test(x))) throw Error('MALFORMED');
+              const h=decode(parts[0]),c=decode(parts[1]);
+              if (h.alg!=='ES256'||h.typ!=='JWT'||h.kid!=='r308-qa-key')
+                throw Error('ALGORITHM_OR_KEY_DENIED');
+              const valid = await subtle.verify(
+                {name:'ECDSA',hash:'SHA-256'},trusted.publicKey,
+                Buffer.from(parts[2],'base64url'),
+                Buffer.from(parts[0]+'.'+parts[1]));
+              if (!valid) throw Error('BAD_SIGNATURE');
+              if (c.iss!==ISS||c.aud!==AUD||c.role!=='authenticated'||!uuid(c.sub))
+                throw Error('CLAIMS_INVALID');
+              if (![c.exp,c.nbf,c.iat].every(Number.isInteger) ||
+                  c.exp<=NOW||c.nbf>NOW||c.iat>NOW+30||c.exp-c.iat>3600)
+                throw Error('TIME_INVALID');
+              return {sub:c.sub};
+            }
+            async function scope(token,officeId) {
+              const {sub}=await verify(token);
+              if (typeof officeId!=='string'||!/^office-[ab]$/.test(officeId))
+                throw Error('OFFICE_REQUIRED');
+              const membership=staff.filter(x=>x.sub===sub&&
+                x.office===officeId&&x.active);
+              if (membership.length!==1) throw Error('MEMBERSHIP_DENIED');
+              return {sub,office:officeId,role:membership[0].role};
+            }
+            function readClient(s,id,method='GET') {
+              if (!['GET','HEAD'].includes(method)) throw Error('WRITES_DISABLED');
+              const row=clients.find(x=>x.id===id&&x.office===s.office);
+              if (!row) throw Error('NOT_FOUND');
+              if (s.role!=='owner'&&row.assigned!==s.sub)
+                throw Error('ASSIGNMENT_DENIED');
+              return {id:row.id,office:row.office};
+            }
+            async function test(name,fn) {
+              await fn();
+              passed++;
+              console.log('PASS '+name);
+            }
+            const a=await mint(claims(A));
+            const b=await mint(claims(B));
+            const c=await mint(claims(C));
+            const d=await mint(claims(D));
+            await test('valid-es256',async()=>assert.equal((await verify(a)).sub,A));
+            await test('owner-own-office',async()=>assert.equal(
+              readClient(await scope(a,'office-a'),'client-a').id,'client-a'));
+            await test('cross-office-client-denied',async()=>assert.throws(
+              ()=>readClient({sub:A,office:'office-a',role:'owner'},'client-b'),
+              /NOT_FOUND/));
+            await test('unapproved-membership-denied',async()=>assert.rejects(
+              ()=>scope(a,'office-b'),/MEMBERSHIP_DENIED/));
+            await test('none-algorithm-denied',async()=>assert.rejects(
+              ()=>verify(await mint(claims(A),trusted.privateKey,{alg:'none'})),
+              /ALGORITHM_OR_KEY_DENIED/));
+            await test('hs256-denied',async()=>assert.rejects(
+              ()=>verify(await mint(claims(A),trusted.privateKey,{alg:'HS256'})),
+              /ALGORITHM_OR_KEY_DENIED/));
+            await test('rs256-denied',async()=>assert.rejects(
+              ()=>verify(await mint(claims(A),trusted.privateKey,{alg:'RS256'})),
+              /ALGORITHM_OR_KEY_DENIED/));
+            await test('unknown-kid-denied',async()=>assert.rejects(
+              ()=>verify(await mint(claims(A),trusted.privateKey,{kid:'unknown'})),
+              /ALGORITHM_OR_KEY_DENIED/));
+            await test('attacker-key-denied',async()=>assert.rejects(
+              ()=>verify(await mint(claims(A),attacker.privateKey)),/BAD_SIGNATURE/));
+            const chunks=a.split('.');
+            await test('forged-payload-denied',async()=>assert.rejects(
+              ()=>verify(chunks[0]+'.'+b64(claims(B))+'.'+chunks[2]),/BAD_SIGNATURE/));
+            await test('expired-denied',async()=>assert.rejects(
+              ()=>verify(await mint({...claims(A),exp:NOW-1})),/TIME_INVALID/));
+            await test('future-nbf-denied',async()=>assert.rejects(
+              ()=>verify(await mint({...claims(A),nbf:NOW+90})),/TIME_INVALID/));
+            await test('long-lifetime-denied',async()=>assert.rejects(
+              ()=>verify(await mint({...claims(A),exp:NOW+3601})),/TIME_INVALID/));
+            await test('wrong-issuer-denied',async()=>assert.rejects(
+              ()=>verify(await mint({...claims(A),iss:'https://evil.invalid'})),
+              /CLAIMS_INVALID/));
+            await test('wrong-audience-denied',async()=>assert.rejects(
+              ()=>verify(await mint({...claims(A),aud:'service_role'})),
+              /CLAIMS_INVALID/));
+            await test('missing-sub-denied',async()=>assert.rejects(
+              ()=>verify(await mint({...claims(A),sub:''})),/CLAIMS_INVALID/));
+            await test('office-required',async()=>assert.rejects(
+              ()=>scope(c,undefined),/OFFICE_REQUIRED/));
+            await test('dual-office-scope-a',async()=>assert.equal(
+              (await scope(c,'office-a')).office,'office-a'));
+            await test('dual-office-scope-b',async()=>assert.equal(
+              (await scope(c,'office-b')).office,'office-b'));
+            await test('inactive-staff-denied',async()=>assert.rejects(
+              ()=>scope(d,'office-a'),/MEMBERSHIP_DENIED/));
+            await test('assigned-staff-access',async()=>assert.equal(
+              readClient(await scope(b,'office-b'),'client-b').id,'client-b'));
+            await test('unassigned-client-denied',async()=>assert.throws(
+              ()=>readClient({sub:C,office:'office-a',role:'staff'},
+              'client-unassigned'),/ASSIGNMENT_DENIED/));
+            await test('staff-not-assigned-denied',async()=>assert.throws(
+              ()=>readClient({sub:B,office:'office-a',role:'staff'},
+              'client-a'),/ASSIGNMENT_DENIED/));
+            await test('write-blocked',async()=>assert.throws(
+              ()=>readClient({sub:B,office:'office-b',role:'staff'},
+              'client-b','POST'),/WRITES_DISABLED/));
+            await test('claim-cannot-elevate-role',async()=>{
+              const token=await mint({...claims(B),office_id:'office-a',
+                admin:true});
+              assert.equal((await scope(token,'office-b')).role,'staff');
+              await assert.rejects(()=>scope(token,'office-a'),/MEMBERSHIP_DENIED/);
+            });
+            await test('legacy-header-cannot-authorize',async()=>{
+              const headers={'X-Admin-Key':'1234','X-Line-User-Id':'forged'};
+              assert.equal(headers['X-Admin-Key'],'1234');
+              await assert.rejects(()=>scope(b,'office-a'),/MEMBERSHIP_DENIED/);
+            });
+            await test('no-real-egress',async()=>assert.equal(outbound,0));
+            assert.equal(passed,27);
+            console.log(JSON.stringify({
+              suite:'DPRO_TAX_R308_ES256_SYNTHETIC_ONLY',
+              passed,production_requests:outbound,
+              real_supabase_verified:false,
+              actual_worker_integration_verified:false,
+              commercial_release:'HOLD'
+            }));
+          }
+          main().catch(e=>{
+            console.error('R308 FAIL',e.stack);
+            process.exitCode=1;
+          });
+          R308_NODE
