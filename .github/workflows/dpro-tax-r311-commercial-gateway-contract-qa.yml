@@ -1,0 +1,105 @@
+name: DPRO TAX R311 Isolated Commercial Gateway Contract
+on:
+  push:
+    branches:
+      - dpro-tax-r308-auth-tenant-integration-qa-20261020
+    paths:
+      - '.github/workflows/dpro-tax-r311-commercial-gateway-contract-qa.yml'
+permissions:
+  contents: read
+jobs:
+  synthetic-staff-tenant-readonly:
+    if: github.ref == 'refs/heads/dpro-tax-r308-auth-tenant-integration-qa-20261020'
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Checkout QA only
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Test JWT-verified identity adapter and tenant authorization (synthetic)
+        shell: bash
+        run: |
+          node <<'R311_GATE'
+          'use strict';
+          const A='11111111-1111-4111-8111-111111111111',B='22222222-2222-4222-8222-222222222222',C='33333333-3333-4333-8333-333333333333',D='44444444-4444-4444-8444-444444444444',E='55555555-5555-4555-8555-555555555555';
+          const OA='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',OB='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',OC='cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+          const CA='aaaaaaaa-0000-4000-8000-000000000001',CB='bbbbbbbb-0000-4000-8000-000000000001',CC='aaaaaaaa-0000-4000-8000-000000000002';
+          const offices=[{id:OA,is_active:true,is_demo:false},{id:OB,is_active:true,is_demo:false},{id:OC,is_active:false,is_demo:false}];
+          const staff=[{id:'s1',office_id:OA,auth_user_id:A,role:'owner',is_active:true,can_view_all_clients:true},{id:'s2',office_id:OB,auth_user_id:B,role:'staff',is_active:true,can_view_all_clients:false},{id:'s3',office_id:OA,auth_user_id:C,role:'reviewer',is_active:true,can_view_all_clients:false},{id:'s4',office_id:OB,auth_user_id:C,role:'staff',is_active:true,can_view_all_clients:false},{id:'s5',office_id:OA,auth_user_id:D,role:'owner',is_active:false,can_view_all_clients:true}];
+          const clients=[{id:CA,office_id:OA,assigned_staff_id:'s3',reviewer_staff_id:'s3'},{id:CB,office_id:OB,assigned_staff_id:'s2',reviewer_staff_id:null},{id:CC,office_id:OA,assigned_staff_id:null,reviewer_staff_id:null}];
+          const uuid=s=>typeof s==='string'&&/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(s);
+          function deny(code){const e=new Error(code);e.code=code;throw e}
+          async function gateway(req,verifyJwt){
+           const method=String(req.method||'').toUpperCase(),path=String(req.path||'');
+           if(method!=='GET')deny('METHOD_DISABLED');
+           if(!/^\/api\/admin\/(?:dashboard|clients(?:\/[a-f0-9-]{36})?|documents\/[a-f0-9-]{36}\/signed-url)$/i.test(path))deny('ROUTE_DISABLED');
+           if(/\/signed-url$/i.test(path))deny('SIGNED_URL_HOLD');
+           const bearer=/^Bearer ([^\s]+)$/.exec(req.authorization||'');
+           if(!bearer)deny('BEARER_REQUIRED');
+           const identity=await verifyJwt(bearer[1]);
+           if(!identity||!uuid(identity.sub)||identity.role!=='authenticated')deny('AUTH_REJECTED');
+           if(!uuid(req.officeId))deny('OFFICE_REQUIRED');
+           const office=offices.find(x=>x.id===req.officeId&&x.is_active&&!x.is_demo);
+           if(!office)deny('OFFICE_NOT_AUTHORIZED');
+           const memberships=staff.filter(x=>x.auth_user_id===identity.sub&&x.office_id===office.id&&x.is_active);
+           if(memberships.length!==1)deny('STAFF_NOT_LINKED');
+           const who=memberships[0];
+           const match=/^\/api\/admin\/clients\/([a-f0-9-]{36})$/i.exec(path);
+           if(match){
+            const client=clients.find(x=>x.id===match[1]&&x.office_id===office.id);
+            if(!client)deny('CLIENT_NOT_FOUND');
+            const all=who.can_view_all_clients===true&&['owner','manager'].includes(who.role);
+            if(!all&&client.assigned_staff_id!==who.id&&client.reviewer_staff_id!==who.id)deny('CLIENT_NOT_ASSIGNED');
+           }
+           return Object.freeze({sub:identity.sub,office_id:office.id,staff_id:who.id,role:who.role});
+          }
+          async function verifiedStub(token){if(!token.startsWith('test-only:'))deny('BAD_TOKEN');return {sub:token.slice(10),role:'authenticated'}}
+          const req=(sub=A,office=OA,path='/api/admin/dashboard',method='GET')=>({method,path,officeId:office,authorization:'Bearer test-only:'+sub,'X-Admin-Key':'1234','X-Line-User-Id':'forged'});
+          let passed=0,allowed=0,denied=0;
+          async function pass(name,fn){await fn();passed++;console.log('PASS '+name)}
+          async function expect(code,fn){let got='';try{await fn()}catch(e){got=e.code||e.message}if(got!==code)throw Error('EXPECTED_'+code+'_GOT_'+(got||'ALLOWED'))}
+          async function main(){
+           await pass('owner-scoped',async()=>{const v=await gateway(req(),verifiedStub);if(v.office_id!==OA||v.role!=='owner')throw Error('OWNER')});
+           await pass('staff-assigned',async()=>{const v=await gateway(req(B,OB,'/api/admin/clients/'+CB),verifiedStub);if(v.staff_id!=='s2')throw Error('ASSIGNMENT')});
+           await pass('reviewer-assigned',async()=>{const v=await gateway(req(C,OA,'/api/admin/clients/'+CA),verifiedStub);if(v.staff_id!=='s3')throw Error('REVIEWER')});
+           const cases=[
+            ['missing-bearer',{...req(),authorization:''},'BEARER_REQUIRED'],
+            ['bad-bearer',{...req(),authorization:'Basic example'},'BEARER_REQUIRED'],
+            ['fake-signature',{...req(),authorization:'Bearer forged'},'BAD_TOKEN'],
+            ['wrong-tenant',req(A,OB),'STAFF_NOT_LINKED'],
+            ['inactive-office',req(A,OC),'OFFICE_NOT_AUTHORIZED'],
+            ['inactive-staff',req(D,OA),'STAFF_NOT_LINKED'],
+            ['no-staff',req(E,OA),'STAFF_NOT_LINKED'],
+            ['no-office',{...req(),officeId:undefined},'OFFICE_REQUIRED'],
+            ['cross-office-client',req(A,OA,'/api/admin/clients/'+CB),'CLIENT_NOT_FOUND'],
+            ['unassigned-client',req(C,OA,'/api/admin/clients/'+CC),'CLIENT_NOT_ASSIGNED'],
+            ['path-traversal',req(A,OA,'/api/admin/clients/../other'),'ROUTE_DISABLED'],
+            ['signed-url-hold',req(A,OA,'/api/admin/documents/'+CA+'/signed-url'),'SIGNED_URL_HOLD'],
+            ['public-post-block',req(A,OA,'/api/public/appointments','POST'),'METHOD_DISABLED'],
+            ['admin-post-block',req(A,OA,'/api/admin/clients','POST'),'METHOD_DISABLED'],
+            ['admin-delete-block',req(A,OA,'/api/admin/clients/'+CA,'DELETE'),'METHOD_DISABLED']
+           ];
+           for(const [name,r,reason] of cases)await pass(name,()=>expect(reason,()=>gateway(r,verifiedStub)));
+           const methods=['GET','POST','PATCH','DELETE','HEAD'];
+           const paths=['/api/admin/dashboard','/api/admin/clients','/api/admin/clients/'+CA,'/api/admin/clients/'+CB,'/api/admin/clients/'+CC,'/api/admin/documents/'+CA+'/signed-url','/api/public/appointments','/api/admin/tasks'];
+           const subjects=[A,B,C,D,E],tenants=[OA,OB,OC,'not-a-uuid'];
+           for(const method of methods)for(const path of paths)for(const sub of subjects)for(const officeId of tenants){
+            const r=req(sub,officeId,path,method);
+            let outcome=false;try{await gateway(r,verifiedStub);outcome=true;allowed++}catch(e){denied++}
+            const officeOk=offices.some(x=>x.id===officeId&&x.is_active&&!x.is_demo);
+            const membership=staff.filter(x=>x.auth_user_id===sub&&x.office_id===officeId&&x.is_active);
+            const who=membership[0];
+            const ownRecord=clients.find(x=>path==='/api/admin/clients/'+x.id&&x.office_id===officeId);
+            const eligible=!!who&&!!ownRecord&&((who.can_view_all_clients===true&&['owner','manager'].includes(who.role))||ownRecord.assigned_staff_id===who.id||ownRecord.reviewer_staff_id===who.id);
+            const simple=path==='/api/admin/dashboard'||path==='/api/admin/clients';
+            const expected=method==='GET'&&officeOk&&membership.length===1&&(simple||eligible);
+            if(outcome!==expected)throw Error('R311_MATRIX_MISMATCH '+method+' '+path+' '+sub+' '+officeId);
+            passed++;
+           }
+           const total=3+cases.length+methods.length*paths.length*subjects.length*tenants.length;
+           if(passed!==total)throw Error('R311_COUNT_FAIL '+passed+'!='+total);
+           console.log(JSON.stringify({suite:'DPRO_TAX_R311_OFFLINE_GATEWAY_CONTRACT',checks:passed,allowed,denied,real_jwt_verification:false,real_db_connection:false,worker_deployment:false,release:'HOLD'}));
+          }
+          main().catch(e=>{console.error('R311_FAIL',e.stack);process.exitCode=1});
+          R311_GATE
