@@ -1,0 +1,51 @@
+name: DPRO TAX R319 Adversarial Response Integrity Isolated QA
+
+on:
+  push:
+    branches:
+      - dpro-tax-r308-auth-tenant-integration-qa-20261020
+    paths:
+      - 'qa/r316/read-only-gateway.mjs'
+      - 'qa/r316/r317-scoped-postgrest-adapter.mjs'
+      - 'qa/r316/r318-offline-request-bridge.mjs'
+      - 'qa/r316/r319-adversarial-response-integrity.test.mjs'
+      - '.github/workflows/dpro-tax-r319-adversarial-response-integrity-isolated-qa.yml'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  isolated-adversarial-r319:
+    if: github.ref == 'refs/heads/dpro-tax-r308-auth-tenant-integration-qa-20261020'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout only the authorized QA branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify offline-only source and syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s qa/r316/read-only-gateway.mjs
+          test -s qa/r316/read-only-gateway.test.mjs
+          test -s qa/r316/r317-scoped-postgrest-adapter.mjs
+          test -s qa/r316/r317-scoped-postgrest-adapter.test.mjs
+          test -s qa/r316/r318-offline-request-bridge.mjs
+          test -s qa/r316/r318-offline-request-bridge.test.mjs
+          test -s qa/r316/r319-adversarial-response-integrity.test.mjs
+          node --check qa/r316/r319-adversarial-response-integrity.test.mjs
+          if grep -En '(^|[^[:alnum:]_])(wrangler[[:space:]]+deploy|npm[[:space:]]+publish)([^[:alnum:]_]|$)' qa/r316/r319-adversarial-response-integrity.test.mjs; then
+            echo 'PRODUCTION_MUTATION_COMMAND_REJECTED' >&2
+            exit 1
+          fi
+          echo 'R319 synthetic fixtures only. No production Worker, Supabase, LINE, or deploy.'
+      - name: Verify R316 executable ES256 regression
+        run: node qa/r316/read-only-gateway.test.mjs
+      - name: Verify R317 PostgREST request-scope regression
+        run: node qa/r316/r317-scoped-postgrest-adapter.test.mjs
+      - name: Verify R318 request-local identity-DB regression
+        run: node qa/r316/r318-offline-request-bridge.test.mjs
+      - name: Verify R319 adversarial response and leakage controls
+        run: node qa/r316/r319-adversarial-response-integrity.test.mjs
