@@ -25,12 +25,11 @@ jobs:
           --health-timeout 5s
           --health-retries 8
     steps:
-      - name: Test R321 RLS regression and R322 composite FK plus definer hardening (disposable PG17)
+      - name: Prepare synthetic PostgreSQL 17 schema and RLS fixtures
         shell: bash
         run: |
           set -euo pipefail
-          # GitHub Actions ephemeral container ONLY, never connect to Supabase / Cloudflare / LINE.
-          # Embedded SQL contains synthetic UUIDs and isolated roles. DO NOT DEPLOY SQL.
+          # Disposable GitHub Actions PG17 ONLY; never connect to Supabase, Worker, or LINE.
           cat > /tmp/schema.sql <<'R322_SCHEMA'
           -- R322 SYNTHETIC EPHEMERAL POSTGRES ONLY, R321 REUSED - DO NOT RUN ON SHARED SUPABASE
           -- This is a disposable PostgreSQL 17 test fixture, not migration SQL.
@@ -166,6 +165,10 @@ jobs:
           ALTER TABLE public.taxacc_document_submissions ADD CONSTRAINT r322_doc_client_tenant_fk
            FOREIGN KEY (office_id,client_id) REFERENCES public.taxacc_clients(office_id,id) ON DELETE CASCADE;
           R322_SCHEMA
+      - name: Prepare unchanged R321 regression SQL
+        shell: bash
+        run: |
+          set -euo pipefail
           cat > /tmp/r321_regression.sql <<'R322_REGRESSION'
           -- R321 regression executed in R322 disposable PostgreSQL RLS checks, deliberately using SET ROLE to activate RLS.
           \set ON_ERROR_STOP on
@@ -220,6 +223,10 @@ jobs:
           -- Intentionally no claims that the synthetic GUC models a verified real JWT.
           SELECT 'R321_SYNTHETIC_POSTGRES_RLS_PASS_AND_RELEASE_HOLD' AS result;
           R322_REGRESSION
+      - name: Prepare R322 cross-tenant FK and definer assertions
+        shell: bash
+        run: |
+          set -euo pipefail
           cat > /tmp/tests.sql <<'R322_TESTS'
           -- R322: Disposable PostgreSQL ONLY. Composite tenant foreign keys and DEFINER/EXECUTE hardening.
           \set ON_ERROR_STOP on
@@ -287,6 +294,10 @@ jobs:
           -- The real HTTP/JWT trust boundary must independently verify the signature and role.
           SELECT 'R322_DISPOSABLE_PG17_CROSS_TENANT_FK_AND_DEFINER_PASS_RELEASE_HOLD' AS result;
           R322_TESTS
+      - name: Execute all SQL in ephemeral PG17 and retain release HOLD
+        shell: bash
+        run: |
+          set -euo pipefail
           pgid="${{ job.services.pg.id }}"
           test -n "$pgid"
           docker exec -i "$pgid" psql -X -U postgres -d r322_synthetic -v ON_ERROR_STOP=1 < /tmp/schema.sql
