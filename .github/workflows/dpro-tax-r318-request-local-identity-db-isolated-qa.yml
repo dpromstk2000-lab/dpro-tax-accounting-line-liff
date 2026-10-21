@@ -1,0 +1,62 @@
+name: DPRO TAX R318 Request-Local Identity DB Binding Isolated QA
+
+on:
+  push:
+    branches:
+      - dpro-tax-r308-auth-tenant-integration-qa-20261020
+    paths:
+      - 'qa/r316/r318-offline-request-bridge.mjs'
+      - 'qa/r316/r318-offline-request-bridge.test.mjs'
+      - '.github/workflows/dpro-tax-r318-request-local-identity-db-isolated-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  r318-request-bound-jwt-db:
+    if: github.ref == 'refs/heads/dpro-tax-r308-auth-tenant-integration-qa-20261020'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout isolated QA branch only, no retained credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Verify upstream module identity and synthetic-only changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s qa/r316/read-only-gateway.mjs
+          test -s qa/r316/read-only-gateway.test.mjs
+          test -s qa/r316/r317-scoped-postgrest-adapter.mjs
+          test -s qa/r316/r317-scoped-postgrest-adapter.test.mjs
+          test -s qa/r316/r318-offline-request-bridge.mjs
+          test -s qa/r316/r318-offline-request-bridge.test.mjs
+          test "$(git hash-object qa/r316/read-only-gateway.mjs)" = '3fd89237be45daf945a95b5692f402432ae25352'
+          test "$(git hash-object qa/r316/read-only-gateway.test.mjs)" = '389e2da868b20ac44b69b0b80197a2d9b85628bb'
+          test "$(git hash-object qa/r316/r317-scoped-postgrest-adapter.mjs)" = '04935bc2c9cd5e30a1f9ebeb4dca5bfde5dfc2fb'
+          test "$(git hash-object qa/r316/r317-scoped-postgrest-adapter.test.mjs)" = '7c990689d448becdccc26659c4226e7c82a1897d'
+          ! grep -nE 'process\.env\.|wrangler deploy|wrangler publish|cloudflare deploy|https://[^ ]*\.supabase\.co' qa/r316/r318-offline-request-bridge.mjs
+          node --check qa/r316/r318-offline-request-bridge.mjs
+          node --check qa/r316/r318-offline-request-bridge.test.mjs
+          echo 'R318: localhost/production endpoints rejected, no real auth/DB/Worker/LINE'
+
+      - name: R316 executable signed JWT gateway regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          node qa/r316/read-only-gateway.test.mjs
+
+      - name: R317 request-scoped PostgREST regression (synthetic mock transport)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node qa/r316/r317-scoped-postgrest-adapter.test.mjs
+
+      - name: R318 request-local JWT and DB binding integration (offline mock)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node qa/r316/r318-offline-request-bridge.test.mjs
