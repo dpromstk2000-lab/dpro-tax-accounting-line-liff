@@ -1,4 +1,4 @@
-name: DPRO TAX R325 Executable HTTP Bridge to Ephemeral PG17 RLS QA (Diagnostic Fix)
+name: DPRO TAX R325 Executable HTTP Bridge to Ephemeral PG17 RLS QA (JSONB Fix V1.2)
 on:
   push:
     branches:
@@ -332,7 +332,7 @@ jobs:
            if(dry)rows=fixtureRows(table,filters,verified.sub).slice(0,limit);
            else {
              const pred=Object.entries(filters).map(([k,v])=>`${k}=${k==='is_active'?'true':`'${v}'::uuid`}`).join(' AND ');
-             const sql=`BEGIN;\nSET LOCAL ROLE authenticated;\nSELECT set_config('request.jwt.claim.sub','${verified.sub}',true);\nSELECT COALESCE(json_agg(q),'[]'::json)::text FROM (SELECT ${allowed[table]} FROM public.${table} WHERE ${pred} LIMIT ${limit}) q;\nCOMMIT;`;
+             const sql=`BEGIN;\nSET LOCAL ROLE authenticated;\nSELECT set_config('request.jwt.claim.sub','${verified.sub}',true);\nSELECT COALESCE(jsonb_agg(q),'[]'::jsonb)::text FROM (SELECT ${allowed[table]} FROM public.${table} WHERE ${pred} LIMIT ${limit}) q;\nCOMMIT;`;
              const output=execFileSync('docker',['exec','-i',PGID,'psql','-X','-A','-t','-U','postgres','-d','r325_synthetic','-v','ON_ERROR_STOP=1'],{input:sql,encoding:'utf8',timeout:12000,maxBuffer:1500000});
              const arrays=output.split(/\r?\n/).map(s=>s.trim()).filter(s=>s.startsWith('[')&&s.endsWith(']'));
              if(arrays.length!==1)throw Error('INVALID_PG_RESULT');
