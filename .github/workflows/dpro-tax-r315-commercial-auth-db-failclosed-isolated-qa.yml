@@ -1,0 +1,361 @@
+name: DPRO TAX R315 Commercial Auth DB Fail-Closed Isolated QA
+
+on:
+  push:
+    branches:
+      - dpro-tax-r308-auth-tenant-integration-qa-20261020
+    paths:
+      - '.github/workflows/dpro-tax-r315-commercial-auth-db-failclosed-isolated-qa.yml'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  r315-synthetic-es256-scoped-db:
+    if: github.ref == 'refs/heads/dpro-tax-r308-auth-tenant-integration-qa-20261020'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Verify synthetic ES256 and mock PostgREST fail-closed boundary (no checkout, no secrets)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'R315_OFFLINE_JS'
+          'use strict';
+          // DPRO TAX R315: offline ES256 -> staff membership -> scoped PostgREST contract.
+          // Deliberately no Worker/Supabase/LINE deployment or external connection.
+          const assert = require('node:assert/strict');
+          const { webcrypto } = require('node:crypto');
+          const subtle = webcrypto.subtle;
+          const NOW = 1792576800;
+          const ISS = 'https://isolated-r315.invalid.test/auth/v1';
+          const AUD = 'authenticated';
+          const KID = 'r315-pinned-key';
+          const A='11111111-1111-4111-8111-111111111111',B='22222222-2222-4222-8222-222222222222',C='33333333-3333-4333-8333-333333333333',D='44444444-4444-4444-8444-444444444444',E='55555555-5555-4555-8555-555555555555';
+          const OA='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',OB='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',OC='cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+          const SA='a0000000-0000-4000-8000-000000000001',SB='b0000000-0000-4000-8000-000000000002',SC='c0000000-0000-4000-8000-000000000003',SD='d0000000-0000-4000-8000-000000000004',SE='e0000000-0000-4000-8000-000000000005';
+          const CA='aaaaaaaa-0000-4000-8000-000000000001',CB='bbbbbbbb-0000-4000-8000-000000000001',CC='aaaaaaaa-0000-4000-8000-000000000002';
+          const offices=[{id:OA,is_active:true,is_demo:false,production_guard:false},{id:OB,is_active:true,is_demo:false,production_guard:false},{id:OC,is_active:false,is_demo:false,production_guard:false}];
+          const staff=[
+            {id:SA,auth_user_id:A,office_id:OA,role:'owner',is_active:true,can_view_all_clients:true},
+            {id:SB,auth_user_id:B,office_id:OB,role:'staff',is_active:true,can_view_all_clients:false},
+            {id:SC,auth_user_id:C,office_id:OA,role:'reviewer',is_active:true,can_view_all_clients:false},
+            {id:SD,auth_user_id:C,office_id:OB,role:'staff',is_active:true,can_view_all_clients:false},
+            {id:SE,auth_user_id:D,office_id:OA,role:'owner',is_active:false,can_view_all_clients:true},
+          ];
+          const clients=[
+            {id:CA,office_id:OA,assigned_staff_id:SC,reviewer_staff_id:SC,legal_name:'SECRET_A'},
+            {id:CB,office_id:OB,assigned_staff_id:SB,reviewer_staff_id:null,legal_name:'SECRET_B'},
+            {id:CC,office_id:OA,assigned_staff_id:null,reviewer_staff_id:null,legal_name:'SECRET_C'},
+          ];
+          const uuid=s=>typeof s==='string'&&/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(s);
+          const b64json=v=>Buffer.from(JSON.stringify(v)).toString('base64url');
+          let egress=0,legacyDispatch=0,checks=0,allowed=0,denied=0,sqlChecks=0,dbCalls=0;
+          globalThis.fetch=async()=>{egress++;throw Error('NETWORK_FORBIDDEN')};
+          function abort(code,status=403){let e=new Error(code);e.code=code;e.status=status;throw e}
+          function decode(s){
+           if(typeof s!=='string'||!/^[A-Za-z0-9_-]{1,8192}$/.test(s))abort('TOKEN_INVALID',401);
+           const buf=Buffer.from(s,'base64url');
+           if(buf.toString('base64url')!==s)abort('TOKEN_INVALID',401);
+           try{return JSON.parse(buf.toString('utf8'))}catch{abort('TOKEN_INVALID',401)}
+          }
+          async function mint(body,privateKey,headerPatch={}){
+           const header={alg:'ES256',typ:'JWT',kid:KID,...headerPatch};
+           const contents=b64json(header)+'.'+b64json(body);
+           const sig=await subtle.sign({name:'ECDSA',hash:'SHA-256'},privateKey,Buffer.from(contents));
+           return contents+'.'+Buffer.from(sig).toString('base64url');
+          }
+          const claim=sub=>({iss:ISS,aud:AUD,sub,role:'authenticated',iat:NOW-30,nbf:NOW-30,exp:NOW+900});
+          async function verifyJwt(raw,publicKey){
+           if(typeof raw!=='string'||raw.length>12000)abort('TOKEN_INVALID',401);
+           const s=raw.split('.');
+           if(s.length!==3||s.some(x=>!/^[A-Za-z0-9_-]+$/.test(x)))abort('TOKEN_INVALID',401);
+           const h=decode(s[0]);const c=decode(s[1]);
+           if(h?.alg!=='ES256'||h.typ!=='JWT'||h.kid!==KID||
+             ['jku','x5u','jwk','crit','x5c'].some(x=>Object.prototype.hasOwnProperty.call(h,x)))abort('TOKEN_INVALID',401);
+           const sig=Buffer.from(s[2],'base64url');
+           if(sig.length!==64||sig.toString('base64url')!==s[2])abort('TOKEN_INVALID',401);
+           const good=await subtle.verify({name:'ECDSA',hash:'SHA-256'},publicKey,sig,Buffer.from(s[0]+'.'+s[1]));
+           if(!good)abort('TOKEN_INVALID',401);
+           if(c.iss!==ISS||c.aud!==AUD||c.role!=='authenticated'||!uuid(c.sub))abort('TOKEN_INVALID',401);
+           if(![c.iat,c.nbf,c.exp].every(Number.isInteger)||c.exp<=NOW||c.nbf>NOW||c.iat>NOW+30||
+             c.exp-c.iat>3600||c.exp<=c.iat)abort('TOKEN_INVALID',401);
+           // Trust ONLY the cryptographically verified subject; client-provided office/role claims are ignored.
+           return Object.freeze({sub:c.sub});
+          }
+          const allowedSelect=Object.freeze({
+           taxacc_offices:'id,is_active,is_demo,production_guard',
+           taxacc_staff:'id,auth_user_id,office_id,role,is_active,can_view_all_clients',
+           taxacc_clients:'id,office_id,assigned_staff_id,reviewer_staff_id'
+          });
+          function scopedQuery(table,conditions){
+           if(!Object.hasOwn(allowedSelect,table))abort('UNSAFE_TABLE',503);
+           const p=new URLSearchParams();p.set('select',allowedSelect[table]);
+           for(const [k,v] of Object.entries(conditions))p.set(k,v);
+           const u=new URL('https://db.invalid.test/rest/v1/'+table);u.search=p.toString();
+           return Object.freeze({table,uri:u.toString()});
+          }
+          function qOffice(id){if(!uuid(id))abort('OFFICE_REQUIRED');return scopedQuery('taxacc_offices',{id:'eq.'+id,limit:'1'})}
+          function qMembership(sub,officeId){if(!uuid(sub)||!uuid(officeId))abort('MEMBERSHIP_SCOPE_INVALID');
+           return scopedQuery('taxacc_staff',{office_id:'eq.'+officeId,auth_user_id:'eq.'+sub,is_active:'eq.true',limit:'2'});
+          }
+          function canAll(who){return who.can_view_all_clients===true&&['owner','manager'].includes(who.role)}
+          function canClient(who,client){return canAll(who)||client.assigned_staff_id===who.id||client.reviewer_staff_id===who.id}
+          function qClients(officeId,who,clientId=null){
+           if(!uuid(officeId)||!uuid(who?.id)||who.office_id!==officeId||who.is_active!==true)abort('CLIENT_SCOPE_INVALID');
+           if(!['owner','manager','staff','reviewer'].includes(who.role))abort('ROLE_DENIED');
+           if(clientId!==null&&!uuid(clientId))abort('INVALID_CLIENT_ID',404);
+           const cond={office_id:'eq.'+officeId};
+           if(clientId!==null)cond.id='eq.'+clientId;
+           if(!canAll(who))cond.or='(assigned_staff_id.eq.'+who.id+',reviewer_staff_id.eq.'+who.id+')';
+           cond.limit='50';
+           return scopedQuery('taxacc_clients',cond);
+          }
+          const keys=o=>Object.keys(o).sort();
+          function makeDatabase({inject}={}){
+           const audit=[];
+           async function exec(q){
+             dbCalls++;audit.push(q);
+             if(inject){const val=await inject(q);if(val!==undefined)return val}
+             const u=new URL(q.uri),p=u.searchParams;
+             assert.equal(u.hostname,'db.invalid.test');
+             assert.equal(u.pathname,'/rest/v1/'+q.table);
+             assert.equal(p.get('select'),allowedSelect[q.table]);
+             assert.equal(p.has('apikey'),false);assert.equal(p.has('authorization'),false);
+             if(q.table==='taxacc_offices'){
+               assert.deepEqual(keys(Object.fromEntries(p)),['id','limit','select']);
+               assert.equal(p.get('limit'),'1');assert.match(p.get('id'),/^eq\.[a-f0-9-]{36}$/);
+               sqlChecks++;return offices.filter(x=>'eq.'+x.id===p.get('id'));
+             }
+             if(q.table==='taxacc_staff'){
+               assert.deepEqual(keys(Object.fromEntries(p)),['auth_user_id','is_active','limit','office_id','select']);
+               assert.equal(p.get('limit'),'2');assert.equal(p.get('is_active'),'eq.true');
+               sqlChecks++;return staff.filter(x=>'eq.'+x.office_id===p.get('office_id')&&
+                 'eq.'+x.auth_user_id===p.get('auth_user_id')&&x.is_active).slice(0,2);
+             }
+             if(q.table==='taxacc_clients'){
+               assert.ok(p.get('office_id')?.startsWith('eq.'));
+               assert.equal(p.get('limit'),'50');
+               const all=p.has('or')===false;
+               const expectKeys=['select','office_id','limit',...(p.has('id')?['id']:[]),...(all?[]:['or'])].sort();
+               assert.deepEqual(keys(Object.fromEntries(p)),expectKeys);
+               const scoped=clients.filter(x=>'eq.'+x.office_id===p.get('office_id')&&
+                 (!p.has('id')||'eq.'+x.id===p.get('id')));
+               if(all){sqlChecks++;return scoped}
+               const m=/^\(assigned_staff_id\.eq\.([a-f0-9-]{36}),reviewer_staff_id\.eq\.\1\)$/.exec(p.get('or')||'');
+               assert.ok(m);assert.ok(uuid(m[1]));sqlChecks++;
+               return scoped.filter(x=>x.assigned_staff_id===m[1]||x.reviewer_staff_id===m[1]);
+             }
+             abort('DB_ROUTE_FORBIDDEN',503);
+           }
+           return {exec,audit};
+          }
+          function respond(status,body){return new Response(JSON.stringify(body),{status,headers:{'content-type':'application/json','cache-control':'no-store','x-content-type-options':'nosniff'}})}
+          function route(path){
+           if(path==='/api/admin/dashboard')return {kind:'dashboard'};
+           if(path==='/api/admin/clients')return {kind:'list'};
+           const match=/^\/api\/admin\/clients\/([a-f0-9-]{36})$/.exec(path);
+           if(match&&uuid(match[1]))return {kind:'detail',clientId:match[1]};
+           if(/^\/api\/admin\/documents\//.test(path)&&path.endsWith('/signed-url'))abort('SIGNED_URL_HOLD',403);
+           abort('ROUTE_DISABLED',404);
+          }
+          function gateway({jwtVerifier,db,enabled=false,enabledOfficeIds=[]}){
+           return async request=>{
+             try{
+               if(!enabled)abort('COMMERCIAL_READ_HOLD',503);
+               if(request.method!=='GET')abort('METHOD_DISABLED',405);
+               const u=new URL(request.url);const r=route(u.pathname);
+               if(u.search!=='')abort('QUERY_DISABLED',404);
+               const h=request.headers.get('authorization')||'';
+               const bearer=/^Bearer ([A-Za-z0-9._-]{1,12000})$/.exec(h);
+               if(!bearer)abort('BEARER_REQUIRED',401);
+               const verified=await jwtVerifier(bearer[1]);
+               if(!uuid(verified?.sub))abort('SUBJECT_INVALID',401);
+               const officeId=request.headers.get('x-office-id');
+               if(!uuid(officeId))abort('OFFICE_REQUIRED',403);
+               if(!enabledOfficeIds.includes(officeId))abort('OFFICE_NOT_APPROVED',403);
+               const officeRows=await db.exec(qOffice(officeId));
+               if(!Array.isArray(officeRows)||officeRows.length!==1||officeRows[0]?.id!==officeId||
+                 officeRows[0].is_active!==true||officeRows[0].is_demo!==false||officeRows[0].production_guard!==false)
+                 abort('OFFICE_NOT_AUTHORIZED',403);
+               const whoRows=await db.exec(qMembership(verified.sub,officeId));
+               if(!Array.isArray(whoRows)||whoRows.length!==1)abort('STAFF_NOT_LINKED',403);
+               const who=whoRows[0];
+               if(!uuid(who.id)||who.office_id!==officeId||who.auth_user_id!==verified.sub||
+                  who.is_active!==true||!['owner','manager','staff','reviewer'].includes(who.role))abort('STAFF_NOT_LINKED',403);
+               const records=await db.exec(qClients(officeId,who,r.kind==='detail'?r.clientId:null));
+               if(!Array.isArray(records)||records.length>50)abort('DB_RESULT_UNTRUSTED',503);
+               if(records.some(x=>!uuid(x?.id)||x.office_id!==officeId||!canClient(who,x)))abort('DB_RESULT_UNTRUSTED',503);
+               const safe=records.map(x=>({id:x.id,office_id:x.office_id}));
+               if(r.kind==='detail'){
+                 if(safe.length>1||safe.length===1&&safe[0].id!==r.clientId)abort('DB_RESULT_UNTRUSTED',503);
+                 if(!safe.length)abort('CLIENT_NOT_FOUND',404);
+                 return respond(200,{ok:true,client:safe[0]});
+               }
+               if(r.kind==='list')return respond(200,{ok:true,clients:safe});
+               return respond(200,{ok:true,summary:{visible_clients:safe.length}});
+             }catch(e){
+               const code=typeof e?.code==='string'?e.code:'DB_UNAVAILABLE';
+               const status=Number.isInteger(e?.status)?e.status:503;
+               return respond(status,{ok:false,error:code});
+             }
+           };
+          }
+          async function expect(g,r,status,code){let out=await g(r);assert.equal(out.status,status);let b=await out.json();if(code)assert.equal(b.error,code);assert.equal(out.headers.get('cache-control'),'no-store');return b}
+          function req(token,office=OA,path='/api/admin/dashboard',method='GET',extras={}){
+           return new Request('https://worker.invalid.test'+path,{method,headers:{'authorization':token?'Bearer '+token:'','x-office-id':office||'',...extras}})
+          }
+          async function main(){
+           const trusted=await subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']);
+           const attacker=await subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']);
+           const tokens={};for(const user of [A,B,C,D,E])tokens[user]=await mint(claim(user),trusted.privateKey);
+           const db=makeDatabase();
+           const verify=token=>verifyJwt(token,trusted.publicKey);
+           const g=gateway({jwtVerifier:verify,db,enabled:true,enabledOfficeIds:[OA,OB]});
+           const neg=async(name,r,status,code)=>check(name,()=>expect(g,r,status,code));
+           async function check(name,fn){await fn();checks++;console.log('PASS '+name)}
+           await check('disabled-by-default-fail-closed',async()=>{
+             const no=gateway({jwtVerifier:verify,db});await expect(no,req(tokens[A]),503,'COMMERCIAL_READ_HOLD');
+           });
+           await check('pinned-signature-owner-scoped',async()=>{
+             const b=await expect(g,req(tokens[A]),200);assert.equal(b.summary.visible_clients,2);
+           });
+           await check('staff-assignment-and-field-minimization',async()=>{
+             const b=await expect(g,req(tokens[B],OB,'/api/admin/clients'),200);
+             assert.deepEqual(b.clients,[{id:CB,office_id:OB}]);assert.ok(!JSON.stringify(b).includes('SECRET_'));
+           });
+           await check('same-sub-separated-office-memberships',async()=>{
+             const oa=await expect(g,req(tokens[C],OA,'/api/admin/clients'),200);
+             const ob=await expect(g,req(tokens[C],OB,'/api/admin/clients'),200);
+             assert.deepEqual(oa.clients,[{id:CA,office_id:OA}]);assert.deepEqual(ob.clients,[]);
+           });
+           await check('individual-document-record-allow',async()=>{
+             const b=await expect(g,req(tokens[A],OA,'/api/admin/clients/'+CC),200);assert.equal(b.client.id,CC);
+           });
+           const cases=[
+           ['missing-auth',req('',OA),401,'BEARER_REQUIRED'],
+           ['untrusted-basic',req('',OA,'/api/admin/dashboard','GET',{authorization:'Basic 1234'}),401,'BEARER_REQUIRED'],
+           ['demo-admin-header-cannot-authorize',req('',OA,'/api/admin/dashboard','GET',{'x-admin-key':'1234','x-line-user-id':'fake'}),401,'BEARER_REQUIRED'],
+           ['unsigned-token',req('test-only:'+A),401,'BEARER_REQUIRED'],
+           ['cross-office-owner',req(tokens[A],OB),403,'STAFF_NOT_LINKED'],
+           ['inactive-office',req(tokens[A],OC),403,'OFFICE_NOT_APPROVED'],
+           ['inactive-staff',req(tokens[D]),403,'STAFF_NOT_LINKED'],
+           ['unknown-member',req(tokens[E]),403,'STAFF_NOT_LINKED'],
+           ['unauthorized-record',req(tokens[C],OA,'/api/admin/clients/'+CC),404,'CLIENT_NOT_FOUND'],
+           ['foreign-client-id',req(tokens[A],OA,'/api/admin/clients/'+CB),404,'CLIENT_NOT_FOUND'],
+           ['no-office',req(tokens[A],null),403,'OFFICE_REQUIRED'],
+           ['path-traversal',req(tokens[A],OA,'/api/admin/clients/../settings'),404,'ROUTE_DISABLED'],
+           ['encoded-path',req(tokens[A],OA,'/api/admin/clients/%2f'),404,'ROUTE_DISABLED'],
+           ['query-disallowed',req(tokens[A],OA,'/api/admin/clients?office_id='+OB),404,'QUERY_DISABLED'],
+           ['url-hold',req(tokens[A],OA,'/api/admin/documents/'+CA+'/signed-url'),403,'SIGNED_URL_HOLD'],
+           ['public-post',req(tokens[A],OA,'/api/public/appointments','POST'),405,'METHOD_DISABLED'],
+           ['admin-post',req(tokens[A],OA,'/api/admin/clients','POST'),405,'METHOD_DISABLED'],
+           ['admin-patch',req(tokens[A],OA,'/api/admin/clients/'+CA,'PATCH'),405,'METHOD_DISABLED'],
+           ['admin-delete',req(tokens[A],OA,'/api/admin/clients/'+CA,'DELETE'),405,'METHOD_DISABLED'],
+           ['head-denied',req(tokens[A],OA,'/api/admin/dashboard','HEAD'),405,'METHOD_DISABLED'],
+           ['unknown-route',req(tokens[A],OA,'/api/admin/tasks'),404,'ROUTE_DISABLED'],
+           ['spoofed-sub-and-role',req(tokens[B],OA,'/api/admin/dashboard','GET',{'x-verified-sub':A,'x-role':'owner','x-admin-key':'1234'}),403,'STAFF_NOT_LINKED'],
+           ];
+           for(const [name,r,status,code] of cases)await neg(name,r,status,code);
+           const rejects=[
+           ['signature-from-other-key',await mint(claim(A),attacker.privateKey)],
+           ['forged-payload',tokens[A].split('.')[0]+'.'+b64json(claim(B))+'.'+tokens[A].split('.')[2]],
+           ['none-algorithm',await mint(claim(A),trusted.privateKey,{alg:'none'})],
+           ['hs256-algorithm',await mint(claim(A),trusted.privateKey,{alg:'HS256'})],
+           ['unknown-kid',await mint(claim(A),trusted.privateKey,{kid:'attacker'})],
+           ['untrusted-jku',await mint(claim(A),trusted.privateKey,{jku:'https://evil.invalid/jwks'})],
+           ['embedded-jwk',await mint(claim(A),trusted.privateKey,{jwk:{}})],
+           ['wrong-issuer',await mint({...claim(A),iss:'https://attacker.invalid'},trusted.privateKey)],
+           ['wrong-audience',await mint({...claim(A),aud:'service_role'},trusted.privateKey)],
+           ['expired',await mint({...claim(A),exp:NOW-1},trusted.privateKey)],
+           ['future-nbf',await mint({...claim(A),nbf:NOW+100},trusted.privateKey)],
+           ['long-lived',await mint({...claim(A),exp:NOW+4000},trusted.privateKey)],
+           ['future-iat',await mint({...claim(A),iat:NOW+200},trusted.privateKey)],
+           ['empty-sub',await mint({...claim(A),sub:''},trusted.privateKey)],
+           ['wrong-role',await mint({...claim(A),role:'service_role'},trusted.privateKey)],
+           ];
+           for(const [name,token] of rejects)await neg(name,req(token),401,'TOKEN_INVALID');
+           await check('signed-untrusted-office-role-claims-do-not-grant',async()=>{
+             const s=await mint({...claim(B),office_id:OA,role:'authenticated',can_view_all_clients:true,is_admin:true},trusted.privateKey);
+             await expect(g,req(s,OA),403,'STAFF_NOT_LINKED');
+           });
+           await check('credential-free-scoped-query-shapes',async()=>{
+             const q=qMembership(A,OA);const p=new URL(q.uri).searchParams;
+             assert.equal(p.get('office_id'),'eq.'+OA);assert.equal(p.get('auth_user_id'),'eq.'+A);
+             assert.equal(p.get('is_active'),'eq.true');assert.equal(p.get('limit'),'2');
+             const q2=qClients(OB,staff[1]);const p2=new URL(q2.uri).searchParams;
+             assert.equal(p2.get('office_id'),'eq.'+OB);
+             assert.equal(p2.get('or'),`(assigned_staff_id.eq.${SB},reviewer_staff_id.eq.${SB})`);
+             assert.equal(p2.get('select'),'id,office_id,assigned_staff_id,reviewer_staff_id');
+             assert.ok(!q2.uri.includes('SERVICE_ROLE'));
+           });
+           await check('inactive-member-cannot-query-clients',async()=>{
+             assert.throws(()=>qClients(OA,staff[4]),/CLIENT_SCOPE_INVALID/);
+           });
+           await check('cross-office-client-query-denied',async()=>{
+             assert.throws(()=>qClients(OA,staff[1]),/CLIENT_SCOPE_INVALID/);
+           });
+           await check('role-flag-cannot-make-staff-owner',async()=>{
+             const who={...staff[1],can_view_all_clients:true};
+             const q=qClients(OB,who);assert.ok(new URL(q.uri).searchParams.has('or'));
+           });
+           await check('duplicate-membership-fails-closed',async()=>{
+             const bad=makeDatabase({inject:q=>q.table==='taxacc_staff'?[staff[0],staff[0]]:undefined});
+             await expect(gateway({jwtVerifier:verify,db:bad,enabled:true,enabledOfficeIds:[OA]}),req(tokens[A]),403,'STAFF_NOT_LINKED');
+           });
+           await check('wrong-office-returned-by-db-rejected',async()=>{
+             const bad=makeDatabase({inject:q=>q.table==='taxacc_offices'?[offices[1]]:undefined});
+             await expect(gateway({jwtVerifier:verify,db:bad,enabled:true,enabledOfficeIds:[OA]}),req(tokens[A]),403,'OFFICE_NOT_AUTHORIZED');
+           });
+           await check('db-returned-cross-tenant-client-rejected',async()=>{
+             const bad=makeDatabase({inject:q=>q.table==='taxacc_clients'?[clients[1]]:undefined});
+             await expect(gateway({jwtVerifier:verify,db:bad,enabled:true,enabledOfficeIds:[OA]}),req(tokens[A]),503,'DB_RESULT_UNTRUSTED');
+           });
+           await check('db-returned-unassigned-client-rejected',async()=>{
+             const bad=makeDatabase({inject:q=>q.table==='taxacc_clients'?[clients[2]]:undefined});
+             await expect(gateway({jwtVerifier:verify,db:bad,enabled:true,enabledOfficeIds:[OA]}),req(tokens[C]),503,'DB_RESULT_UNTRUSTED');
+           });
+           await check('db-shutdown-fails-closed',async()=>{
+             const bad=makeDatabase({inject:()=>{throw Error('PG IS DOWN: PRIVATE DETAILS')}});
+             const b=await expect(gateway({jwtVerifier:verify,db:bad,enabled:true,enabledOfficeIds:[OA]}),req(tokens[A]),503,'DB_UNAVAILABLE');
+             assert.ok(!JSON.stringify(b).includes('PRIVATE'));
+           });
+           await check('extra-db-fields-never-returned',async()=>{
+             const v=await expect(g,req(tokens[A],OA,'/api/admin/clients'),200);
+             assert.ok(!JSON.stringify(v).includes('legal_name'));
+           });
+           await check('office-production-guard-fails-closed',async()=>{
+             const bad=makeDatabase({inject:q=>q.table==='taxacc_offices'?[{...offices[0],production_guard:true}]:undefined});
+             await expect(gateway({jwtVerifier:verify,db:bad,enabled:true,enabledOfficeIds:[OA]}),req(tokens[A]),403,'OFFICE_NOT_AUTHORIZED');
+           });
+           await check('office-demo-fails-closed',async()=>{
+             const bad=makeDatabase({inject:q=>q.table==='taxacc_offices'?[{...offices[0],is_demo:true}]:undefined});
+             await expect(gateway({jwtVerifier:verify,db:bad,enabled:true,enabledOfficeIds:[OA]}),req(tokens[A]),403,'OFFICE_NOT_AUTHORIZED');
+           });
+           const methods=['GET','POST','PATCH','DELETE','HEAD'];
+           const paths=['/api/admin/dashboard','/api/admin/clients','/api/admin/clients/'+CA,
+             '/api/admin/clients/'+CB,'/api/admin/clients/'+CC,
+             '/api/admin/documents/'+CA+'/signed-url','/api/public/appointments','/api/admin/tasks'];
+           for(const method of methods)for(const path of paths)for(const sub of [A,B,C,D,E])for(const officeId of [OA,OB,OC,'not-a-uuid']){
+             const response=await g(req(tokens[sub],officeId,path,method));
+             const outcome=response.ok;if(outcome)allowed++;else denied++;
+             const officeOk=[OA,OB].includes(officeId);
+             const member=staff.filter(x=>x.auth_user_id===sub&&x.office_id===officeId&&x.is_active);
+             const who=member[0];
+             const record=clients.find(x=>path==='/api/admin/clients/'+x.id&&x.office_id===officeId);
+             const expected=method==='GET'&&officeOk&&member.length===1&&
+              (path==='/api/admin/dashboard'||path==='/api/admin/clients'||(!!record&&canClient(who,record)));
+             assert.equal(outcome,expected,'matrix '+JSON.stringify({method,path,sub,officeId}));
+             checks++;
+           }
+           assert.equal(allowed,12);assert.equal(denied,788);
+           assert.equal(egress,0);assert.equal(legacyDispatch,0);
+           assert.equal(checks,5+cases.length+rejects.length+13+800);
+           console.log(JSON.stringify({suite:'DPRO_TAX_R315_OFFLINE_IDENTITY_DB_BOUNDARY',checks,
+             named_checks:checks-800,matrix_checks:800,allowed,denied,scoped_query_mock_checks:sqlChecks,
+             mock_db_calls:dbCalls,egress_attempts:egress,legacy_dispatch_calls:legacyDispatch,
+             real_supabase_jwt:false,real_db_connection:false,real_worker_code_execution:false,
+             real_line_connection:false,production_deployment:false,commercial_release:'HOLD'}));
+          }
+          main().catch(e=>{console.error('R315_FAIL',e.stack||e);process.exitCode=1});
+          R315_OFFLINE_JS
