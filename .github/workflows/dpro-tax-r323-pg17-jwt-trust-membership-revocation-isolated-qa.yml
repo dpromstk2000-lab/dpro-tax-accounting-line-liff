@@ -1,0 +1,431 @@
+name: DPRO TAX R323 Ephemeral PG17 Identity Trust and Membership Revocation QA
+on:
+  push:
+    branches:
+      - dpro-tax-r308-auth-tenant-integration-qa-20261020
+    paths:
+      - '.github/workflows/dpro-tax-r323-pg17-jwt-trust-membership-revocation-isolated-qa.yml'
+  workflow_dispatch:
+permissions: {}
+jobs:
+  pg17-rls-tenant-integrity:
+    if: github.ref == 'refs/heads/dpro-tax-r308-auth-tenant-integration-qa-20261020'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      pg:
+        image: postgres:17
+        env:
+          POSTGRES_DB: r323_synthetic
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: disposable_r323_qa_only
+        options: >-
+          --health-cmd "pg_isready -U postgres -d r323_synthetic"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 8
+    steps:
+      - name: Prepare synthetic PostgreSQL 17 schema and RLS fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Disposable GitHub Actions PG17 ONLY; never connect to Supabase, Worker, or LINE.
+          cat > /tmp/schema.sql <<'R322_SCHEMA'
+          -- R322 SYNTHETIC EPHEMERAL POSTGRES ONLY, R321 REUSED - DO NOT RUN ON SHARED SUPABASE
+          -- This is a disposable PostgreSQL 17 test fixture, not migration SQL.
+          -- WARNING: PostgreSQL RLS is NOT a substitute for server-verified JWT authentication.
+          \set ON_ERROR_STOP on
+          CREATE SCHEMA auth;
+          CREATE SCHEMA r321_private;
+          CREATE ROLE authenticated NOLOGIN;
+          CREATE ROLE anon NOLOGIN;
+          CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$
+            SELECT nullif(current_setting('request.jwt.claim.sub', true),'')::uuid
+          $$;
+          REVOKE ALL ON SCHEMA r321_private FROM PUBLIC;
+          GRANT USAGE ON SCHEMA r321_private TO authenticated;
+          GRANT USAGE ON SCHEMA auth, public TO authenticated,anon;
+          GRANT EXECUTE ON FUNCTION auth.uid() TO authenticated,anon;
+          CREATE TABLE public.taxacc_offices(id uuid PRIMARY KEY, is_active boolean NOT NULL, is_demo boolean NOT NULL, production_guard boolean NOT NULL);
+          CREATE TABLE public.taxacc_staff(id uuid PRIMARY KEY, office_id uuid NOT NULL, auth_user_id uuid, role text NOT NULL,
+           is_active boolean NOT NULL, can_view_all_clients boolean NOT NULL);
+          CREATE TABLE public.taxacc_clients(id uuid PRIMARY KEY, office_id uuid NOT NULL,
+           assigned_staff_id uuid, reviewer_staff_id uuid, is_demo boolean NOT NULL DEFAULT false);
+          CREATE TABLE public.taxacc_document_submissions(id uuid PRIMARY KEY, office_id uuid NOT NULL, client_id uuid NOT NULL);
+          CREATE TABLE public.taxacc_document_access_logs(id uuid PRIMARY KEY, office_id uuid NOT NULL);
+          -- Deliberately grant SELECT to test that RLS, not just GRANT, enforces read isolation.
+          GRANT SELECT ON public.taxacc_offices, public.taxacc_staff, public.taxacc_clients,
+           public.taxacc_document_submissions, public.taxacc_document_access_logs TO authenticated,anon;
+          -- NO write privileges and NO write policies are granted to authenticated or anon.
+          ALTER TABLE public.taxacc_offices ENABLE ROW LEVEL SECURITY;
+          ALTER TABLE public.taxacc_staff ENABLE ROW LEVEL SECURITY;
+          ALTER TABLE public.taxacc_clients ENABLE ROW LEVEL SECURITY;
+          ALTER TABLE public.taxacc_document_submissions ENABLE ROW LEVEL SECURITY;
+          ALTER TABLE public.taxacc_document_access_logs ENABLE ROW LEVEL SECURITY;
+          ALTER TABLE public.taxacc_offices FORCE ROW LEVEL SECURITY;
+          ALTER TABLE public.taxacc_staff FORCE ROW LEVEL SECURITY;
+          ALTER TABLE public.taxacc_clients FORCE ROW LEVEL SECURITY;
+          ALTER TABLE public.taxacc_document_submissions FORCE ROW LEVEL SECURITY;
+          ALTER TABLE public.taxacc_document_access_logs FORCE ROW LEVEL SECURITY;
+          -- Authorization helper: no input accepts an unverified user/role; identity comes only from auth.uid().
+          -- SECURITY DEFINER must be separately reviewed before any real DB use. This fixture is disposable.
+          CREATE FUNCTION r321_private.active_member(target_office uuid) RETURNS boolean
+           LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+            SELECT EXISTS(
+             SELECT 1 FROM public.taxacc_staff s JOIN public.taxacc_offices o ON o.id=s.office_id
+             WHERE s.office_id=target_office AND s.auth_user_id=auth.uid()
+               AND s.is_active IS TRUE AND o.is_active IS TRUE
+               AND o.is_demo IS FALSE AND o.production_guard IS TRUE)
+          $$;
+          CREATE FUNCTION r321_private.self_staff(target_office uuid, target_staff uuid) RETURNS boolean
+           LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+            SELECT EXISTS(
+             SELECT 1 FROM public.taxacc_staff s JOIN public.taxacc_offices o ON o.id=s.office_id
+             WHERE s.id=target_staff AND s.office_id=target_office AND s.auth_user_id=auth.uid()
+               AND s.is_active IS TRUE AND o.is_active IS TRUE
+               AND o.is_demo IS FALSE AND o.production_guard IS TRUE)
+          $$;
+          CREATE FUNCTION r321_private.can_read_client(target_office uuid, target_client uuid) RETURNS boolean
+           LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+            SELECT EXISTS(
+             SELECT 1 FROM public.taxacc_staff s JOIN public.taxacc_offices o ON o.id=s.office_id
+             JOIN public.taxacc_clients c ON c.office_id=s.office_id
+             WHERE s.office_id=target_office AND c.id=target_client AND c.office_id=target_office
+               AND s.auth_user_id=auth.uid() AND s.is_active IS TRUE
+               AND o.is_active IS TRUE AND o.is_demo IS FALSE AND o.production_guard IS TRUE
+               AND c.is_demo IS FALSE AND
+                 ((s.role IN ('owner','manager') AND s.can_view_all_clients IS TRUE)
+                  OR c.assigned_staff_id=s.id OR c.reviewer_staff_id=s.id))
+          $$;
+          REVOKE ALL ON FUNCTION r321_private.active_member(uuid),r321_private.self_staff(uuid,uuid),
+           r321_private.can_read_client(uuid,uuid) FROM PUBLIC;
+          GRANT EXECUTE ON FUNCTION r321_private.active_member(uuid),r321_private.self_staff(uuid,uuid),
+           r321_private.can_read_client(uuid,uuid) TO authenticated;
+          -- Read only. No DELETE / INSERT / UPDATE policies or privileges.
+          CREATE POLICY r321_office_read ON public.taxacc_offices FOR SELECT TO authenticated
+           USING (r321_private.active_member(id));
+          CREATE POLICY r321_staff_self_read ON public.taxacc_staff FOR SELECT TO authenticated
+           USING (r321_private.self_staff(office_id,id));
+          CREATE POLICY r321_client_scoped_read ON public.taxacc_clients FOR SELECT TO authenticated
+           USING (r321_private.can_read_client(office_id,id));
+          CREATE POLICY r321_document_scoped_read ON public.taxacc_document_submissions FOR SELECT TO authenticated
+           USING (r321_private.can_read_client(office_id,client_id));
+          -- document_access_logs intentionally has NO SELECT policy (deny-all), even for authenticated.
+          -- Fixture IDs are fake UUIDs. No real staff/client metadata or credentials.
+          INSERT INTO public.taxacc_offices VALUES
+           ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',true,false,true),
+           ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',true,false,true),
+           ('cccccccc-cccc-4ccc-8ccc-cccccccccccc',false,false,true),
+           ('dddddddd-dddd-4ddd-8ddd-dddddddddddd',true,true,true);
+          INSERT INTO public.taxacc_staff VALUES
+           ('aaaa0000-0000-4000-8000-000000000001','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','11111111-1111-4111-8111-111111111111','owner',true,true),
+           ('bbbb0000-0000-4000-8000-000000000002','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','22222222-2222-4222-8222-222222222222','staff',true,false),
+           ('aaaa0000-0000-4000-8000-000000000003','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','33333333-3333-4333-8333-333333333333','reviewer',true,false),
+           ('bbbb0000-0000-4000-8000-000000000004','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','33333333-3333-4333-8333-333333333333','staff',true,false),
+           ('aaaa0000-0000-4000-8000-000000000005','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','44444444-4444-4444-8444-444444444444','owner',false,true),
+           ('aaaa0000-0000-4000-8000-000000000006','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','55555555-5555-4555-8555-555555555555','staff',true,false),
+           ('cccc0000-0000-4000-8000-000000000007','cccccccc-cccc-4ccc-8ccc-cccccccccccc','66666666-6666-4666-8666-666666666666','owner',true,true),
+           ('dddd0000-0000-4000-8000-000000000008','dddddddd-dddd-4ddd-8ddd-dddddddddddd','77777777-7777-4777-8777-777777777777','owner',true,true);
+          INSERT INTO public.taxacc_clients VALUES
+           ('aaaaaaaa-0000-4000-8000-000000000001','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','aaaa0000-0000-4000-8000-000000000003','aaaa0000-0000-4000-8000-000000000003',false),
+           ('bbbbbbbb-0000-4000-8000-000000000001','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','bbbb0000-0000-4000-8000-000000000002',NULL,false),
+           ('aaaaaaaa-0000-4000-8000-000000000002','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',NULL,NULL,false),
+           ('aaaaaaaa-0000-4000-8000-000000000003','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','aaaa0000-0000-4000-8000-000000000006',NULL,false),
+           ('aaaaaaaa-0000-4000-8000-000000000004','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',NULL,NULL,true);
+          INSERT INTO public.taxacc_document_submissions VALUES
+           ('eeee0000-0000-4000-8000-000000000001','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','aaaaaaaa-0000-4000-8000-000000000001'),
+           ('eeee0000-0000-4000-8000-000000000002','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','bbbbbbbb-0000-4000-8000-000000000001'),
+           ('eeee0000-0000-4000-8000-000000000003','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','aaaaaaaa-0000-4000-8000-000000000002'),
+           ('eeee0000-0000-4000-8000-000000000004','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','aaaaaaaa-0000-4000-8000-000000000003');
+          INSERT INTO public.taxacc_document_access_logs VALUES('eeee0000-0000-4000-8000-000000000006','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+          CREATE FUNCTION public.r321_assert(label text, observed bigint, expected bigint) RETURNS void
+           LANGUAGE plpgsql AS $$
+           BEGIN
+            IF observed IS DISTINCT FROM expected THEN
+              RAISE EXCEPTION 'R321_FAIL: % (expected %, observed %)',label,expected,observed;
+            END IF;
+            RAISE NOTICE 'R321_PASS: %', label;
+           END $$;
+          GRANT EXECUTE ON FUNCTION public.r321_assert(text,bigint,bigint) TO anon,authenticated;
+          -- Ensure policies are configured ONLY for SELECT and never for anon on the synthetic tables.
+          SELECT public.r321_assert('read-only-policy-count',
+           (SELECT count(*) FROM pg_policies WHERE schemaname='public' AND policyname LIKE 'r321_%' AND cmd='SELECT'),4);
+          SELECT public.r321_assert('write-policy-count',
+           (SELECT count(*) FROM pg_policies WHERE schemaname='public' AND policyname LIKE 'r321_%' AND cmd<>'SELECT'),0);
+          
+          -- R322: Add real-schema-shaped composite FKs INSIDE DISPOSABLE PG ONLY.
+          -- The live shared Supabase already has equivalent tenant composite constraints.
+          -- These are deliberately absent from R321's simplified fixture.
+          ALTER TABLE public.taxacc_staff ADD CONSTRAINT r322_staff_office_pk_pair UNIQUE(office_id,id);
+          ALTER TABLE public.taxacc_clients ADD CONSTRAINT r322_client_office_pk_pair UNIQUE(office_id,id);
+          ALTER TABLE public.taxacc_clients ADD CONSTRAINT r322_client_assignee_tenant_fk
+           FOREIGN KEY (office_id,assigned_staff_id) REFERENCES public.taxacc_staff(office_id,id) ON DELETE RESTRICT;
+          ALTER TABLE public.taxacc_clients ADD CONSTRAINT r322_client_reviewer_tenant_fk
+           FOREIGN KEY (office_id,reviewer_staff_id) REFERENCES public.taxacc_staff(office_id,id) ON DELETE RESTRICT;
+          ALTER TABLE public.taxacc_document_submissions ADD CONSTRAINT r322_doc_client_tenant_fk
+           FOREIGN KEY (office_id,client_id) REFERENCES public.taxacc_clients(office_id,id) ON DELETE CASCADE;
+          R322_SCHEMA
+      - name: Prepare unchanged R321 regression SQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/r321_regression.sql <<'R322_REGRESSION'
+          -- R321 regression executed in R322 disposable PostgreSQL RLS checks, deliberately using SET ROLE to activate RLS.
+          \set ON_ERROR_STOP on
+          SET ROLE authenticated;
+          -- No trusted JWT claim -> nothing may be visible.
+          SELECT public.r321_assert('unauthenticated-office', (SELECT count(*) FROM public.taxacc_offices),0);
+          SELECT public.r321_assert('unauthenticated-client', (SELECT count(*) FROM public.taxacc_clients),0);
+          SELECT public.r321_assert('unauthenticated-doc', (SELECT count(*) FROM public.taxacc_document_submissions),0);
+          SELECT public.r321_assert('unauthenticated-staff', (SELECT count(*) FROM public.taxacc_staff),0);
+          SET request.jwt.claim.sub='11111111-1111-4111-8111-111111111111';
+          SELECT public.r321_assert('owner-office', (SELECT count(*) FROM public.taxacc_offices),1);
+          SELECT public.r321_assert('owner-self-staff', (SELECT count(*) FROM public.taxacc_staff),1);
+          SELECT public.r321_assert('owner-own-clients-no-demo', (SELECT count(*) FROM public.taxacc_clients),3);
+          SELECT public.r321_assert('owner-docs-cross-office-blocked', (SELECT count(*) FROM public.taxacc_document_submissions),3);
+          SELECT public.r321_assert('audit-log-deny-all', (SELECT count(*) FROM public.taxacc_document_access_logs),0);
+          SELECT public.r321_assert('owner-cannot-see-office-b', (SELECT count(*) FROM public.taxacc_offices WHERE id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'),0);
+          SET request.jwt.claim.sub='22222222-2222-4222-8222-222222222222';
+          SELECT public.r321_assert('staff-b-office', (SELECT count(*) FROM public.taxacc_offices),1);
+          SELECT public.r321_assert('staff-b-assigned-client', (SELECT count(*) FROM public.taxacc_clients),1);
+          SELECT public.r321_assert('staff-b-assigned-doc', (SELECT count(*) FROM public.taxacc_document_submissions),1);
+          SELECT public.r321_assert('staff-b-no-a', (SELECT count(*) FROM public.taxacc_clients WHERE office_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),0);
+          SET request.jwt.claim.sub='33333333-3333-4333-8333-333333333333';
+          SELECT public.r321_assert('dual-member-two-offices', (SELECT count(*) FROM public.taxacc_offices),2);
+          SELECT public.r321_assert('dual-member-two-self-staff', (SELECT count(*) FROM public.taxacc_staff),2);
+          SELECT public.r321_assert('dual-member-only-own-client', (SELECT count(*) FROM public.taxacc_clients),1);
+          SELECT public.r321_assert('dual-member-doc-limited', (SELECT count(*) FROM public.taxacc_document_submissions),1);
+          SET request.jwt.claim.sub='44444444-4444-4444-8444-444444444444';
+          SELECT public.r321_assert('inactive-staff-offices', (SELECT count(*) FROM public.taxacc_offices),0);
+          SELECT public.r321_assert('inactive-staff-clients', (SELECT count(*) FROM public.taxacc_clients),0);
+          SET request.jwt.claim.sub='55555555-5555-4555-8555-555555555555';
+          SELECT public.r321_assert('regular-staff-specific-client', (SELECT count(*) FROM public.taxacc_clients),1);
+          SELECT public.r321_assert('regular-staff-specific-document', (SELECT count(*) FROM public.taxacc_document_submissions),1);
+          SET request.jwt.claim.sub='66666666-6666-4666-8666-666666666666';
+          SELECT public.r321_assert('inactive-office-deny', (SELECT count(*) FROM public.taxacc_offices),0);
+          SELECT public.r321_assert('inactive-office-client-deny', (SELECT count(*) FROM public.taxacc_clients),0);
+          SET request.jwt.claim.sub='77777777-7777-4777-8777-777777777777';
+          SELECT public.r321_assert('demo-office-deny', (SELECT count(*) FROM public.taxacc_offices),0);
+          SELECT public.r321_assert('demo-office-client-deny', (SELECT count(*) FROM public.taxacc_clients),0);
+          SET request.jwt.claim.sub='88888888-8888-4888-8888-888888888888';
+          SELECT public.r321_assert('unknown-staff-deny', (SELECT count(*) FROM public.taxacc_clients),0);
+          SELECT public.r321_assert('no-insert-grant', has_table_privilege('authenticated','public.taxacc_clients','INSERT')::int,0);
+          SELECT public.r321_assert('no-update-grant', has_table_privilege('authenticated','public.taxacc_clients','UPDATE')::int,0);
+          SELECT public.r321_assert('no-delete-grant', has_table_privilege('authenticated','public.taxacc_clients','DELETE')::int,0);
+          SELECT public.r321_assert('not-owner-no-audit', (SELECT count(*) FROM public.taxacc_document_access_logs),0);
+          RESET ROLE;
+          SET ROLE anon;
+          SET request.jwt.claim.sub='11111111-1111-4111-8111-111111111111';
+          SELECT public.r321_assert('anon-owner-claim-denied-office', (SELECT count(*) FROM public.taxacc_offices),0);
+          SELECT public.r321_assert('anon-owner-claim-denied-client', (SELECT count(*) FROM public.taxacc_clients),0);
+          SELECT public.r321_assert('anon-owner-claim-denied-doc', (SELECT count(*) FROM public.taxacc_document_submissions),0);
+          RESET ROLE;
+          -- Intentionally no claims that the synthetic GUC models a verified real JWT.
+          SELECT 'R321_SYNTHETIC_POSTGRES_RLS_PASS_AND_RELEASE_HOLD' AS result;
+          R322_REGRESSION
+      - name: Prepare R322 cross-tenant FK and definer assertions
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/tests.sql <<'R322_TESTS'
+          -- R322: Disposable PostgreSQL ONLY. Composite tenant foreign keys and DEFINER/EXECUTE hardening.
+          \set ON_ERROR_STOP on
+          RESET ROLE;
+          RESET request.jwt.claim.sub;
+          -- Assert the 3 real-schema-shaped FKs, RLS, and security properties.
+          SELECT public.r321_assert('r322-composite-fks', (SELECT count(*) FROM pg_constraint WHERE conname IN ('r322_client_assignee_tenant_fk','r322_client_reviewer_tenant_fk','r322_doc_client_tenant_fk') AND contype='f'),3);
+          SELECT public.r321_assert('r322-client-fk-composite', (SELECT count(*) FROM pg_constraint WHERE conname='r322_doc_client_tenant_fk' AND pg_get_constraintdef(oid) LIKE '%(office_id, client_id)%'),1);
+          SELECT public.r321_assert('r322-assignee-fk-composite', (SELECT count(*) FROM pg_constraint WHERE conname='r322_client_assignee_tenant_fk' AND pg_get_constraintdef(oid) LIKE '%(office_id, assigned_staff_id)%'),1);
+          SELECT public.r321_assert('r322-reviewer-fk-composite', (SELECT count(*) FROM pg_constraint WHERE conname='r322_client_reviewer_tenant_fk' AND pg_get_constraintdef(oid) LIKE '%(office_id, reviewer_staff_id)%'),1);
+          SELECT public.r321_assert('r322-force-rls-five', (SELECT count(*) FROM pg_class WHERE relname IN ('taxacc_offices','taxacc_staff','taxacc_clients','taxacc_document_submissions','taxacc_document_access_logs') AND relrowsecurity AND relforcerowsecurity),5);
+          SELECT public.r321_assert('r322-policy-select-four', (SELECT count(*) FROM pg_policies WHERE schemaname='public' AND policyname LIKE 'r321_%' AND cmd='SELECT' AND roles = '{authenticated}'::name[]),4);
+          SELECT public.r321_assert('r322-policy-write-zero', (SELECT count(*) FROM pg_policies WHERE schemaname='public' AND policyname LIKE 'r321_%' AND cmd <> 'SELECT'),0);
+          SELECT public.r321_assert('r322-policy-anon-zero', (SELECT count(*) FROM pg_policies WHERE schemaname='public' AND policyname LIKE 'r321_%' AND (roles @> '{anon}'::name[] OR roles @> '{public}'::name[])),0);
+          SELECT public.r321_assert('r322-security-definer-count', (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='r321_private' AND p.proname IN ('active_member','self_staff','can_read_client') AND p.prosecdef),3);
+          SELECT public.r321_assert('r322-definer-pinned-searchpath', (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='r321_private' AND p.proname IN ('active_member','self_staff','can_read_client') AND 'search_path=pg_catalog'=ANY(p.proconfig)),3);
+          SELECT public.r321_assert('r322-anon-no-helper-execute', (
+           has_function_privilege('anon','r321_private.active_member(uuid)','EXECUTE')::int+
+           has_function_privilege('anon','r321_private.self_staff(uuid,uuid)','EXECUTE')::int+
+           has_function_privilege('anon','r321_private.can_read_client(uuid,uuid)','EXECUTE')::int),0);
+          SELECT public.r321_assert('r322-auth-helper-exec-three', (
+           has_function_privilege('authenticated','r321_private.active_member(uuid)','EXECUTE')::int+
+           has_function_privilege('authenticated','r321_private.self_staff(uuid,uuid)','EXECUTE')::int+
+           has_function_privilege('authenticated','r321_private.can_read_client(uuid,uuid)','EXECUTE')::int),3);
+          SELECT public.r321_assert('r322-anon-no-private-schema',has_schema_privilege('anon','r321_private','USAGE')::int,0);
+          SELECT public.r321_assert('r322-anon-no-write-grants', (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname IN ('taxacc_offices','taxacc_staff','taxacc_clients','taxacc_document_submissions','taxacc_document_access_logs') AND (has_table_privilege('anon',c.oid,'INSERT') OR has_table_privilege('anon',c.oid,'UPDATE') OR has_table_privilege('anon',c.oid,'DELETE'))),0);
+          SELECT public.r321_assert('r322-auth-no-write-grants', (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname IN ('taxacc_offices','taxacc_staff','taxacc_clients','taxacc_document_submissions','taxacc_document_access_logs') AND (has_table_privilege('authenticated',c.oid,'INSERT') OR has_table_privilege('authenticated',c.oid,'UPDATE') OR has_table_privilege('authenticated',c.oid,'DELETE'))),0);
+          -- Assert that database integrity rejects three kinds of wrong-tenant relationship.
+          DO $sql$
+          BEGIN
+            BEGIN
+              INSERT INTO public.taxacc_document_submissions VALUES ('eeee0000-0000-4000-8000-000000000099','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','bbbbbbbb-0000-4000-8000-000000000001');
+              RAISE EXCEPTION 'R322_FAIL: wrong-office document was allowed';
+            EXCEPTION WHEN foreign_key_violation THEN RAISE NOTICE 'R322_PASS: wrong-office document FK rejected'; END;
+            BEGIN
+              INSERT INTO public.taxacc_clients VALUES ('aaaaaaaa-0000-4000-8000-000000000099','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','bbbb0000-0000-4000-8000-000000000002',NULL,false);
+              RAISE EXCEPTION 'R322_FAIL: cross-office assigned staff was allowed';
+            EXCEPTION WHEN foreign_key_violation THEN RAISE NOTICE 'R322_PASS: wrong-office assigned staff FK rejected'; END;
+            BEGIN
+              INSERT INTO public.taxacc_clients VALUES ('aaaaaaaa-0000-4000-8000-000000000098','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',NULL,'bbbb0000-0000-4000-8000-000000000002',false);
+              RAISE EXCEPTION 'R322_FAIL: cross-office reviewer was allowed';
+            EXCEPTION WHEN foreign_key_violation THEN RAISE NOTICE 'R322_PASS: wrong-office reviewer FK rejected'; END;
+          END
+          $sql$;
+          SELECT public.r321_assert('r322-rejected-doc-not-present',(SELECT count(*) FROM public.taxacc_document_submissions WHERE id='eeee0000-0000-4000-8000-000000000099'),0);
+          SELECT public.r321_assert('r322-rejected-client-not-present',(SELECT count(*) FROM public.taxacc_clients WHERE id IN ('aaaaaaaa-0000-4000-8000-000000000099','aaaaaaaa-0000-4000-8000-000000000098')),0);
+          -- Check direct invocations after strict role switch; no cross-tenant boolean should be true.
+          SET ROLE authenticated;
+          RESET request.jwt.claim.sub;
+          SELECT public.r321_assert('r322-without-identity-no-offices',(SELECT count(*) FROM public.taxacc_offices),0);
+          SET request.jwt.claim.sub='22222222-2222-4222-8222-222222222222';
+          SELECT public.r321_assert('r322-staff-b-helper-office-a',r321_private.active_member('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')::int,0);
+          SELECT public.r321_assert('r322-staff-b-helper-office-b',r321_private.active_member('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')::int,1);
+          SELECT public.r321_assert('r322-staff-b-helper-client-a',r321_private.can_read_client('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','aaaaaaaa-0000-4000-8000-000000000001')::int,0);
+          SELECT public.r321_assert('r322-staff-b-helper-client-b',r321_private.can_read_client('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','bbbbbbbb-0000-4000-8000-000000000001')::int,1);
+          SELECT public.r321_assert('r322-staff-b-no-office-a-docs',(SELECT count(*) FROM public.taxacc_document_submissions WHERE office_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),0);
+          RESET ROLE;
+          SET ROLE anon;
+          SET request.jwt.claim.sub='22222222-2222-4222-8222-222222222222';
+          SELECT public.r321_assert('r322-anon-spoofed-claim-no-staff',(SELECT count(*) FROM public.taxacc_staff),0);
+          SELECT public.r321_assert('r322-anon-spoofed-claim-no-docs',(SELECT count(*) FROM public.taxacc_document_submissions),0);
+          RESET ROLE;
+          RESET request.jwt.claim.sub;
+          -- This does NOT establish that arbitrary SQL callers cannot modify the JWT GUC.
+          -- The real HTTP/JWT trust boundary must independently verify the signature and role.
+          SELECT 'R322_DISPOSABLE_PG17_CROSS_TENANT_FK_AND_DEFINER_PASS_RELEASE_HOLD' AS result;
+          R322_TESTS
+      - name: Prepare R323 identity spoofing and membership revocation SQL in disposable PG17
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/r323_tests.sql <<'R323_TESTS'
+          -- DPRO TAX R323: disposable PostgreSQL 17 identity/privilege boundary QA.
+          -- ONLY run inside an ephemeral CI database. NOT a production migration.
+          -- The synthetic request.jwt.claim.sub GUC does NOT verify JWT signatures.
+          \set ON_ERROR_STOP on
+          RESET ROLE;
+          RESET request.jwt.claim.sub;
+          -- Mirror the already-existing live schema's authenticated staff binding uniqueness.
+          CREATE UNIQUE INDEX r323_staff_auth_user_unique ON public.taxacc_staff (office_id,auth_user_id)
+           WHERE auth_user_id IS NOT NULL;
+          SELECT public.r321_assert('r323-auth-binding-unique-index',
+           (SELECT count(*) FROM pg_indexes WHERE schemaname='public' AND tablename='taxacc_staff' AND indexname='r323_staff_auth_user_unique' AND indexdef LIKE '%WHERE (auth_user_id IS NOT NULL)%'),1);
+          -- Check PostgreSQL itself prevents duplicate user association within one office.
+          DO $r323_duplicate$
+          DECLARE rejected boolean:=false;
+          BEGIN
+           BEGIN
+            INSERT INTO public.taxacc_staff VALUES
+             ('aaaa0000-0000-4000-8000-000000000099','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+              '11111111-1111-4111-8111-111111111111','owner',true,true);
+           EXCEPTION WHEN unique_violation THEN rejected:=true;
+           END;
+           IF NOT rejected THEN RAISE EXCEPTION 'R323_FAIL: duplicate binding was accepted'; END IF;
+           RAISE NOTICE 'R323_PASS: duplicated active user binding rejected';
+          END $r323_duplicate$;
+          SELECT public.r321_assert('r323-duplicate-row-not-inserted',
+           (SELECT count(*) FROM public.taxacc_staff WHERE id='aaaa0000-0000-4000-8000-000000000099'),0);
+          -- NULL user IDs are permitted but cannot authorize a session by themselves.
+          INSERT INTO public.taxacc_staff VALUES
+           ('aaaa0000-0000-4000-8000-000000000090','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',NULL,'manager',true,true),
+           ('aaaa0000-0000-4000-8000-000000000091','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',NULL,'owner',true,true);
+          SELECT public.r321_assert('r323-null-auth-id-rows-retained',(SELECT count(*) FROM public.taxacc_staff WHERE office_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' AND auth_user_id IS NULL),2);
+          SELECT public.r321_assert('r323-rules-still-select-only',
+           (SELECT count(*) FROM pg_policies WHERE schemaname='public' AND tablename LIKE 'taxacc_%' AND cmd<>'SELECT'),0);
+          SELECT public.r321_assert('r323-client-RLS-force',(SELECT count(*) FROM pg_class WHERE relname='taxacc_clients' AND relrowsecurity AND relforcerowsecurity),1);
+          SELECT public.r321_assert('r323-credentials-helpers-pinned',
+           (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='r321_private' AND p.proname IN ('active_member','self_staff','can_read_client') AND 'search_path=pg_catalog'=ANY(p.proconfig)),3);
+          SELECT public.r321_assert('r323-anon-cannot-create-private',has_schema_privilege('anon','r321_private','CREATE')::int,0);
+          SELECT public.r321_assert('r323-auth-cannot-create-private',has_schema_privilege('authenticated','r321_private','CREATE')::int,0);
+          SELECT public.r321_assert('r323-anon-cannot-execute-definers',
+           (has_function_privilege('anon','r321_private.active_member(uuid)','EXECUTE')::int+
+           has_function_privilege('anon','r321_private.self_staff(uuid,uuid)','EXECUTE')::int+
+           has_function_privilege('anon','r321_private.can_read_client(uuid,uuid)','EXECUTE')::int),0);
+          SELECT public.r321_assert('r323-role-auth-select-grant-present',has_table_privilege('authenticated','public.taxacc_clients','SELECT')::int,1);
+          SELECT public.r321_assert('r323-role-anon-select-grant-present',has_table_privilege('anon','public.taxacc_clients','SELECT')::int,1);
+          SELECT public.r321_assert('r323-no-anon-insert',has_table_privilege('anon','public.taxacc_clients','INSERT')::int,0);
+          SELECT public.r321_assert('r323-no-auth-update',has_table_privilege('authenticated','public.taxacc_clients','UPDATE')::int,0);
+          SELECT public.r321_assert('r323-no-auth-delete',has_table_privilege('authenticated','public.taxacc_clients','DELETE')::int,0);
+          
+          SET ROLE authenticated;
+          RESET request.jwt.claim.sub;
+          SELECT public.r321_assert('r323-missing-sub-offices',(SELECT count(*) FROM public.taxacc_offices),0);
+          SELECT public.r321_assert('r323-missing-sub-clients',(SELECT count(*) FROM public.taxacc_clients),0);
+          SELECT public.r321_assert('r323-missing-sub-docs',(SELECT count(*) FROM public.taxacc_document_submissions),0);
+          SELECT public.r321_assert('r323-missing-sub-staff',(SELECT count(*) FROM public.taxacc_staff),0);
+          -- Validly shaped but unknown identity must not grant data.
+          SET request.jwt.claim.sub='99999999-9999-4999-8999-999999999999';
+          SELECT public.r321_assert('r323-unknown-id-offices',(SELECT count(*) FROM public.taxacc_offices),0);
+          SELECT public.r321_assert('r323-unknown-id-clients',(SELECT count(*) FROM public.taxacc_clients),0);
+          SELECT public.r321_assert('r323-unknown-id-docs',(SELECT count(*) FROM public.taxacc_document_submissions),0);
+          -- A real office-B staffer must not cross into office A.
+          SET request.jwt.claim.sub='22222222-2222-4222-8222-222222222222';
+          SELECT public.r321_assert('r323-staff-b-no-office-a',(SELECT count(*) FROM public.taxacc_offices WHERE id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),0);
+          SELECT public.r321_assert('r323-staff-b-no-a-clients',(SELECT count(*) FROM public.taxacc_clients WHERE office_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),0);
+          SELECT public.r321_assert('r323-staff-b-no-a-docs',(SELECT count(*) FROM public.taxacc_document_submissions WHERE office_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),0);
+          SELECT public.r321_assert('r323-staff-b-own-client',(SELECT count(*) FROM public.taxacc_clients WHERE office_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'),1);
+          -- The synthetic owner identity can see its own non-demo office; JWT MUST be validated upstream.
+          -- This is a POSITIVE CONTROL, not proof that the database verifies a JWT signature.
+          SET request.jwt.claim.sub='11111111-1111-4111-8111-111111111111';
+          SELECT public.r321_assert('r323-owner-a-office',(SELECT count(*) FROM public.taxacc_offices WHERE id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),1);
+          SELECT public.r321_assert('r323-owner-not-office-b',(SELECT count(*) FROM public.taxacc_offices WHERE id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'),0);
+          SELECT public.r321_assert('r323-owner-a-nondemo-clients',(SELECT count(*) FROM public.taxacc_clients),3);
+          SELECT public.r321_assert('r323-owner-no-b-documents',(SELECT count(*) FROM public.taxacc_document_submissions WHERE office_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'),0);
+          -- Explicitly demonstrate why a caller that can write request.jwt.claim.sub must never be trusted.
+          -- A raw SQL connection with authenticated role can forge the claim GUC. This is a KNOWN
+          -- EXTERNAL TRUST REQUIREMENT; the demonstration MUST NOT be reported as a passing auth test.
+          SELECT public.r321_assert('r323-guc-is-not-jwt-signature-validation',
+           (current_setting('request.jwt.claim.sub',true)='11111111-1111-4111-8111-111111111111')::int,1);
+          RESET ROLE;
+          -- Verify scope changes are effective, then restore fixture state.
+          UPDATE public.taxacc_staff SET is_active=false WHERE id='aaaa0000-0000-4000-8000-000000000001';
+          SET ROLE authenticated;
+          SET request.jwt.claim.sub='11111111-1111-4111-8111-111111111111';
+          SELECT public.r321_assert('r323-deactivated-owner-office-denied',(SELECT count(*) FROM public.taxacc_offices),0);
+          SELECT public.r321_assert('r323-deactivated-owner-client-denied',(SELECT count(*) FROM public.taxacc_clients),0);
+          RESET ROLE;
+          UPDATE public.taxacc_staff SET is_active=true WHERE id='aaaa0000-0000-4000-8000-000000000001';
+          UPDATE public.taxacc_offices SET production_guard=false WHERE id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+          SET ROLE authenticated;
+          SET request.jwt.claim.sub='11111111-1111-4111-8111-111111111111';
+          SELECT public.r321_assert('r323-production-guard-off-owner-denied',(SELECT count(*) FROM public.taxacc_offices),0);
+          SELECT public.r321_assert('r323-production-guard-off-doc-denied',(SELECT count(*) FROM public.taxacc_document_submissions),0);
+          RESET ROLE;
+          UPDATE public.taxacc_offices SET production_guard=true WHERE id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+          UPDATE public.taxacc_staff SET can_view_all_clients=false WHERE id='aaaa0000-0000-4000-8000-000000000001';
+          SET ROLE authenticated;
+          SET request.jwt.claim.sub='11111111-1111-4111-8111-111111111111';
+          SELECT public.r321_assert('r323-revoked-all-client-flag-denied',(SELECT count(*) FROM public.taxacc_clients),0);
+          SELECT public.r321_assert('r323-revoked-all-client-docs-denied',(SELECT count(*) FROM public.taxacc_document_submissions),0);
+          RESET ROLE;
+          UPDATE public.taxacc_staff SET can_view_all_clients=true WHERE id='aaaa0000-0000-4000-8000-000000000001';
+          -- Explicit anonymous-role spoofing must still return zero rows.
+          SET ROLE anon;
+          SET request.jwt.claim.sub='11111111-1111-4111-8111-111111111111';
+          SELECT public.r321_assert('r323-anon-forged-sub-offices',(SELECT count(*) FROM public.taxacc_offices),0);
+          SELECT public.r321_assert('r323-anon-forged-sub-clients',(SELECT count(*) FROM public.taxacc_clients),0);
+          SELECT public.r321_assert('r323-anon-forged-sub-docs',(SELECT count(*) FROM public.taxacc_document_submissions),0);
+          RESET ROLE;
+          RESET request.jwt.claim.sub;
+          -- A role with BYPASSRLS sees ALL tenant rows, by PostgreSQL design. Demonstrate this
+          -- only with an artificial role in disposable DB. Do NOT give real user-facing API such a role.
+          CREATE ROLE r323_synthetic_rls_bypass NOLOGIN BYPASSRLS;
+          GRANT SELECT ON public.taxacc_offices,public.taxacc_clients TO r323_synthetic_rls_bypass;
+          SELECT public.r321_assert('r323-bypass-role-flag', (SELECT rolbypassrls::int FROM pg_roles WHERE rolname='r323_synthetic_rls_bypass'),1);
+          SET ROLE r323_synthetic_rls_bypass;
+          SELECT public.r321_assert('r323-bypass-role-exposes-all-tenant-offices',(SELECT count(*) FROM public.taxacc_offices),4);
+          SELECT public.r321_assert('r323-bypass-role-exposes-all-tenant-clients',(SELECT count(*) FROM public.taxacc_clients),5);
+          RESET ROLE;
+          SELECT 'R323_EPHEMERAL_PG17_IDENTITY_BOUNDARY_PASS_COMMERCIAL_HOLD' AS result;
+          R323_TESTS
+      - name: Execute all SQL in ephemeral PG17 and retain release HOLD
+        shell: bash
+        run: |
+          set -euo pipefail
+          pgid="${{ job.services.pg.id }}"
+          test -n "$pgid"
+          docker exec -i "$pgid" psql -X -U postgres -d r323_synthetic -v ON_ERROR_STOP=1 < /tmp/schema.sql
+          docker exec -i "$pgid" psql -X -U postgres -d r323_synthetic -v ON_ERROR_STOP=1 < /tmp/r321_regression.sql
+          docker exec -i "$pgid" psql -X -U postgres -d r323_synthetic -v ON_ERROR_STOP=1 < /tmp/tests.sql
+          docker exec -i "$pgid" psql -X -U postgres -d r323_synthetic -v ON_ERROR_STOP=1 < /tmp/r323_tests.sql
+          echo 'R323_EPHEMERAL_PG17_IDENTITY_GUARD_COMPLETE: r321_r322_regression=PASS jwt_signature_verified=false guc_trust_unverified=true bypass_rls_is_not_user_safe=true real_supabase_queries=0 commercial_release=HOLD'
