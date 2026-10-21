@@ -1,0 +1,410 @@
+name: DPRO TAX R332 Isolated PG17 Verified FK Tenant Graph and R331 Regression
+'on':
+  push:
+    branches:
+    - dpro-tax-r308-auth-tenant-integration-qa-20261020
+    paths:
+    - .github/workflows/dpro-tax-r332-pg17-real-fk-tenant-graph-isolated-qa.yml
+  workflow_dispatch: null
+permissions:
+  contents: read
+jobs:
+  r332-fk-graph-isolated:
+    if: github.ref == 'refs/heads/dpro-tax-r308-auth-tenant-integration-qa-20261020'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      pg:
+        image: postgres:17
+        env:
+          POSTGRES_DB: r331_synthetic
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: r332_disposable_only
+        options: --health-cmd "pg_isready -U postgres -d r331_synthetic" --health-interval 10s --health-timeout 5s --health-retries
+          8
+    steps:
+    - name: Checkout isolated QA branch read-only and ephemeral
+      uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+    - name: Pin and restore R331 402 checks from original CI source
+      shell: bash
+      run: "set -euo pipefail\npython3 - <<'R332_EXTRACT_PY'\nimport re,hashlib,pathlib\nsource=pathlib.Path('.github/workflows/dpro-tax-r331-pg17-remaining19-policy-candidate-isolated-qa.yml')\n\
+        if not source.is_file():raise SystemExit('R331_SOURCE_REQUIRED')\nraw=source.read_bytes()\nif hashlib.sha256(raw).hexdigest()!='564a94632e60f76d228501852298be347fe40fe8af4092026a3ea68478cca4c0':raise\
+        \ SystemExit('R331_SOURCE_SHA_DRIFT_HOLD')\ns=raw.decode('utf-8')\nfor idx in range(1,10):\n label=f'R331_{idx:02}'\n\
+        \ pattern=r\"^        cat > /tmp/([^\\n ]+) <<'\"+label+r\"'\\n(.*?)^        \"+label+r\"[ \\t]*$\"\n m=re.search(pattern,s,re.M|re.S)\n\
+        \ if not m:raise SystemExit('R331_SCRIPT_EXTRACTION_FAILED_'+label)\n content='\\n'.join(line[8:] if line.startswith('\
+        \        ') else line for line in m.group(2).split('\\n'))\n if not content.lstrip().startswith('\\\\set ON_ERROR_STOP\
+        \ on'):raise SystemExit('R331_PSQL_FAIL_CLOSED_MISSING_'+label)\n output=pathlib.Path('/tmp')/m.group(1)\n if output.name!=f'{idx:02}_'+['core_schema','core_fixtures','core_assertions','r331_extension','r331_fixtures','r331_catalog','r331_roles_a','r331_roles_b','r331_revocation'][idx-1]+'.sql':raise\
+        \ SystemExit('R331_SCRIPT_FILENAME_INVALID')\n output.write_text(content)\nprint('R332_R331_PINNED_SOURCE_RESTORED:\
+        \ nine_sql_scripts=true')\nR332_EXTRACT_PY"
+    - name: 'R331 regression: 104 plus 298 PostgreSQL checks (prior run pinned)'
+      shell: bash
+      run: "set -euo pipefail\npgid=\"${{ job.services.pg.id }}\"\ntest -n \"$pgid\"\nfor name in 01_core_schema 02_core_fixtures\
+        \ 03_core_assertions 04_r331_extension 05_r331_fixtures 06_r331_catalog 07_r331_roles_a 08_r331_roles_b 09_r331_revocation;\
+        \ do\n docker exec -i \"$pgid\" psql -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 < \"/tmp/${name}.sql\" >\
+        \ \"/tmp/r332_${name}.log\" 2>&1 || { tail -40 \"/tmp/r332_${name}.log\"; exit 1; }\n echo \"R332_R331_REGRESSION_PASS\
+        \ $name\"\ndone\n"
+    - name: R332 build 26-table synthetic FK graph (1/2)
+      shell: bash
+      run: 'set -euo pipefail
+
+        cat > /tmp/01_graph_schema.sql <<''R332_SQL_1_1''
+
+        \set ON_ERROR_STOP on
+
+        -- R332 DISPOSABLE POSTGRES ONLY. PRODUCTION DATA OR SCHEMAS MUST NOT BE MODIFIED.
+
+        -- anon/auth roles already created in R331 regression in this isolated PG17 instance.
+
+        CREATE ROLE qa_bypass_rls NOLOGIN BYPASSRLS;
+
+        GRANT USAGE ON SCHEMA public TO anon, authenticated, qa_bypass_rls;
+
+        CREATE TABLE public.taxacc_offices (id uuid PRIMARY KEY);
+
+        INSERT INTO public.taxacc_offices(id) VALUES (''aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa''),(''bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'');
+
+        CREATE TABLE public.taxacc_activity_logs (id bigint PRIMARY KEY, office_id uuid NOT NULL, UNIQUE (office_id,id));
+
+        CREATE TABLE public.taxacc_appointments (id uuid PRIMARY KEY, office_id uuid NOT NULL, UNIQUE (office_id,id), assigned_staff_id
+        uuid, client_id uuid, contact_id uuid, service_id uuid);
+
+        CREATE TABLE public.taxacc_business_hours (id uuid PRIMARY KEY, office_id uuid NOT NULL, UNIQUE (office_id,id));
+
+        CREATE TABLE public.taxacc_cases (id uuid PRIMARY KEY, office_id uuid NOT NULL, UNIQUE (office_id,id), assigned_staff_id
+        uuid, client_id uuid, deadline_confirmed_by uuid, engagement_id uuid, reviewer_staff_id uuid);
+
+        CREATE TABLE public.taxacc_client_contact_links (id uuid PRIMARY KEY, office_id uuid NOT NULL, UNIQUE (office_id,id),
+        client_id uuid, contact_id uuid);
+
+        CREATE TABLE public.taxacc_clients (id uuid PRIMARY KEY, office_id uuid NOT NULL, UNIQUE (office_id,id), assigned_staff_id
+        uuid, reviewer_staff_id uuid);
+
+        CREATE TABLE public.taxacc_closed_dates (id uuid PRIMARY KEY, office_id uuid NOT NULL, UNIQUE (office_id,id));
+
+        CREATE TABLE public.taxacc_communications (id uuid PRIMARY KEY, office_id uuid NOT NULL, UNIQUE (office_id,id), appointment_id
+        uuid, case_id uuid, client_id uuid, contact_id uuid, handled_by uuid, inquiry_id uuid);
+
+        CREATE TABLE public.taxacc_consultation_services (id uuid PRIMARY KEY, office_id uuid NOT NULL, UNIQUE (office_id,id));
+
+        CREATE TABLE public.taxacc_contacts (id uuid PRIMARY KEY, office_id uuid NOT NULL, UNIQUE (office_id,id), line_link_approved_by
+        uuid);
+
+        CREATE TABLE public.taxacc_deadline_templates (id uuid PRIMARY KEY, office_id uuid NOT NULL, UNIQUE (office_id,id));
+
+        CREATE TABLE public.taxacc_document_access_logs (id bigint PRIMARY KEY, office_id uuid NOT NULL, UNIQUE (office_id,id),
+        submission_id uuid);
+
+        CREATE TABLE public.taxacc_document_request_items (id uuid PRIMARY KEY, office_id uuid NOT NULL, UNIQUE (office_id,id),
+        request_id uuid);
+
+        CREATE TABLE public.taxacc_document_request_templates (id uuid PRIMARY KEY, office_id uuid NOT NULL, UNIQUE (office_id,id),
+        template_code text);
+
+        ALTER TABLE public.taxacc_document_request_templates ADD CONSTRAINT r332_template_code_unique UNIQUE(office_id,template_code);
+
+        CREATE TABLE public.taxacc_document_requests (id uuid PRIMARY KEY, office_id uuid NOT NULL, UNIQUE (office_id,id),
+        case_id uuid, client_id uuid, requested_by uuid);
+
+        CREATE TABLE public.taxacc_document_submissions (id uuid PRIMARY KEY, office_id uuid NOT NULL, UNIQUE (office_id,id),
+        case_id uuid, client_id uuid, contact_id uuid, request_id uuid, request_item_id uuid, reviewed_by uuid);
+
+        CREATE TABLE public.taxacc_engagements (id uuid PRIMARY KEY, office_id uuid NOT NULL, UNIQUE (office_id,id), assigned_staff_id
+        uuid, client_id uuid, reviewer_staff_id uuid);
+
+        CREATE TABLE public.taxacc_inquiries (id uuid PRIMARY KEY, office_id uuid NOT NULL, UNIQUE (office_id,id), assigned_staff_id
+        uuid, case_id uuid, client_id uuid, contact_id uuid);
+
+        CREATE TABLE public.taxacc_link_tokens (id uuid PRIMARY KEY, office_id uuid NOT NULL, UNIQUE (office_id,id), contact_id
+        uuid, created_by uuid);
+
+        CREATE TABLE public.taxacc_message_templates (id uuid PRIMARY KEY, office_id uuid NOT NULL, UNIQUE (office_id,id));
+
+        CREATE TABLE public.taxacc_r91_review_events (id uuid PRIMARY KEY, office_id uuid NOT NULL, UNIQUE (office_id,id),
+        actor_staff_id uuid, batch_id uuid);
+
+        CREATE TABLE public.taxacc_r9_monthly_review_batches (id uuid PRIMARY KEY, office_id uuid NOT NULL, UNIQUE (office_id,id),
+        reviewed_by uuid, submitted_by uuid, template_code text);
+
+        CREATE TABLE public.taxacc_r9_monthly_review_items (id uuid PRIMARY KEY, office_id uuid NOT NULL, UNIQUE (office_id,id),
+        batch_id uuid, client_id uuid, duplicate_request_id uuid, template_code text);
+
+        CREATE TABLE public.taxacc_staff (id uuid PRIMARY KEY, office_id uuid NOT NULL, UNIQUE (office_id,id));
+
+        CREATE TABLE public.taxacc_tasks (id uuid PRIMARY KEY, office_id uuid NOT NULL, UNIQUE (office_id,id), assigned_staff_id
+        uuid, case_id uuid, client_id uuid);
+
+        ALTER TABLE public.taxacc_activity_logs ADD CONSTRAINT r332_office_fk_0 FOREIGN KEY(office_id) REFERENCES public.taxacc_offices(id);
+
+        INSERT INTO public.taxacc_activity_logs(id,office_id) VALUES (1,''aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa''),(2,''bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'');
+
+        ALTER TABLE public.taxacc_appointments ADD CONSTRAINT r332_office_fk_1 FOREIGN KEY(office_id) REFERENCES public.taxacc_offices(id);
+
+        INSERT INTO public.taxacc_appointments(id,office_id) VALUES (''00000001-0000-4000-8000-000000000001'',''aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa''),(''00000001-0000-4000-8000-000000000002'',''bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'');
+
+        ALTER TABLE public.taxacc_business_hours ADD CONSTRAINT r332_office_fk_2 FOREIGN KEY(office_id) REFERENCES public.taxacc_offices(id);
+
+        INSERT INTO public.taxacc_business_hours(id,office_id) VALUES (''00000002-0000-4000-8000-000000000001'',''aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa''),(''00000002-0000-4000-8000-000000000002'',''bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'');
+
+        ALTER TABLE public.taxacc_cases ADD CONSTRAINT r332_office_fk_3 FOREIGN KEY(office_id) REFERENCES public.taxacc_offices(id);
+
+        INSERT INTO public.taxacc_cases(id,office_id) VALUES (''00000003-0000-4000-8000-000000000001'',''aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa''),(''00000003-0000-4000-8000-000000000002'',''bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'');
+
+        ALTER TABLE public.taxacc_client_contact_links ADD CONSTRAINT r332_office_fk_4 FOREIGN KEY(office_id) REFERENCES public.taxacc_offices(id);
+
+        INSERT INTO public.taxacc_client_contact_links(id,office_id) VALUES (''00000004-0000-4000-8000-000000000001'',''aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa''),(''00000004-0000-4000-8000-000000000002'',''bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'');
+
+        ALTER TABLE public.taxacc_clients ADD CONSTRAINT r332_office_fk_5 FOREIGN KEY(office_id) REFERENCES public.taxacc_offices(id);
+
+        INSERT INTO public.taxacc_clients(id,office_id) VALUES (''00000005-0000-4000-8000-000000000001'',''aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa''),(''00000005-0000-4000-8000-000000000002'',''bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'');
+
+        ALTER TABLE public.taxacc_closed_dates ADD CONSTRAINT r332_office_fk_6 FOREIGN KEY(office_id) REFERENCES public.taxacc_offices(id);
+
+        INSERT INTO public.taxacc_closed_dates(id,office_id) VALUES (''00000006-0000-4000-8000-000000000001'',''aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa''),(''00000006-0000-4000-8000-000000000002'',''bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'');
+
+        ALTER TABLE public.taxacc_communications ADD CONSTRAINT r332_office_fk_7 FOREIGN KEY(office_id) REFERENCES public.taxacc_offices(id);
+
+        INSERT INTO public.taxacc_communications(id,office_id) VALUES (''00000007-0000-4000-8000-000000000001'',''aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa''),(''00000007-0000-4000-8000-000000000002'',''bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'');
+
+        ALTER TABLE public.taxacc_consultation_services ADD CONSTRAINT r332_office_fk_8 FOREIGN KEY(office_id) REFERENCES
+        public.taxacc_offices(id);
+
+        INSERT INTO public.taxacc_consultation_services(id,office_id) VALUES (''00000008-0000-4000-8000-000000000001'',''aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa''),(''00000008-0000-4000-8000-000000000002'',''bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'');
+
+        ALTER TABLE public.taxacc_contacts ADD CONSTRAINT r332_office_fk_9 FOREIGN KEY(office_id) REFERENCES public.taxacc_offices(id);
+
+        INSERT INTO public.taxacc_contacts(id,office_id) VALUES (''00000009-0000-4000-8000-000000000001'',''aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa''),(''00000009-0000-4000-8000-000000000002'',''bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'');
+
+        ALTER TABLE public.taxacc_deadline_templates ADD CONSTRAINT r332_office_fk_10 FOREIGN KEY(office_id) REFERENCES public.taxacc_offices(id);
+
+        INSERT INTO public.taxacc_deadline_templates(id,office_id) VALUES (''0000000a-0000-4000-8000-000000000001'',''aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa''),(''0000000a-0000-4000-8000-000000000002'',''bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'');
+
+        ALTER TABLE public.taxacc_document_access_logs ADD CONSTRAINT r332_office_fk_11 FOREIGN KEY(office_id) REFERENCES
+        public.taxacc_offices(id);
+
+        INSERT INTO public.taxacc_document_access_logs(id,office_id) VALUES (1,''aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa''),(2,''bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'');
+
+        ALTER TABLE public.taxacc_document_request_items ADD CONSTRAINT r332_office_fk_12 FOREIGN KEY(office_id) REFERENCES
+        public.taxacc_offices(id);
+
+        INSERT INTO public.taxacc_document_request_items(id,office_id) VALUES (''0000000c-0000-4000-8000-000000000001'',''aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa''),(''0000000c-0000-4000-8000-000000000002'',''bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'');
+
+        ALTER TABLE public.taxacc_document_request_templates ADD CONSTRAINT r332_office_fk_13 FOREIGN KEY(office_id) REFERENCES
+        public.taxacc_offices(id);
+
+        INSERT INTO public.taxacc_document_request_templates(id,office_id,template_code) VALUES (''0000000d-0000-4000-8000-000000000001'',''aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'',''TPL-A''),(''0000000d-0000-4000-8000-000000000002'',''bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'',''TPL-B'');
+
+        ALTER TABLE public.taxacc_document_requests ADD CONSTRAINT r332_office_fk_14 FOREIGN KEY(office_id) REFERENCES public.taxacc_offices(id);
+
+        INSERT INTO public.taxacc_document_requests(id,office_id) VALUES (''0000000e-0000-4000-8000-000000000001'',''aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa''),(''0000000e-0000-4000-8000-000000000002'',''bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'');
+
+        ALTER TABLE public.taxacc_document_submissions ADD CONSTRAINT r332_office_fk_15 FOREIGN KEY(office_id) REFERENCES
+        public.taxacc_offices(id);
+
+        INSERT INTO public.taxacc_document_submissions(id,office_id) VALUES (''0000000f-0000-4000-8000-000000000001'',''aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa''),(''0000000f-0000-4000-8000-000000000002'',''bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'');
+
+        ALTER TABLE public.taxacc_engagements ADD CONSTRAINT r332_office_fk_16 FOREIGN KEY(office_id) REFERENCES public.taxacc_offices(id);
+
+        INSERT INTO public.taxacc_engagements(id,office_id) VALUES (''00000010-0000-4000-8000-000000000001'',''aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa''),(''00000010-0000-4000-8000-000000000002'',''bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'');
+
+        ALTER TABLE public.taxacc_inquiries ADD CONSTRAINT r332_office_fk_17 FOREIGN KEY(office_id) REFERENCES public.taxacc_offices(id);
+
+        INSERT INTO public.taxacc_inquiries(id,office_id) VALUES (''00000011-0000-4000-8000-000000000001'',''aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa''),(''00000011-0000-4000-8000-000000000002'',''bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'');
+
+        ALTER TABLE public.taxacc_link_tokens ADD CONSTRAINT r332_office_fk_18 FOREIGN KEY(office_id) REFERENCES public.taxacc_offices(id);
+
+        INSERT INTO public.taxacc_link_tokens(id,office_id) VALUES (''00000012-0000-4000-8000-000000000001'',''aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa''),(''00000012-0000-4000-8000-000000000002'',''bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'');
+
+        ALTER TABLE public.taxacc_message_templates ADD CONSTRAINT r332_office_fk_19 FOREIGN KEY(office_id) REFERENCES public.taxacc_offices(id);
+
+        INSERT INTO public.taxacc_message_templates(id,office_id) VALUES (''00000013-0000-4000-8000-000000000001'',''aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa''),(''00000013-0000-4000-8000-000000000002'',''bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'');
+
+        ALTER TABLE public.taxacc_r91_review_events ADD CONSTRAINT r332_office_fk_21 FOREIGN KEY(office_id) REFERENCES public.taxacc_offices(id);
+
+        INSERT INTO public.taxacc_r91_review_events(id,office_id) VALUES (''00000015-0000-4000-8000-000000000001'',''aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa''),(''00000015-0000-4000-8000-000000000002'',''bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'');
+
+        ALTER TABLE public.taxacc_r9_monthly_review_batches ADD CONSTRAINT r332_office_fk_22 FOREIGN KEY(office_id) REFERENCES
+        public.taxacc_offices(id);
+
+        INSERT INTO public.taxacc_r9_monthly_review_batches(id,office_id) VALUES (''00000016-0000-4000-8000-000000000001'',''aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa''),(''00000016-0000-4000-8000-000000000002'',''bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'');
+
+        ALTER TABLE public.taxacc_r9_monthly_review_items ADD CONSTRAINT r332_office_fk_23 FOREIGN KEY(office_id) REFERENCES
+        public.taxacc_offices(id);
+
+        INSERT INTO public.taxacc_r9_monthly_review_items(id,office_id) VALUES (''00000017-0000-4000-8000-000000000001'',''aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa''),(''00000017-0000-4000-8000-000000000002'',''bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'');
+
+        ALTER TABLE public.taxacc_staff ADD CONSTRAINT r332_office_fk_24 FOREIGN KEY(office_id) REFERENCES public.taxacc_offices(id);
+
+        INSERT INTO public.taxacc_staff(id,office_id) VALUES (''00000018-0000-4000-8000-000000000001'',''aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa''),(''00000018-0000-4000-8000-000000000002'',''bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'');
+
+        ALTER TABLE public.taxacc_tasks ADD CONSTRAINT r332_office_fk_25 FOREIGN KEY(office_id) REFERENCES public.taxacc_offices(id);
+
+        INSERT INTO public.taxacc_tasks(id,office_id) VALUES (''00000019-0000-4000-8000-000000000001'',''aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa''),(''00000019-0000-4000-8000-000000000002'',''bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'');
+
+        ALTER TABLE public.taxacc_appointments ADD CONSTRAINT r332_real_composite_fk_1 FOREIGN KEY(office_id,client_id) REFERENCES
+        public.taxacc_clients(office_id,id);
+
+        R332_SQL_1_1
+
+        '
+    - name: R332 build 26-table synthetic FK graph (2/2)
+      shell: bash
+      run: "set -euo pipefail\ncat >> /tmp/01_graph_schema.sql <<'R332_SQL_1_2'\nALTER TABLE public.taxacc_appointments ADD\
+        \ CONSTRAINT r332_real_composite_fk_2 FOREIGN KEY(office_id,contact_id) REFERENCES public.taxacc_contacts(office_id,id);\n\
+        ALTER TABLE public.taxacc_appointments ADD CONSTRAINT r332_real_composite_fk_3 FOREIGN KEY(office_id,service_id) REFERENCES\
+        \ public.taxacc_consultation_services(office_id,id);\nALTER TABLE public.taxacc_appointments ADD CONSTRAINT r332_real_composite_fk_4\
+        \ FOREIGN KEY(office_id,assigned_staff_id) REFERENCES public.taxacc_staff(office_id,id);\nALTER TABLE public.taxacc_cases\
+        \ ADD CONSTRAINT r332_real_composite_fk_5 FOREIGN KEY(office_id,assigned_staff_id) REFERENCES public.taxacc_staff(office_id,id);\n\
+        ALTER TABLE public.taxacc_cases ADD CONSTRAINT r332_real_composite_fk_6 FOREIGN KEY(office_id,client_id) REFERENCES\
+        \ public.taxacc_clients(office_id,id);\nALTER TABLE public.taxacc_cases ADD CONSTRAINT r332_real_composite_fk_7 FOREIGN\
+        \ KEY(office_id,deadline_confirmed_by) REFERENCES public.taxacc_staff(office_id,id);\nALTER TABLE public.taxacc_cases\
+        \ ADD CONSTRAINT r332_real_composite_fk_8 FOREIGN KEY(office_id,engagement_id) REFERENCES public.taxacc_engagements(office_id,id);\n\
+        ALTER TABLE public.taxacc_cases ADD CONSTRAINT r332_real_composite_fk_9 FOREIGN KEY(office_id,reviewer_staff_id) REFERENCES\
+        \ public.taxacc_staff(office_id,id);\nALTER TABLE public.taxacc_client_contact_links ADD CONSTRAINT r332_real_composite_fk_10\
+        \ FOREIGN KEY(office_id,client_id) REFERENCES public.taxacc_clients(office_id,id);\nALTER TABLE public.taxacc_client_contact_links\
+        \ ADD CONSTRAINT r332_real_composite_fk_11 FOREIGN KEY(office_id,contact_id) REFERENCES public.taxacc_contacts(office_id,id);\n\
+        ALTER TABLE public.taxacc_clients ADD CONSTRAINT r332_real_composite_fk_12 FOREIGN KEY(office_id,assigned_staff_id)\
+        \ REFERENCES public.taxacc_staff(office_id,id);\nALTER TABLE public.taxacc_clients ADD CONSTRAINT r332_real_composite_fk_13\
+        \ FOREIGN KEY(office_id,reviewer_staff_id) REFERENCES public.taxacc_staff(office_id,id);\nALTER TABLE public.taxacc_communications\
+        \ ADD CONSTRAINT r332_real_composite_fk_14 FOREIGN KEY(office_id,appointment_id) REFERENCES public.taxacc_appointments(office_id,id);\n\
+        ALTER TABLE public.taxacc_communications ADD CONSTRAINT r332_real_composite_fk_15 FOREIGN KEY(office_id,case_id) REFERENCES\
+        \ public.taxacc_cases(office_id,id);\nALTER TABLE public.taxacc_communications ADD CONSTRAINT r332_real_composite_fk_16\
+        \ FOREIGN KEY(office_id,client_id) REFERENCES public.taxacc_clients(office_id,id);\nALTER TABLE public.taxacc_communications\
+        \ ADD CONSTRAINT r332_real_composite_fk_17 FOREIGN KEY(office_id,contact_id) REFERENCES public.taxacc_contacts(office_id,id);\n\
+        ALTER TABLE public.taxacc_communications ADD CONSTRAINT r332_real_composite_fk_18 FOREIGN KEY(office_id,inquiry_id)\
+        \ REFERENCES public.taxacc_inquiries(office_id,id);\nALTER TABLE public.taxacc_communications ADD CONSTRAINT r332_real_composite_fk_19\
+        \ FOREIGN KEY(office_id,handled_by) REFERENCES public.taxacc_staff(office_id,id);\nALTER TABLE public.taxacc_contacts\
+        \ ADD CONSTRAINT r332_real_composite_fk_20 FOREIGN KEY(office_id,line_link_approved_by) REFERENCES public.taxacc_staff(office_id,id);\n\
+        ALTER TABLE public.taxacc_document_access_logs ADD CONSTRAINT r332_real_composite_fk_21 FOREIGN KEY(office_id,submission_id)\
+        \ REFERENCES public.taxacc_document_submissions(office_id,id);\nALTER TABLE public.taxacc_document_request_items ADD\
+        \ CONSTRAINT r332_real_composite_fk_22 FOREIGN KEY(office_id,request_id) REFERENCES public.taxacc_document_requests(office_id,id);\n\
+        ALTER TABLE public.taxacc_document_requests ADD CONSTRAINT r332_real_composite_fk_23 FOREIGN KEY(office_id,case_id)\
+        \ REFERENCES public.taxacc_cases(office_id,id);\nALTER TABLE public.taxacc_document_requests ADD CONSTRAINT r332_real_composite_fk_24\
+        \ FOREIGN KEY(office_id,client_id) REFERENCES public.taxacc_clients(office_id,id);\nALTER TABLE public.taxacc_document_requests\
+        \ ADD CONSTRAINT r332_real_composite_fk_25 FOREIGN KEY(office_id,requested_by) REFERENCES public.taxacc_staff(office_id,id);\n\
+        ALTER TABLE public.taxacc_document_submissions ADD CONSTRAINT r332_real_composite_fk_26 FOREIGN KEY(office_id,case_id)\
+        \ REFERENCES public.taxacc_cases(office_id,id);\nALTER TABLE public.taxacc_document_submissions ADD CONSTRAINT r332_real_composite_fk_27\
+        \ FOREIGN KEY(office_id,client_id) REFERENCES public.taxacc_clients(office_id,id);\nALTER TABLE public.taxacc_document_submissions\
+        \ ADD CONSTRAINT r332_real_composite_fk_28 FOREIGN KEY(office_id,contact_id) REFERENCES public.taxacc_contacts(office_id,id);\n\
+        ALTER TABLE public.taxacc_document_submissions ADD CONSTRAINT r332_real_composite_fk_29 FOREIGN KEY(office_id,request_item_id)\
+        \ REFERENCES public.taxacc_document_request_items(office_id,id);\nALTER TABLE public.taxacc_document_submissions ADD\
+        \ CONSTRAINT r332_real_composite_fk_30 FOREIGN KEY(office_id,request_id) REFERENCES public.taxacc_document_requests(office_id,id);\n\
+        ALTER TABLE public.taxacc_document_submissions ADD CONSTRAINT r332_real_composite_fk_31 FOREIGN KEY(office_id,reviewed_by)\
+        \ REFERENCES public.taxacc_staff(office_id,id);\nALTER TABLE public.taxacc_engagements ADD CONSTRAINT r332_real_composite_fk_32\
+        \ FOREIGN KEY(office_id,assigned_staff_id) REFERENCES public.taxacc_staff(office_id,id);\nALTER TABLE public.taxacc_engagements\
+        \ ADD CONSTRAINT r332_real_composite_fk_33 FOREIGN KEY(office_id,client_id) REFERENCES public.taxacc_clients(office_id,id);\n\
+        ALTER TABLE public.taxacc_engagements ADD CONSTRAINT r332_real_composite_fk_34 FOREIGN KEY(office_id,reviewer_staff_id)\
+        \ REFERENCES public.taxacc_staff(office_id,id);\nALTER TABLE public.taxacc_inquiries ADD CONSTRAINT r332_real_composite_fk_35\
+        \ FOREIGN KEY(office_id,case_id) REFERENCES public.taxacc_cases(office_id,id);\nALTER TABLE public.taxacc_inquiries\
+        \ ADD CONSTRAINT r332_real_composite_fk_36 FOREIGN KEY(office_id,client_id) REFERENCES public.taxacc_clients(office_id,id);\n\
+        ALTER TABLE public.taxacc_inquiries ADD CONSTRAINT r332_real_composite_fk_37 FOREIGN KEY(office_id,contact_id) REFERENCES\
+        \ public.taxacc_contacts(office_id,id);\nALTER TABLE public.taxacc_inquiries ADD CONSTRAINT r332_real_composite_fk_38\
+        \ FOREIGN KEY(office_id,assigned_staff_id) REFERENCES public.taxacc_staff(office_id,id);\nALTER TABLE public.taxacc_link_tokens\
+        \ ADD CONSTRAINT r332_real_composite_fk_39 FOREIGN KEY(office_id,contact_id) REFERENCES public.taxacc_contacts(office_id,id);\n\
+        ALTER TABLE public.taxacc_link_tokens ADD CONSTRAINT r332_real_composite_fk_40 FOREIGN KEY(office_id,created_by) REFERENCES\
+        \ public.taxacc_staff(office_id,id);\nALTER TABLE public.taxacc_r91_review_events ADD CONSTRAINT r332_real_composite_fk_41\
+        \ FOREIGN KEY(office_id,batch_id) REFERENCES public.taxacc_r9_monthly_review_batches(office_id,id);\nALTER TABLE public.taxacc_r91_review_events\
+        \ ADD CONSTRAINT r332_real_composite_fk_42 FOREIGN KEY(office_id,actor_staff_id) REFERENCES public.taxacc_staff(office_id,id);\n\
+        ALTER TABLE public.taxacc_r9_monthly_review_batches ADD CONSTRAINT r332_real_composite_fk_43 FOREIGN KEY(office_id,reviewed_by)\
+        \ REFERENCES public.taxacc_staff(office_id,id);\nALTER TABLE public.taxacc_r9_monthly_review_batches ADD CONSTRAINT\
+        \ r332_real_composite_fk_44 FOREIGN KEY(office_id,submitted_by) REFERENCES public.taxacc_staff(office_id,id);\nALTER\
+        \ TABLE public.taxacc_r9_monthly_review_batches ADD CONSTRAINT r332_real_composite_fk_45 FOREIGN KEY(office_id,template_code)\
+        \ REFERENCES public.taxacc_document_request_templates(office_id,template_code);\nALTER TABLE public.taxacc_r9_monthly_review_items\
+        \ ADD CONSTRAINT r332_real_composite_fk_46 FOREIGN KEY(office_id,batch_id) REFERENCES public.taxacc_r9_monthly_review_batches(office_id,id);\n\
+        ALTER TABLE public.taxacc_r9_monthly_review_items ADD CONSTRAINT r332_real_composite_fk_47 FOREIGN KEY(office_id,client_id)\
+        \ REFERENCES public.taxacc_clients(office_id,id);\nALTER TABLE public.taxacc_r9_monthly_review_items ADD CONSTRAINT\
+        \ r332_real_composite_fk_48 FOREIGN KEY(office_id,duplicate_request_id) REFERENCES public.taxacc_document_requests(office_id,id);\n\
+        ALTER TABLE public.taxacc_r9_monthly_review_items ADD CONSTRAINT r332_real_composite_fk_49 FOREIGN KEY(office_id,template_code)\
+        \ REFERENCES public.taxacc_document_request_templates(office_id,template_code);\nALTER TABLE public.taxacc_tasks ADD\
+        \ CONSTRAINT r332_real_composite_fk_50 FOREIGN KEY(office_id,assigned_staff_id) REFERENCES public.taxacc_staff(office_id,id);\n\
+        ALTER TABLE public.taxacc_tasks ADD CONSTRAINT r332_real_composite_fk_51 FOREIGN KEY(office_id,case_id) REFERENCES\
+        \ public.taxacc_cases(office_id,id);\nALTER TABLE public.taxacc_tasks ADD CONSTRAINT r332_real_composite_fk_52 FOREIGN\
+        \ KEY(office_id,client_id) REFERENCES public.taxacc_clients(office_id,id);\nDO $r332_enable$ DECLARE t text; BEGIN\n\
+        \  FOR t IN SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename LIKE 'taxacc_%' LOOP\n    EXECUTE\
+        \ format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY',t);\n    EXECUTE format('ALTER TABLE public.%I FORCE ROW\
+        \ LEVEL SECURITY',t);\n    EXECUTE format('GRANT SELECT ON public.%I TO anon,authenticated,qa_bypass_rls',t);\n  END\
+        \ LOOP;\nEND $r332_enable$;\nR332_SQL_1_2\n"
+    - name: R332 prepare positive and negative tenant FK tests (1/1)
+      shell: bash
+      run: "set -euo pipefail\ncat > /tmp/02_graph_fk_tests.sql <<'R332_SQL_2_1'\n\\set ON_ERROR_STOP on\nCREATE TEMP TABLE\
+        \ qa_edges(child text,col text,parent text,pk text);\nINSERT INTO qa_edges(child,col,parent,pk) VALUES\n('taxacc_appointments','client_id','taxacc_clients','id'),\n\
+        ('taxacc_appointments','contact_id','taxacc_contacts','id'),\n('taxacc_appointments','service_id','taxacc_consultation_services','id'),\n\
+        ('taxacc_appointments','assigned_staff_id','taxacc_staff','id'),\n('taxacc_cases','assigned_staff_id','taxacc_staff','id'),\n\
+        ('taxacc_cases','client_id','taxacc_clients','id'),\n('taxacc_cases','deadline_confirmed_by','taxacc_staff','id'),\n\
+        ('taxacc_cases','engagement_id','taxacc_engagements','id'),\n('taxacc_cases','reviewer_staff_id','taxacc_staff','id'),\n\
+        ('taxacc_client_contact_links','client_id','taxacc_clients','id'),\n('taxacc_client_contact_links','contact_id','taxacc_contacts','id'),\n\
+        ('taxacc_clients','assigned_staff_id','taxacc_staff','id'),\n('taxacc_clients','reviewer_staff_id','taxacc_staff','id'),\n\
+        ('taxacc_communications','appointment_id','taxacc_appointments','id'),\n('taxacc_communications','case_id','taxacc_cases','id'),\n\
+        ('taxacc_communications','client_id','taxacc_clients','id'),\n('taxacc_communications','contact_id','taxacc_contacts','id'),\n\
+        ('taxacc_communications','inquiry_id','taxacc_inquiries','id'),\n('taxacc_communications','handled_by','taxacc_staff','id'),\n\
+        ('taxacc_contacts','line_link_approved_by','taxacc_staff','id'),\n('taxacc_document_access_logs','submission_id','taxacc_document_submissions','id'),\n\
+        ('taxacc_document_request_items','request_id','taxacc_document_requests','id'),\n('taxacc_document_requests','case_id','taxacc_cases','id'),\n\
+        ('taxacc_document_requests','client_id','taxacc_clients','id'),\n('taxacc_document_requests','requested_by','taxacc_staff','id'),\n\
+        ('taxacc_document_submissions','case_id','taxacc_cases','id'),\n('taxacc_document_submissions','client_id','taxacc_clients','id'),\n\
+        ('taxacc_document_submissions','contact_id','taxacc_contacts','id'),\n('taxacc_document_submissions','request_item_id','taxacc_document_request_items','id'),\n\
+        ('taxacc_document_submissions','request_id','taxacc_document_requests','id'),\n('taxacc_document_submissions','reviewed_by','taxacc_staff','id'),\n\
+        ('taxacc_engagements','assigned_staff_id','taxacc_staff','id'),\n('taxacc_engagements','client_id','taxacc_clients','id'),\n\
+        ('taxacc_engagements','reviewer_staff_id','taxacc_staff','id'),\n('taxacc_inquiries','case_id','taxacc_cases','id'),\n\
+        ('taxacc_inquiries','client_id','taxacc_clients','id'),\n('taxacc_inquiries','contact_id','taxacc_contacts','id'),\n\
+        ('taxacc_inquiries','assigned_staff_id','taxacc_staff','id'),\n('taxacc_link_tokens','contact_id','taxacc_contacts','id'),\n\
+        ('taxacc_link_tokens','created_by','taxacc_staff','id'),\n('taxacc_r91_review_events','batch_id','taxacc_r9_monthly_review_batches','id'),\n\
+        ('taxacc_r91_review_events','actor_staff_id','taxacc_staff','id'),\n('taxacc_r9_monthly_review_batches','reviewed_by','taxacc_staff','id'),\n\
+        ('taxacc_r9_monthly_review_batches','submitted_by','taxacc_staff','id'),\n('taxacc_r9_monthly_review_batches','template_code','taxacc_document_request_templates','template_code'),\n\
+        ('taxacc_r9_monthly_review_items','batch_id','taxacc_r9_monthly_review_batches','id'),\n('taxacc_r9_monthly_review_items','client_id','taxacc_clients','id'),\n\
+        ('taxacc_r9_monthly_review_items','duplicate_request_id','taxacc_document_requests','id'),\n('taxacc_r9_monthly_review_items','template_code','taxacc_document_request_templates','template_code'),\n\
+        ('taxacc_tasks','assigned_staff_id','taxacc_staff','id'),\n('taxacc_tasks','case_id','taxacc_cases','id'),\n('taxacc_tasks','client_id','taxacc_clients','id');\n\
+        DO $r332_meta$\nDECLARE t_count int; c_count int;\nBEGIN\n SELECT count(*) INTO t_count FROM pg_class t JOIN pg_namespace\
+        \ n ON n.oid=t.relnamespace WHERE n.nspname='public' AND t.relkind='r' AND t.relname LIKE 'taxacc_%';\n IF t_count\
+        \ <> 26 THEN RAISE EXCEPTION 'R332_TABLE_DRIFT: %',t_count; END IF;\n SELECT count(*) INTO c_count FROM pg_constraint\
+        \ con WHERE con.conname LIKE 'r332_real_composite_fk_%' AND con.contype='f';\n IF c_count <> 52 THEN RAISE EXCEPTION\
+        \ 'R332_COMPOSITE_FK_DRIFT: %',c_count; END IF;\n IF EXISTS(SELECT 1 FROM pg_class t JOIN pg_namespace n ON n.oid=t.relnamespace\
+        \ WHERE n.nspname='public' AND t.relkind='r' AND t.relname LIKE 'taxacc_%' AND (NOT t.relrowsecurity OR NOT t.relforcerowsecurity))\
+        \ THEN RAISE EXCEPTION 'R332_RLS_DISABLED'; END IF;\n IF EXISTS(SELECT 1 FROM pg_policies WHERE schemaname='public'\
+        \ AND tablename LIKE 'taxacc_%') THEN RAISE EXCEPTION 'R332_UNEXPECTED_POLICY'; END IF;\n RAISE NOTICE 'R332_CATALOG_PASS:\
+        \ tables=% composite_fk=% rls_force=all policies=zero',t_count,c_count;\nEND $r332_meta$;\nDO $r332_fk_tests$\nDECLARE\
+        \ e record; p_a text; p_b text; hits int := 0; updated_n int;\nDECLARE a uuid := 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';\n\
+        DECLARE b uuid := 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';\nBEGIN\n FOR e IN SELECT * FROM qa_edges ORDER BY child,col,parent\
+        \ LOOP\n  EXECUTE format('SELECT %I::text FROM public.%I WHERE office_id=$1',e.pk,e.parent) INTO p_a USING a;\n  EXECUTE\
+        \ format('SELECT %I::text FROM public.%I WHERE office_id=$1',e.pk,e.parent) INTO p_b USING b;\n  IF p_a IS NULL OR\
+        \ p_b IS NULL OR p_a=p_b THEN RAISE EXCEPTION 'R332_SYNTHETIC_PARENT_MISSING: %.%',e.parent,e.pk; END IF;\n  -- Authorized\
+        \ same-office reference must be accepted.\n  EXECUTE format('UPDATE public.%I SET %I=%L WHERE office_id=%L',e.child,e.col,p_a,a);\n\
+        \  GET DIAGNOSTICS updated_n=ROW_COUNT;\n  IF updated_n<>1 THEN RAISE EXCEPTION 'R332_VALID_RELATION_REJECTED: %.%',e.child,e.col;\
+        \ END IF;\n  hits:=hits+1;\n  -- A child in office A must reject a pointer to a parent in office B.\n  BEGIN\n   EXECUTE\
+        \ format('UPDATE public.%I SET %I=%L WHERE office_id=%L',e.child,e.col,p_b,a);\n   RAISE EXCEPTION 'R332_CROSS_OFFICE_ACCEPTED:\
+        \ %.%',e.child,e.col;\n  EXCEPTION WHEN foreign_key_violation THEN NULL;\n  END;\n  hits:=hits+1;\n  EXECUTE format('SELECT\
+        \ %I::text FROM public.%I WHERE office_id=%L',e.col,e.child,a) INTO p_b;\n  IF p_b IS DISTINCT FROM p_a THEN RAISE\
+        \ EXCEPTION 'R332_FAILED_UPDATE_PERSISTED: %.%',e.child,e.col; END IF;\n  hits:=hits+1;\n END LOOP;\n RAISE NOTICE\
+        \ 'R332_COMPOSITE_FK_POSITIVE_NEGATIVE_PASS: edges=% checks=%', (SELECT count(*) FROM qa_edges),hits;\nEND $r332_fk_tests$;\n\
+        R332_SQL_2_1\n"
+    - name: R332 prepare role RLS isolation checks (1/1)
+      shell: bash
+      run: "set -euo pipefail\ncat > /tmp/03_graph_rls_roles.sql <<'R332_SQL_3_1'\n\\set ON_ERROR_STOP on\nSET ROLE authenticated;\n\
+        DO $r332_authenticated$\nDECLARE t text; n bigint; hits int := 0;\nBEGIN\n FOR t IN SELECT tablename FROM pg_tables\
+        \ WHERE schemaname='public' AND tablename LIKE 'taxacc_%' ORDER BY tablename LOOP\n  EXECUTE format('SELECT count(*)\
+        \ FROM public.%I',t) INTO n;\n  IF n<>0 THEN RAISE EXCEPTION 'R332_AUTH_UNEXPECTED_READ %: %',t,n; END IF;\n  hits:=hits+1;\n\
+        \ END LOOP;\n RAISE NOTICE 'R332_AUTHENTICATED_DEFAULT_DENY_PASS checks=%',hits;\nEND $r332_authenticated$;\nRESET\
+        \ ROLE;\nSET ROLE anon;\nDO $r332_anon$\nDECLARE t text; n bigint; hits int := 0;\nBEGIN\n FOR t IN SELECT tablename\
+        \ FROM pg_tables WHERE schemaname='public' AND tablename LIKE 'taxacc_%' ORDER BY tablename LOOP\n  EXECUTE format('SELECT\
+        \ count(*) FROM public.%I',t) INTO n;\n  IF n<>0 THEN RAISE EXCEPTION 'R332_ANON_UNEXPECTED_READ %: %',t,n; END IF;\n\
+        \  hits:=hits+1;\n END LOOP;\n RAISE NOTICE 'R332_ANON_DEFAULT_DENY_PASS checks=%',hits;\nEND $r332_anon$;\nRESET\
+        \ ROLE;\nSET ROLE qa_bypass_rls;\nDO $r332_bypass$\nDECLARE t text; n bigint; hits int := 0;\nBEGIN\n FOR t IN SELECT\
+        \ tablename FROM pg_tables WHERE schemaname='public' AND tablename LIKE 'taxacc_%' ORDER BY tablename LOOP\n  EXECUTE\
+        \ format('SELECT count(*) FROM public.%I',t) INTO n;\n  IF n<>2 THEN RAISE EXCEPTION 'R332_BYPASSRLS_THREAT_NOT_REPRODUCED\
+        \ %: %',t,n; END IF;\n  hits:=hits+1;\n END LOOP;\n RAISE NOTICE 'R332_BYPASSRLS_THREAT_REPRODUCED checks=%',hits;\n\
+        END $r332_bypass$;\nRESET ROLE;\nSELECT 'R332_SYNTHETIC_COMPOSITE_FK_GRAPH_RELEASE_HOLD' AS result;\nR332_SQL_3_1\n"
+    - name: R332 execute isolated PG17 graph and prove default-deny and FK boundaries
+      shell: bash
+      run: "set -euo pipefail\npgid=\"${{ job.services.pg.id }}\"\ntest -n \"$pgid\"\ndocker exec -i \"$pgid\" psql -X -U\
+        \ postgres -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE r332_fk_synthetic'\nfor file in 01_graph_schema 02_graph_fk_tests\
+        \ 03_graph_rls_roles; do\n docker exec -i \"$pgid\" psql -X -U postgres -d r332_fk_synthetic -v ON_ERROR_STOP=1 <\
+        \ \"/tmp/${file}.sql\" > \"/tmp/r332_${file}.log\" 2>&1 || { tail -65 \"/tmp/r332_${file}.log\"; exit 1; }\n grep\
+        \ -E 'R332_|RLS|HOLD' \"/tmp/r332_${file}.log\" | tail -7 || true\ndone\n"
+    - name: R332 commercial release HOLD evidence (never deploy)
+      shell: bash
+      run: 'set -euo pipefail
+
+        echo ''R332_EPHEMERAL_PG17_FK_GRAPH_PASS: r331_replayed_checks=402 confirmed_live_catalog_relations=52 expected_graph_positive_negative_assertions=156
+        default_deny_role_checks=78 real_supabase_connection=false jwt_trust_unverified=true commercial_release=HOLD''
+
+        '
