@@ -1,0 +1,243 @@
+name: DPRO TAX R312 Isolated ES256 Tenant Gateway Integration QA
+
+on:
+  push:
+    branches:
+      - dpro-tax-r308-auth-tenant-integration-qa-20261020
+    paths:
+      - '.github/workflows/dpro-tax-r312-es256-tenant-gateway-integration-qa.yml'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  isolated-es256-gateway-integration:
+    if: github.ref == 'refs/heads/dpro-tax-r308-auth-tenant-integration-qa-20261020'
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Synthetic signed JWT to scoped read-only gateway QA (no checkout or secrets)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'R312_NODE'
+          'use strict';
+          // DPRO TAX R312: isolated synthetic ES256 -> tenant authorization contract.
+          // No real credentials, Supabase, Worker, LINE, service-role key, or network access.
+          const assert = require('node:assert/strict');
+          const { webcrypto } = require('node:crypto');
+          const subtle = webcrypto.subtle;
+          const NOW = 1792486800;
+          const ISS = 'https://r312-auth.invalid.test/auth/v1';
+          const AUD = 'authenticated';
+          const KID = 'r312-synthetic-p256-only';
+          const A='11111111-1111-4111-8111-111111111111', B='22222222-2222-4222-8222-222222222222', C='33333333-3333-4333-8333-333333333333', D='44444444-4444-4444-8444-444444444444', E='55555555-5555-4555-8555-555555555555';
+          const OA='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', OB='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', OC='cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+          const CA='aaaaaaaa-0000-4000-8000-000000000001', CB='bbbbbbbb-0000-4000-8000-000000000001', CC='aaaaaaaa-0000-4000-8000-000000000002';
+          const offices = Object.freeze([
+            {id:OA,is_active:true,is_demo:false,production_guard:true},
+            {id:OB,is_active:true,is_demo:false,production_guard:true},
+            {id:OC,is_active:false,is_demo:false,production_guard:true},
+          ]);
+          const staff = Object.freeze([
+            {id:'s1',office_id:OA,auth_user_id:A,role:'owner',is_active:true,can_view_all_clients:true},
+            {id:'s2',office_id:OB,auth_user_id:B,role:'staff',is_active:true,can_view_all_clients:false},
+            {id:'s3',office_id:OA,auth_user_id:C,role:'reviewer',is_active:true,can_view_all_clients:false},
+            {id:'s4',office_id:OB,auth_user_id:C,role:'staff',is_active:true,can_view_all_clients:false},
+            {id:'s5',office_id:OA,auth_user_id:D,role:'owner',is_active:false,can_view_all_clients:true},
+          ]);
+          const clients = Object.freeze([
+            {id:CA,office_id:OA,assigned_staff_id:'s3',reviewer_staff_id:'s3'},
+            {id:CB,office_id:OB,assigned_staff_id:'s2',reviewer_staff_id:null},
+            {id:CC,office_id:OA,assigned_staff_id:null,reviewer_staff_id:null},
+          ]);
+          let egressAttempts = 0;
+          globalThis.fetch = async () => { egressAttempts++; throw Error('NETWORK_DISABLED'); };
+          const isUuid = s => typeof s==='string' && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(s);
+          function deny(code) { const e = new Error(code); e.code = code; throw e; }
+          const enc = o => Buffer.from(JSON.stringify(o)).toString('base64url');
+          function dec(s) {
+            if (typeof s!=='string' || !/^[A-Za-z0-9_-]{1,8192}$/.test(s)) deny('JWT_MALFORMED');
+            let b;
+            try { b=Buffer.from(s,'base64url'); }
+            catch { deny('JWT_MALFORMED'); }
+            if (b.toString('base64url')!==s) deny('JWT_MALFORMED');
+            let obj;
+            try { obj=JSON.parse(b.toString('utf8')); }
+            catch { deny('JWT_MALFORMED'); }
+            if (!obj || typeof obj!=='object' || Array.isArray(obj)) deny('JWT_MALFORMED');
+            return obj;
+          }
+          function claims(sub=A) {
+            return {iss:ISS,aud:AUD,sub,role:'authenticated',iat:NOW-30,nbf:NOW-30,exp:NOW+900};
+          }
+          async function main() {
+            // Both keys are generated inside this process; neither comes from any real Supabase project.
+            const trusted = await subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']);
+            const attacker = await subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']);
+            const pubJwk = await subtle.exportKey('jwk',trusted.publicKey);
+            const jwks = Object.freeze([{...pubJwk,kid:KID,alg:'ES256',use:'sig'}]);
+            const imported = await subtle.importKey('jwk',jwks[0],{name:'ECDSA',namedCurve:'P-256'},false,['verify']);
+            async function mint(body=claims(), signingKey=trusted.privateKey, headerOverrides={}) {
+              const header={alg:'ES256',typ:'JWT',kid:KID,...headerOverrides};
+              const data=enc(header)+'.'+enc(body);
+              const sig=await subtle.sign({name:'ECDSA',hash:'SHA-256'},signingKey,Buffer.from(data));
+              return data+'.'+Buffer.from(sig).toString('base64url');
+            }
+            async function verifyJwt(jwt) {
+              if (typeof jwt!=='string'||jwt.length>12000) deny('JWT_MALFORMED');
+              const parts=jwt.split('.');
+              if (parts.length!==3||parts.some(x=>!x||!/^[A-Za-z0-9_-]+$/.test(x))) deny('JWT_MALFORMED');
+              const h=dec(parts[0]);
+              if (h.alg!=='ES256'||h.typ!=='JWT'||h.kid!==KID) deny('JWT_KEY_DENIED');
+              const c=dec(parts[1]);
+              const sig=parts[2];
+              if (sig.length!==86 || Buffer.from(sig,'base64url').toString('base64url')!==sig) deny('JWT_MALFORMED');
+              const ok=await subtle.verify({name:'ECDSA',hash:'SHA-256'},imported,
+                Buffer.from(sig,'base64url'), Buffer.from(parts[0]+'.'+parts[1]));
+              if (!ok) deny('JWT_SIGNATURE');
+              if (c.iss!==ISS || c.aud!==AUD || c.role!=='authenticated' || !isUuid(c.sub)) deny('JWT_CLAIMS');
+              if (![c.exp,c.iat,c.nbf].every(Number.isSafeInteger)||c.exp<=NOW||c.nbf>NOW||c.iat>NOW+30||c.exp-c.iat>3600||c.exp<=c.iat) deny('JWT_TIME');
+              // Only the verified signed claim becomes the user identity, not any request header/body.
+              return Object.freeze({sub:c.sub,role:'authenticated'});
+            }
+            function canReadClient(who,client) {
+              return who.can_view_all_clients===true&&['owner','manager'].includes(who.role)
+                ||client.assigned_staff_id===who.id||client.reviewer_staff_id===who.id;
+            }
+            async function gateway(req) {
+              const method=String(req.method||'').toUpperCase(),path=String(req.path||'');
+              if (method!=='GET') deny('METHOD_DISABLED');
+              const endpoint=/^\/api\/admin\/(dashboard|clients)(?:\/([0-9a-f-]{36}))?$/i.exec(path);
+              const signed=/^\/api\/admin\/documents\/([0-9a-f-]{36})\/signed-url$/i.exec(path);
+              if (!endpoint&&!signed) deny('ROUTE_DISABLED');
+              if (endpoint&&endpoint[1]==='dashboard'&&endpoint[2]) deny('ROUTE_DISABLED');
+              if (endpoint&&endpoint[2]&&!isUuid(endpoint[2])) deny('ROUTE_DISABLED');
+              if (signed&&!isUuid(signed[1])) deny('ROUTE_DISABLED');
+              const bearer=/^Bearer ([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/.exec(req.authorization||'');
+              if (!bearer) deny('BEARER_REQUIRED');
+              const identity=await verifyJwt(bearer[1]);
+              if (!isUuid(req.officeId)) deny('OFFICE_REQUIRED');
+              const office=offices.find(x=>x.id===req.officeId&&x.is_active&&!x.is_demo);
+              if (!office) deny('OFFICE_NOT_AUTHORIZED');
+              const linked=staff.filter(s=>s.auth_user_id===identity.sub&&s.office_id===office.id&&s.is_active);
+              if (linked.length!==1) deny('STAFF_NOT_LINKED');
+              const who=linked[0];
+              if (signed) deny('SIGNED_URL_HOLD');
+              const allowedRows=clients.filter(c=>c.office_id===office.id&&canReadClient(who,c));
+              const scope=Object.freeze({sub:identity.sub,office_id:office.id,staff_id:who.id,role:who.role});
+              if (endpoint[1]==='dashboard') return {scope,summary:{accessible_clients:allowedRows.length}};
+              if (endpoint[2]) {
+                const c=clients.find(x=>x.id===endpoint[2]&&x.office_id===office.id);
+                if (!c) deny('CLIENT_NOT_FOUND');
+                if (!canReadClient(who,c)) deny('CLIENT_NOT_ASSIGNED');
+                return {scope,client:{id:c.id,office_id:c.office_id}};
+              }
+              return {scope,clients:allowedRows.map(x=>({id:x.id,office_id:x.office_id}))};
+            }
+            const good=new Map();
+            for (const sub of [A,B,C,D,E]) good.set(sub,await mint(claims(sub)));
+            const req=(sub=A,office=OA,path='/api/admin/dashboard',method='GET')=>({
+              method,path,officeId:office,authorization:'Bearer '+good.get(sub),
+              'X-Admin-Key':'1234','X-Line-User-Id':'forged','X-Verified-Sub':A,
+              verifiedIdentity:{sub:A,role:'owner'},auth_user_id:A,role:'owner'
+            });
+            let checks=0,allowed=0,denied=0;
+            async function pass(name,fn) {await fn();checks++;console.log('PASS '+name);}
+            async function expect(code,fn) {
+              let got='';try{await fn();}catch(e){got=e.code||e.message;}
+              assert.equal(got,code,`expected ${code} got ${got||'ALLOWED'}`);
+            }
+            await pass('signed-jwt-owner-office-scope',async()=>{
+              const r=await gateway(req());assert.equal(r.scope.sub,A);assert.equal(r.scope.office_id,OA);
+              assert.equal(r.scope.role,'owner');assert.equal(r.summary.accessible_clients,2);
+            });
+            await pass('signed-jwt-staff-only-assigned-list',async()=>{
+              const r=await gateway(req(B,OB,'/api/admin/clients'));
+              assert.deepEqual(r.clients,[{id:CB,office_id:OB}]);
+            });
+            await pass('signed-jwt-reviewer-tenant-switch',async()=>{
+              const oa=await gateway(req(C,OA,'/api/admin/clients/'+CA));
+              const ob=await gateway(req(C,OB,'/api/admin/clients'));
+              assert.equal(oa.scope.staff_id,'s3');assert.equal(ob.scope.staff_id,'s4');
+              assert.deepEqual(ob.clients,[]);
+            });
+            const neg = [
+              ['no-bearer',{...req(),authorization:''},'BEARER_REQUIRED'],
+              ['basic-bearer',{...req(),authorization:'Basic abc'},'BEARER_REQUIRED'],
+              ['not-a-jwt',{...req(),authorization:'Bearer test-only:'+A},'BEARER_REQUIRED'],
+              ['forged-payload',async()=>{const parts=good.get(A).split('.');return {...req(),authorization:'Bearer '+parts[0]+'.'+enc(claims(B))+'.'+parts[2]};},'JWT_SIGNATURE'],
+              ['different-key',async()=>({...req(),authorization:'Bearer '+await mint(claims(A),attacker.privateKey)}),'JWT_SIGNATURE'],
+              ['alg-none',async()=>({...req(),authorization:'Bearer '+await mint(claims(A),trusted.privateKey,{alg:'none'})}),'JWT_KEY_DENIED'],
+              ['alg-hs256',async()=>({...req(),authorization:'Bearer '+await mint(claims(A),trusted.privateKey,{alg:'HS256'})}),'JWT_KEY_DENIED'],
+              ['unknown-kid',async()=>({...req(),authorization:'Bearer '+await mint(claims(A),trusted.privateKey,{kid:'unknown'})}),'JWT_KEY_DENIED'],
+              ['wrong-issuer',async()=>({...req(),authorization:'Bearer '+await mint({...claims(A),iss:'https://evil.invalid.test'})}),'JWT_CLAIMS'],
+              ['wrong-audience',async()=>({...req(),authorization:'Bearer '+await mint({...claims(A),aud:'service_role'})}),'JWT_CLAIMS'],
+              ['invalid-sub',async()=>({...req(),authorization:'Bearer '+await mint({...claims(A),sub:'not-a-uuid'})}),'JWT_CLAIMS'],
+              ['expired',async()=>({...req(),authorization:'Bearer '+await mint({...claims(A),exp:NOW-1})}),'JWT_TIME'],
+              ['future-nbf',async()=>({...req(),authorization:'Bearer '+await mint({...claims(A),nbf:NOW+90})}),'JWT_TIME'],
+              ['too-long-session',async()=>({...req(),authorization:'Bearer '+await mint({...claims(A),exp:NOW+3700})}),'JWT_TIME'],
+              ['wrong-office',req(A,OB),'STAFF_NOT_LINKED'],
+              ['inactive-office',req(A,OC),'OFFICE_NOT_AUTHORIZED'],
+              ['inactive-staff',req(D,OA),'STAFF_NOT_LINKED'],
+              ['unknown-staff',req(E,OA),'STAFF_NOT_LINKED'],
+              ['office-missing',{...req(),officeId:undefined},'OFFICE_REQUIRED'],
+              ['cross-tenant-client',req(A,OA,'/api/admin/clients/'+CB),'CLIENT_NOT_FOUND'],
+              ['unassigned-client',req(C,OA,'/api/admin/clients/'+CC),'CLIENT_NOT_ASSIGNED'],
+              ['injection-admin-header',req(B,OA),'STAFF_NOT_LINKED'],
+              ['signed-url-hold',req(A,OA,'/api/admin/documents/'+CA+'/signed-url'),'SIGNED_URL_HOLD'],
+              ['path-traversal',req(A,OA,'/api/admin/clients/../dashboard'),'ROUTE_DISABLED'],
+              ['invalid-client-uuid',req(A,OA,'/api/admin/clients/'+'a'.repeat(36)),'ROUTE_DISABLED'],
+              ['post-denied',req(A,OA,'/api/admin/dashboard','POST'),'METHOD_DISABLED'],
+              ['patch-denied',req(A,OA,'/api/admin/clients/'+CA,'PATCH'),'METHOD_DISABLED'],
+              ['delete-denied',req(A,OA,'/api/admin/clients/'+CA,'DELETE'),'METHOD_DISABLED'],
+              ['head-denied',req(A,OA,'/api/admin/dashboard','HEAD'),'METHOD_DISABLED'],
+              ['unknown-route',req(A,OA,'/api/admin/tasks'),'ROUTE_DISABLED'],
+              ['legacy-public-write',req(A,OA,'/api/public/appointments','POST'),'METHOD_DISABLED'],
+              ['jwt-extra-admin-claims-cannot-elevate',async()=>({...req(B,OA),authorization:'Bearer '+await mint({...claims(B),admin:true,office_id:OA,role:'authenticated'})}),'STAFF_NOT_LINKED'],
+            ];
+            for (const [name,input,code] of neg) await pass(name,async()=>expect(code,async()=>gateway(typeof input==='function'?await input():input)));
+            await pass('spoofed-sub-request-fields-ignored',async()=>{
+              const r=await gateway(req(B,OB));assert.equal(r.scope.sub,B);
+              assert.equal(r.scope.role,'staff');assert.equal(r.scope.office_id,OB);
+            });
+            await pass('jwt-signed-sub-is-the-only-identity',async()=>{
+              const r=await gateway({...req(C,OA),'X-Verified-Sub':A,verifiedIdentity:{sub:A,role:'owner'}});
+              assert.equal(r.scope.sub,C);assert.equal(r.scope.role,'reviewer');
+            });
+            await pass('list-tenant-and-assignment-filter',async()=>{
+              const a=await gateway(req(C,OA,'/api/admin/clients'));
+              assert.deepEqual(a.clients,[{id:CA,office_id:OA}]);
+            });
+            // Preserve the full R311 800-case contract, but now with real cryptographic verification.
+            const methods=['GET','POST','PATCH','DELETE','HEAD'];
+            const paths=['/api/admin/dashboard','/api/admin/clients','/api/admin/clients/'+CA,
+              '/api/admin/clients/'+CB,'/api/admin/clients/'+CC,
+              '/api/admin/documents/'+CA+'/signed-url','/api/public/appointments','/api/admin/tasks'];
+            for(const method of methods) for(const path of paths) for(const sub of [A,B,C,D,E]) for(const officeId of [OA,OB,OC,'not-a-uuid']) {
+              let outcome=false;
+              try {await gateway(req(sub,officeId,path,method));outcome=true;allowed++;}
+              catch {denied++;}
+              const officeOk=offices.some(x=>x.id===officeId&&x.is_active&&!x.is_demo);
+              const membership=staff.filter(x=>x.auth_user_id===sub&&x.office_id===officeId&&x.is_active);
+              const who=membership[0];
+              const record=clients.find(x=>path==='/api/admin/clients/'+x.id&&x.office_id===officeId);
+              const eligible=!!who&&!!record&&canReadClient(who,record);
+              const simple=path==='/api/admin/dashboard'||path==='/api/admin/clients';
+              const expected=method==='GET'&&officeOk&&membership.length===1&&(simple||eligible);
+              assert.equal(outcome,expected,'R312 matrix mismatch '+JSON.stringify({method,path,sub,officeId}));
+              checks++;
+            }
+            assert.equal(allowed,12);
+            assert.equal(denied,788);
+            assert.equal(egressAttempts,0);
+            assert.equal(checks,3+neg.length+3+800);
+            console.log(JSON.stringify({suite:'DPRO_TAX_R312_ES256_TO_TENANT_AUTHZ_OFFLINE',checks,
+              named_checks:3+neg.length+3,matrix_checks:800,allowed,denied,synthetic_es256_signature_verified:true,
+              signed_subject_only:true,tenant_and_assignment_authorization:true,
+              production_egress_attempts:egressAttempts,real_supabase_jwt_verified:false,
+              real_db_connection:false,actual_worker_integration_verified:false,
+              real_line_connection:false,worker_deployment:false,commercial_release:'HOLD'}));
+          }
+          main().catch(e=>{console.error('R312_FAIL',e.stack);process.exitCode=1;});
+          R312_NODE
