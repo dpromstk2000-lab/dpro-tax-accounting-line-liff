@@ -1,0 +1,52 @@
+name: DPRO TAX R329 26-Table RLS Default-Deny Coverage and Commercial HOLD QA
+'on':
+  push:
+    branches:
+    - dpro-tax-r308-auth-tenant-integration-qa-20261020
+    paths:
+    - .github/workflows/dpro-tax-r329-pg17-26-table-readiness-hold-isolated-qa.yml
+  workflow_dispatch: null
+permissions: {}
+jobs:
+  r329-ephemeral-26-table-rls:
+    if: github.ref == 'refs/heads/dpro-tax-r308-auth-tenant-integration-qa-20261020'
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    services:
+      pg:
+        image: postgres:17
+        env:
+          POSTGRES_DB: r329_synthetic
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: disposable_r329_ci_only
+        options: --health-cmd "pg_isready -U postgres -d r329_synthetic" --health-interval 10s --health-timeout 5s --health-retries 8
+    steps:
+    - name: Prove all 26 synthetic tables deny anon/auth while BYPASSRLS can see all
+      shell: bash
+      run: "set -euo pipefail\n# SQL is synthetic; no real credentials, production DB, or migration.\ncat > /tmp/r329.sql <<'R329_SYNTHETIC_SQL'\n-- R329 SYNTHETIC PG17 ONLY.\
+        \ NEVER EXECUTE ON SHARED SUPABASE.\n\\set ON_ERROR_STOP on\nCREATE ROLE anon NOLOGIN NOBYPASSRLS;\nCREATE ROLE authenticated NOLOGIN NOBYPASSRLS;\nCREATE ROLE qa_bypass_rls\
+        \ NOLOGIN BYPASSRLS;\nGRANT USAGE ON SCHEMA public TO anon,authenticated,qa_bypass_rls;\n-- Only 26 synthetic tables, mirroring public taxonomy; no production rows\
+        \ or auth.\nDO $r329_init$\nDECLARE tab text;\nBEGIN\n FOREACH tab IN ARRAY ARRAY['taxacc_activity_logs','taxacc_appointments','taxacc_business_hours','taxacc_cases','taxacc_client_contact_links','taxacc_clients','taxacc_closed_dates','taxacc_communications','taxacc_consultation_services','taxacc_contacts','taxacc_deadline_templates','taxacc_document_access_logs','taxacc_document_request_items','taxacc_document_request_templates','taxacc_document_requests','taxacc_document_submissions','taxacc_engagements','taxacc_inquiries','taxacc_link_tokens','taxacc_message_templates','taxacc_offices','taxacc_r91_review_events','taxacc_r9_monthly_review_batches','taxacc_r9_monthly_review_items','taxacc_staff','taxacc_tasks']\
+        \ LOOP\n  IF tab='taxacc_offices' THEN\n   EXECUTE format('CREATE TABLE public.%I (id uuid PRIMARY KEY)',tab);\n  ELSE\n   EXECUTE format('CREATE TABLE public.%I (id\
+        \ uuid PRIMARY KEY, office_id uuid NOT NULL)',tab);\n  END IF;\n  EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY',tab);\n  EXECUTE format('INSERT INTO\
+        \ public.%I (id) VALUES (%L::uuid)',tab,'11111111-1111-4111-8111-111111111111');\n  EXECUTE format('GRANT SELECT ON public.%I TO anon,authenticated,qa_bypass_rls',tab);\n\
+        \ END LOOP;\nEND\n$r329_init$;\n-- Catalog assertions must fail if table count, RLS settings, policy count or role flags drift.\nDO $r329_catalog$\nDECLARE tab text;\
+        \ seen int; policies int; enabled bool; forced bool;\nBEGIN\n SELECT count(*) INTO seen FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace\n WHERE n.nspname='public'\
+        \ AND c.relkind='r' AND c.relname LIKE 'taxacc_%';\n IF seen <> 26 THEN RAISE EXCEPTION 'R329_CATALOG_TABLE_COUNT actual=%',seen; END IF;\n FOREACH tab IN ARRAY ARRAY['taxacc_activity_logs','taxacc_appointments','taxacc_business_hours','taxacc_cases','taxacc_client_contact_links','taxacc_clients','taxacc_closed_dates','taxacc_communications','taxacc_consultation_services','taxacc_contacts','taxacc_deadline_templates','taxacc_document_access_logs','taxacc_document_request_items','taxacc_document_request_templates','taxacc_document_requests','taxacc_document_submissions','taxacc_engagements','taxacc_inquiries','taxacc_link_tokens','taxacc_message_templates','taxacc_offices','taxacc_r91_review_events','taxacc_r9_monthly_review_batches','taxacc_r9_monthly_review_items','taxacc_staff','taxacc_tasks']\
+        \ LOOP\n  SELECT c.relrowsecurity,c.relforcerowsecurity, (SELECT count(*) FROM pg_policy p WHERE p.polrelid=c.oid)\n  INTO enabled,forced,policies FROM pg_class c JOIN\
+        \ pg_namespace n ON n.oid=c.relnamespace\n  WHERE n.nspname='public' AND c.relname=tab;\n  IF enabled IS DISTINCT FROM true OR forced IS DISTINCT FROM false OR policies\
+        \ <> 0\n  THEN RAISE EXCEPTION 'R329_CATALOG_POLICY_MISMATCH %',tab; END IF;\n END LOOP;\n IF (SELECT rolbypassrls FROM pg_roles WHERE rolname='authenticated') THEN\
+        \ RAISE EXCEPTION 'R329_AUTH_BYPASS'; END IF;\n IF (SELECT rolbypassrls FROM pg_roles WHERE rolname='anon') THEN RAISE EXCEPTION 'R329_ANON_BYPASS'; END IF;\n IF NOT\
+        \ (SELECT rolbypassrls FROM pg_roles WHERE rolname='qa_bypass_rls') THEN RAISE EXCEPTION 'R329_THREAT_MODEL_NOT_CONFIGURED'; END IF;\n RAISE NOTICE 'R329_PASS: 26 synthetic\
+        \ tables RLS ON no policies, roles audited';\nEND\n$r329_catalog$;\n-- Enforce real PostgreSQL role+RLS behavior; 26 auth + 26 anon + 26 bypass checks.\nSET ROLE authenticated;\n\
+        DO $r329_auth$\nDECLARE tab text; n bigint; passed int:=0;\nBEGIN\n FOREACH tab IN ARRAY ARRAY['taxacc_activity_logs','taxacc_appointments','taxacc_business_hours','taxacc_cases','taxacc_client_contact_links','taxacc_clients','taxacc_closed_dates','taxacc_communications','taxacc_consultation_services','taxacc_contacts','taxacc_deadline_templates','taxacc_document_access_logs','taxacc_document_request_items','taxacc_document_request_templates','taxacc_document_requests','taxacc_document_submissions','taxacc_engagements','taxacc_inquiries','taxacc_link_tokens','taxacc_message_templates','taxacc_offices','taxacc_r91_review_events','taxacc_r9_monthly_review_batches','taxacc_r9_monthly_review_items','taxacc_staff','taxacc_tasks']\
+        \ LOOP\n  EXECUTE format('SELECT count(*) FROM public.%I',tab) INTO n;\n  IF n<>0 THEN RAISE EXCEPTION 'R329_AUTH_TENANT_DATA_EXPOSED %',tab; END IF;\n  passed:=passed+1;\n\
+        \ END LOOP;\n RAISE NOTICE 'R329_PASS authenticated_default_deny=%',passed;\nEND\n$r329_auth$;\nRESET ROLE;\nSET ROLE anon;\nDO $r329_anon$\nDECLARE tab text; n bigint;\
+        \ passed int:=0;\nBEGIN\n FOREACH tab IN ARRAY ARRAY['taxacc_activity_logs','taxacc_appointments','taxacc_business_hours','taxacc_cases','taxacc_client_contact_links','taxacc_clients','taxacc_closed_dates','taxacc_communications','taxacc_consultation_services','taxacc_contacts','taxacc_deadline_templates','taxacc_document_access_logs','taxacc_document_request_items','taxacc_document_request_templates','taxacc_document_requests','taxacc_document_submissions','taxacc_engagements','taxacc_inquiries','taxacc_link_tokens','taxacc_message_templates','taxacc_offices','taxacc_r91_review_events','taxacc_r9_monthly_review_batches','taxacc_r9_monthly_review_items','taxacc_staff','taxacc_tasks']\
+        \ LOOP\n  EXECUTE format('SELECT count(*) FROM public.%I',tab) INTO n;\n  IF n<>0 THEN RAISE EXCEPTION 'R329_ANON_TENANT_DATA_EXPOSED %',tab; END IF;\n  passed:=passed+1;\n\
+        \ END LOOP;\n RAISE NOTICE 'R329_PASS anon_default_deny=%',passed;\nEND\n$r329_anon$;\nRESET ROLE;\nSET ROLE qa_bypass_rls;\nDO $r329_bypass$\nDECLARE tab text; n bigint;\
+        \ passed int:=0;\nBEGIN\n FOREACH tab IN ARRAY ARRAY['taxacc_activity_logs','taxacc_appointments','taxacc_business_hours','taxacc_cases','taxacc_client_contact_links','taxacc_clients','taxacc_closed_dates','taxacc_communications','taxacc_consultation_services','taxacc_contacts','taxacc_deadline_templates','taxacc_document_access_logs','taxacc_document_request_items','taxacc_document_request_templates','taxacc_document_requests','taxacc_document_submissions','taxacc_engagements','taxacc_inquiries','taxacc_link_tokens','taxacc_message_templates','taxacc_offices','taxacc_r91_review_events','taxacc_r9_monthly_review_batches','taxacc_r9_monthly_review_items','taxacc_staff','taxacc_tasks']\
+        \ LOOP\n  EXECUTE format('SELECT count(*) FROM public.%I',tab) INTO n;\n  IF n<>1 THEN RAISE EXCEPTION 'R329_BYPASS_THREAT_MISMATCH %',tab; END IF;\n  passed:=passed+1;\n\
+        \ END LOOP;\n RAISE NOTICE 'R329_PASS bypass_rls_threat_model=%',passed;\nEND\n$r329_bypass$;\nRESET ROLE;\nSELECT 'R329_EPHEMERAL_PG17_26_TABLE_DEFAULT_DENY_78_CHECKS_PASS__COMMERCIAL_RELEASE_HOLD'\
+        \ AS result;\nR329_SYNTHETIC_SQL\npgid=\"${{ job.services.pg.id }}\"\ntest -n \"$pgid\"\ndocker exec -i \"$pgid\" psql -X -U postgres -d r329_synthetic -v ON_ERROR_STOP=1\
+        \ < /tmp/r329.sql\necho 'R329_EPHEMERAL_PG17_DEFAULT_DENY_GAP_GATE 26_tables=verified 78_role_checks=passed live_supabase_queries=0 real_rls_policy_ready=false commercial_release=HOLD'\n"
