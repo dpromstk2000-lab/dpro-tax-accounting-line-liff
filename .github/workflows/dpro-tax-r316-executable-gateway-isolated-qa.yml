@@ -1,0 +1,40 @@
+name: DPRO TAX R316 Executable Gateway Isolated QA
+
+on:
+  push:
+    branches:
+      - dpro-tax-r308-auth-tenant-integration-qa-20261020
+    paths:
+      - '.github/workflows/dpro-tax-r316-executable-gateway-isolated-qa.yml'
+      - 'qa/r316/read-only-gateway.mjs'
+      - 'qa/r316/read-only-gateway.test.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  r316-executable-worker-compatible-gateway:
+    if: github.ref == 'refs/heads/dpro-tax-r308-auth-tenant-integration-qa-20261020'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout isolated QA branch without write credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify isolated R316 sources and prohibit deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s qa/r316/read-only-gateway.mjs
+          test -s qa/r316/read-only-gateway.test.mjs
+          ! grep -nE 'SUPABASE_SERVICE_ROLE_KEY|process\.env\.|wrangler deploy|cloudflare deploy|line\.me/api|supabase\.co' qa/r316/read-only-gateway.mjs
+          node --check qa/r316/read-only-gateway.mjs
+          node --check qa/r316/read-only-gateway.test.mjs
+          echo 'R316: source is QA-only, no Worker deployment, no real auth/DB/LINE'
+      - name: Execute actual standalone gateway module with signed synthetic JWT and DB fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          node qa/r316/read-only-gateway.test.mjs
