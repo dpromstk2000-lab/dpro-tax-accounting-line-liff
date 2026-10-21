@@ -1,0 +1,169 @@
+name: DPRO TAX R333 Ephemeral PG17 RLS Mutation Detection and Anon Least Privilege QA
+on:
+  push:
+    branches:
+    - dpro-tax-r308-auth-tenant-integration-qa-20261020
+    paths:
+    - .github/workflows/dpro-tax-r333-pg17-rls-mutation-anon-hardening-isolated-qa.yml
+  workflow_dispatch: null
+permissions:
+  contents: read
+jobs:
+  r333-mutation-gate:
+    if: github.ref == 'refs/heads/dpro-tax-r308-auth-tenant-integration-qa-20261020'
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    services:
+      pg:
+        image: postgres:17
+        env:
+          POSTGRES_DB: r331_synthetic
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: r333_disposable_only
+        options: --health-cmd "pg_isready -U postgres -d r331_synthetic" --health-interval 10s --health-timeout 5s --health-retries 8
+    steps:
+    - name: Checkout only isolated QA branch with no saved credentials
+      uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+    - name: Verify hash-pinned R331 source and restore nine SQL scripts
+      shell: bash
+      run: "set -euo pipefail\npython3 - <<'R333_EXTRACT'\nimport re,hashlib,pathlib\np=pathlib.Path('.github/workflows/dpro-tax-r331-pg17-remaining19-policy-candidate-isolated-qa.yml')\n\
+        assert p.is_file(),'R331_PINNED_SOURCE_MISSING'\ns=p.read_bytes(); assert hashlib.sha256(s).hexdigest()=='564a94632e60f76d228501852298be347fe40fe8af4092026a3ea68478cca4c0','R331_SHA256_DRIFT_HOLD'\n\
+        text=s.decode('utf-8')\nnames=['core_schema','core_fixtures','core_assertions','r331_extension','r331_fixtures','r331_catalog','r331_roles_a','r331_roles_b','r331_revocation']\n\
+        for idx,name in enumerate(names,1):\n label=f'R331_{idx:02}'\n match=re.search(r\"^        cat > /tmp/([^\\n ]+) <<'\"+label+r\"'\\n(.*?)^     \
+        \   \"+label+r\"[ \\t]*$\",text,re.M|re.S)\n if not match: raise SystemExit('R333_R331_SCRIPT_NOT_FOUND_'+label)\n output=pathlib.Path('/tmp')/(f'{idx:02}_'+name+'.sql')\n\
+        \ if match.group(1)!=output.name:raise SystemExit('R333_FILENAME_CHANGED_'+label)\n content='\\n'.join(line[8:] if line.startswith('        ') else\
+        \ line for line in match.group(2).split('\\n'))\n if not content.lstrip().startswith('\\\\set ON_ERROR_STOP on'):raise SystemExit('R333_PSQL_FAIL_CLOSED_MISSING_'+label)\n\
+        \ output.write_text(content)\nprint('R333_R331_SCRIPTS_PINNED=true sha256_verified=true count=9')\nR333_EXTRACT"
+    - name: Re-run unchanged R331 402 assertions in disposable PostgreSQL 17
+      shell: bash
+      run: "set -euo pipefail\npgid=\"${{ job.services.pg.id }}\"\ntest -n \"$pgid\"\nfor name in 01_core_schema 02_core_fixtures 03_core_assertions 04_r331_extension\
+        \ 05_r331_fixtures 06_r331_catalog 07_r331_roles_a 08_r331_roles_b 09_r331_revocation; do\n docker exec -i \"$pgid\" psql -X -U postgres -d r331_synthetic\
+        \ -v ON_ERROR_STOP=1 < \"/tmp/${name}.sql\" > \"/tmp/r333_${name}.log\" 2>&1 || { tail -45 \"/tmp/r333_${name}.log\"; exit 1; }\n echo \"R333_R331_REGRESSION_PASS\
+        \ $name\"\ndone"
+    - name: Prepare R333 anonymous grant hardening SQL (disposable only)
+      shell: bash
+      run: "set -euo pipefail\ncat > /tmp/r333_stage1.sql <<'R333_STAGE1'\n\\set ON_ERROR_STOP on\n-- ALL DATA IN THIS SUITE IS SYNTHETIC AND LOCAL TO EPHEMERAL\
+        \ POSTGRES 17.\n-- NEVER APPLY TO PRODUCTION SUPABASE.\n-- R331 tests end with office A intentionally disabled; restore ONLY disposable fixtures\
+        \ here.\nUPDATE public.taxacc_offices SET production_guard=true WHERE id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';\nUPDATE public.taxacc_staff SET\
+        \ can_manage_settings=true WHERE id='10000000-0000-4000-8000-000000000001';\nSELECT public.r330_assert('r333-baseline-taxacc-tables',(SELECT count(*)\
+        \ FROM pg_class c WHERE c.relnamespace='public'::regnamespace AND c.relkind='r' AND c.relname LIKE 'taxacc\\_%' ESCAPE '\\')::bigint,26);\nSELECT\
+        \ public.r330_assert('r333-original-anon-select-grants',(SELECT count(*) FROM pg_class c WHERE c.relnamespace='public'::regnamespace AND c.relkind='r'\
+        \ AND c.relname LIKE 'taxacc\\_%' ESCAPE '\\' AND has_table_privilege('anon',c.oid,'SELECT'))::bigint,21);\nSELECT public.r330_assert('r333-original-auth-select-grants',(SELECT\
+        \ count(*) FROM pg_class c WHERE c.relnamespace='public'::regnamespace AND c.relkind='r' AND c.relname LIKE 'taxacc\\_%' ESCAPE '\\' AND has_table_privilege('authenticated',c.oid,'SELECT'))::bigint,21);\n\
+        -- Before hardening: accidental PUBLIC permissive policy is enough to reveal synthetic clients to anon because SELECT grant already exists.\nCREATE\
+        \ POLICY r333_intentionally_unsafe_public_read ON public.taxacc_clients FOR SELECT TO PUBLIC USING (true);\nSET ROLE anon;\nSELECT public.r330_assert('r333-pre-hardening-public-policy-exposes-five-synthetic-clients',(SELECT\
+        \ count(*) FROM public.taxacc_clients)::bigint,5);\nRESET ROLE;\nDROP POLICY r333_intentionally_unsafe_public_read ON public.taxacc_clients;\n--\
+        \ Defense in depth: drop anonymous SELECT table grants, not just RLS visibility.\nDO $revoke_anon$\nDECLARE t record;\nBEGIN\n FOR t IN SELECT c.relname\
+        \ FROM pg_class c WHERE c.relnamespace='public'::regnamespace AND c.relkind='r' AND c.relname LIKE 'taxacc\\_%' ESCAPE '\\' LOOP\n  EXECUTE format('REVOKE\
+        \ SELECT ON TABLE public.%I FROM anon,PUBLIC',t.relname);\n END LOOP;\nEND $revoke_anon$;\nSELECT public.r330_assert('r333-hardened-anon-no-select-any-of-26',(SELECT\
+        \ count(*) FROM pg_class c WHERE c.relnamespace='public'::regnamespace AND c.relkind='r' AND c.relname LIKE 'taxacc\\_%' ESCAPE '\\' AND has_table_privilege('anon',c.oid,'SELECT'))::bigint,0);\n\
+        SELECT public.r330_assert('r333-hardened-auth-still-readable-21',(SELECT count(*) FROM pg_class c WHERE c.relnamespace='public'::regnamespace AND\
+        \ c.relkind='r' AND c.relname LIKE 'taxacc\\_%' ESCAPE '\\' AND has_table_privilege('authenticated',c.oid,'SELECT'))::bigint,21);\n-- Even if a\
+        \ PUBLIC permissive policy appears again, anon has no SELECT privilege.\nCREATE POLICY r333_intentionally_unsafe_public_read ON public.taxacc_clients\
+        \ FOR SELECT TO PUBLIC USING (true);\nSET ROLE anon;\nDO $anon_denied$\nBEGIN\n BEGIN\n  PERFORM count(*) FROM public.taxacc_clients;\n  RAISE EXCEPTION\
+        \ 'R333_ANON_READ_NOT_DENIED';\n EXCEPTION WHEN insufficient_privilege THEN\n  RAISE NOTICE 'R333_PASS: anon grant removed; permissive PUBLIC policy\
+        \ alone cannot expose table';\n END;\nEND $anon_denied$;\nRESET ROLE;\nDROP POLICY r333_intentionally_unsafe_public_read ON public.taxacc_clients;\n\
+        -- Baseline owner must still have legitimate access after anon hardening.\nSET ROLE authenticated;\nBEGIN;\nSET LOCAL request.jwt.claim.sub='00000001-0001-4001-8001-000000000001';\n\
+        SELECT public.r330_assert('r333-hardened-owner-a-sees-three-own-clients',(SELECT count(*) FROM public.taxacc_clients)::bigint,3);\nSELECT public.r330_assert('r333-hardened-owner-a-no-other-office',(SELECT\
+        \ count(*) FROM public.taxacc_clients WHERE office_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')::bigint,0);\nCOMMIT;\nRESET ROLE;\nSELECT 'R333_ANON_GRANT_HARDENING_REPRODUCED_IN_DISPOSABLE_DB_ONLY'\
+        \ AS stage;\n\nR333_STAGE1\n"
+    - name: Execute R333 anonymous grant vulnerability and correction in disposable PostgreSQL 17
+      shell: bash
+      run: 'set -euo pipefail
+
+        pgid="${{ job.services.pg.id }}"
+
+        test -n "$pgid"
+
+        docker exec -i "$pgid" psql -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 < /tmp/r333_stage1.sql > /tmp/r333_result_1.log 2>&1 || { tail -85
+        /tmp/r333_result_1.log; exit 1; }
+
+        grep -E ''R333_(PASS|GATE|MUTATION|ANON|UNSAFE)'' /tmp/r333_result_1.log | tail -32 || true
+
+        '
+    - name: Prepare R333 12 security policy mutations SQL (disposable only)
+      shell: bash
+      run: "set -euo pipefail\ncat > /tmp/r333_stage2.sql <<'R333_STAGE2'\n\\set ON_ERROR_STOP on\n-- QA release gate is DENY-ON-DRIFT, never a real production\
+        \ migration.\n-- Freeze EXACT policy SQL definitions so same-count policy edits are also detected.\nCREATE TABLE qa_private.r333_expected_policies\
+        \ AS\n SELECT tablename,policyname,roles::text[] AS roles,cmd,permissive,qual,with_check\n FROM pg_policies WHERE schemaname='public' AND tablename\
+        \ LIKE 'taxacc\\_%' ESCAPE '\\';\nREVOKE ALL ON qa_private.r333_expected_policies FROM PUBLIC,anon,authenticated;\nCREATE FUNCTION public.r333_gate()\
+        \ RETURNS void LANGUAGE plpgsql AS $r333_guard$\nDECLARE t record; n int; protected boolean;\nBEGIN\n SELECT count(*) INTO n FROM pg_class c WHERE\
+        \ c.relnamespace='public'::regnamespace AND c.relkind='r' AND c.relname LIKE 'taxacc\\_%' ESCAPE '\\';\n IF n<>26 THEN RAISE EXCEPTION 'R333_GATE_TABLE_COUNT_%',n\
+        \ USING ERRCODE='check_violation'; END IF;\n SELECT count(*) INTO n FROM pg_class c WHERE c.relnamespace='public'::regnamespace AND c.relkind='r'\
+        \ AND c.relname LIKE 'taxacc\\_%' ESCAPE '\\' AND c.relrowsecurity AND c.relforcerowsecurity;\n IF n<>26 THEN RAISE EXCEPTION 'R333_GATE_RLS_ENABLED_FORCE_%',n\
+        \ USING ERRCODE='check_violation'; END IF;\n SELECT count(*) INTO n FROM pg_policies WHERE schemaname='public' AND tablename LIKE 'taxacc\\_%' ESCAPE\
+        \ '\\' AND cmd='SELECT';\n IF n<>21 THEN RAISE EXCEPTION 'R333_GATE_READ_POLICY_COUNT_%',n USING ERRCODE='check_violation'; END IF;\n IF EXISTS\
+        \ (\n  SELECT 1 FROM (\n   (SELECT tablename,policyname,roles::text[] AS roles,cmd,permissive,qual,with_check FROM pg_policies\n      WHERE schemaname='public'\
+        \ AND tablename LIKE 'taxacc\\_%' ESCAPE '\\'\n    EXCEPT SELECT tablename,policyname,roles,cmd,permissive,qual,with_check FROM qa_private.r333_expected_policies)\n\
+        \   UNION ALL\n   (SELECT tablename,policyname,roles,cmd,permissive,qual,with_check FROM qa_private.r333_expected_policies\n    EXCEPT SELECT tablename,policyname,roles::text[]\
+        \ AS roles,cmd,permissive,qual,with_check FROM pg_policies\n      WHERE schemaname='public' AND tablename LIKE 'taxacc\\_%' ESCAPE '\\')\n  ) policy_diff\n\
+        \ ) THEN RAISE EXCEPTION 'R333_GATE_POLICY_DEFINITION_DRIFT' USING ERRCODE='check_violation'; END IF;\n SELECT count(*) INTO n FROM pg_policies\
+        \ WHERE schemaname='public' AND tablename LIKE 'taxacc\\_%' ESCAPE '\\' AND cmd<>'SELECT';\n IF n<>0 THEN RAISE EXCEPTION 'R333_GATE_WRITE_POLICY_PRESENT_%',n\
+        \ USING ERRCODE='check_violation'; END IF;\n IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname IN ('anon','authenticated') AND rolbypassrls) THEN\n\
+        \  RAISE EXCEPTION 'R333_GATE_BYPASSRLS_ROLE' USING ERRCODE='check_violation';\n END IF;\n IF has_schema_privilege('anon','qa_private','USAGE')\
+        \ THEN\n  RAISE EXCEPTION 'R333_GATE_ANON_PRIVATE_SCHEMA_USAGE' USING ERRCODE='check_violation';\n END IF;\n IF has_function_privilege('anon','qa_private.r330_client(uuid,uuid)','EXECUTE')\
+        \ THEN\n  RAISE EXCEPTION 'R333_GATE_ANON_HELPER_EXECUTE' USING ERRCODE='check_violation';\n END IF;\n FOR t IN SELECT c.oid,c.relname FROM pg_class\
+        \ c WHERE c.relnamespace='public'::regnamespace AND c.relkind='r' AND c.relname LIKE 'taxacc\\_%' ESCAPE '\\' LOOP\n  IF has_table_privilege('anon',t.oid,'SELECT')\
+        \ THEN\n   RAISE EXCEPTION 'R333_GATE_ANON_SELECT_%',t.relname USING ERRCODE='check_violation';\n  END IF;\n  protected := t.relname IN ('taxacc_activity_logs','taxacc_contacts','taxacc_link_tokens','taxacc_r91_review_events','taxacc_document_access_logs');\n\
+        \  IF has_table_privilege('authenticated',t.oid,'SELECT')=protected THEN\n   RAISE EXCEPTION 'R333_GATE_AUTH_READ_GRANT_%',t.relname USING ERRCODE='check_violation';\n\
+        \  END IF;\n  IF has_table_privilege('anon',t.oid,'INSERT') OR has_table_privilege('anon',t.oid,'UPDATE') OR has_table_privilege('anon',t.oid,'DELETE')\n\
+        \  OR has_table_privilege('authenticated',t.oid,'INSERT') OR has_table_privilege('authenticated',t.oid,'UPDATE') OR has_table_privilege('authenticated',t.oid,'DELETE')\
+        \ THEN\n   RAISE EXCEPTION 'R333_GATE_WRITE_GRANT_%',t.relname USING ERRCODE='check_violation';\n  END IF;\n  IF protected AND EXISTS (SELECT 1\
+        \ FROM pg_policies p WHERE p.schemaname='public' AND p.tablename=t.relname) THEN\n   RAISE EXCEPTION 'R333_GATE_SENSITIVE_POLICY_%',t.relname USING\
+        \ ERRCODE='check_violation';\n  END IF;\n END LOOP;\n RAISE NOTICE 'R333_GATE_PASS: 26 RLS+FORCE, 21 SELECT policies, 0 anon SELECT, 0 write grants,\
+        \ 5 protected tables';\nEND $r333_guard$;\nCREATE FUNCTION public.r333_expect_guard_to_reject(label text) RETURNS void LANGUAGE plpgsql AS $r333_expect$\n\
+        DECLARE details text;\nBEGIN\n BEGIN\n  PERFORM public.r333_gate();\n  RAISE EXCEPTION 'R333_UNDETECTED_MUTATION_%',label;\n EXCEPTION WHEN check_violation\
+        \ THEN\n  GET STACKED DIAGNOSTICS details = MESSAGE_TEXT;\n  IF details NOT LIKE 'R333_GATE_%' THEN RAISE EXCEPTION 'R333_UNEXPECTED_GUARD_ERROR_%',details;\
+        \ END IF;\n  RAISE NOTICE 'R333_MUTATION_DETECTED: % (% )',label,details;\n END;\nEND $r333_expect$;\nSELECT public.r333_gate();\n-- 1: PERMISSIVE\
+        \ authenticated policy broadens tenant visibility.\nCREATE POLICY r333_bad_auth ON public.taxacc_clients FOR SELECT TO authenticated USING (true);\n\
+        SELECT public.r333_expect_guard_to_reject('permissive_policy');\nSET ROLE authenticated;\nBEGIN;\nSET LOCAL request.jwt.claim.sub='00000001-0001-4001-8001-000000000001';\n\
+        SELECT public.r330_assert('r333-intentionally-unsafe-owner-sees-all-five',(SELECT count(*) FROM public.taxacc_clients)::bigint,5);\nCOMMIT;\nRESET\
+        \ ROLE;\nDROP POLICY r333_bad_auth ON public.taxacc_clients;\nSELECT public.r333_gate();\n-- 2: A table accidentally loses RLS enforcement.\nALTER\
+        \ TABLE public.taxacc_clients DISABLE ROW LEVEL SECURITY;\nSELECT public.r333_expect_guard_to_reject('rls_disabled');\nALTER TABLE public.taxacc_clients\
+        \ ENABLE ROW LEVEL SECURITY;\nSELECT public.r333_gate();\n-- 3: FORCE RLS drift (especially dangerous under table-owner paths).\nALTER TABLE public.taxacc_clients\
+        \ NO FORCE ROW LEVEL SECURITY;\nSELECT public.r333_expect_guard_to_reject('force_disabled');\nALTER TABLE public.taxacc_clients FORCE ROW LEVEL\
+        \ SECURITY;\nSELECT public.r333_gate();\n-- 4: Unexpected write grant.\nGRANT UPDATE ON public.taxacc_clients TO authenticated;\nSELECT public.r333_expect_guard_to_reject('write_grant');\n\
+        REVOKE UPDATE ON public.taxacc_clients FROM authenticated;\nSELECT public.r333_gate();\n-- 5: BYPASSRLS is never an ordinary session privilege.\n\
+        ALTER ROLE authenticated BYPASSRLS;\nSELECT public.r333_expect_guard_to_reject('bypassrls_role');\nALTER ROLE authenticated NOBYPASSRLS;\nSELECT\
+        \ public.r333_gate();\n-- 6: Sensitive tables must never expose raw secrets/audit rows.\nGRANT SELECT ON public.taxacc_link_tokens TO authenticated;\n\
+        SELECT public.r333_expect_guard_to_reject('sensitive_table_grant');\nREVOKE SELECT ON public.taxacc_link_tokens FROM authenticated;\nSELECT public.r333_gate();\n\
+        -- 7: Policy on a sensitive table is detected EVEN if no table grant exists.\nCREATE POLICY r333_bad_sensitive ON public.taxacc_link_tokens FOR\
+        \ SELECT TO authenticated USING (true);\nSELECT public.r333_expect_guard_to_reject('sensitive_table_policy');\nDROP POLICY r333_bad_sensitive ON\
+        \ public.taxacc_link_tokens;\nSELECT public.r333_gate();\n-- 8: An accidentally restored anon table grant is detected.\nGRANT SELECT ON public.taxacc_clients\
+        \ TO anon;\nSELECT public.r333_expect_guard_to_reject('anon_select_grant');\nREVOKE SELECT ON public.taxacc_clients FROM anon;\nSELECT public.r333_gate();\n\
+        -- 9: Private helper/schema privileges must not extend to anon.\nGRANT USAGE ON SCHEMA qa_private TO anon;\nSELECT public.r333_expect_guard_to_reject('private_schema_usage');\n\
+        REVOKE USAGE ON SCHEMA qa_private FROM anon;\nSELECT public.r333_gate();\n-- 10: A missing legitimate authenticated grant should be caught (availability\
+        \ security).\nREVOKE SELECT ON public.taxacc_clients FROM authenticated;\nSELECT public.r333_expect_guard_to_reject('legitimate_client_grant_missing');\n\
+        GRANT SELECT ON public.taxacc_clients TO authenticated;\nSELECT public.r333_gate();\n-- 11: The definer helper must not be callable by anon.\nGRANT\
+        \ EXECUTE ON FUNCTION qa_private.r330_client(uuid,uuid) TO anon;\nSELECT public.r333_expect_guard_to_reject('anon_definer_execute');\nREVOKE EXECUTE\
+        \ ON FUNCTION qa_private.r330_client(uuid,uuid) FROM anon;\nSELECT public.r333_gate();\n-- 12: A stealth UPDATE to an existing policy is caught\
+        \ even if the policy count remains 21.\nALTER POLICY r330_clients_read ON public.taxacc_clients USING (true);\nSELECT public.r333_expect_guard_to_reject('same_count_policy_rewrite');\n\
+        SET ROLE authenticated;\nBEGIN;\nSET LOCAL request.jwt.claim.sub='00000001-0001-4001-8001-000000000001';\nSELECT public.r330_assert('r333-mutated-policy-exposes-all-five',(SELECT\
+        \ count(*) FROM public.taxacc_clients)::bigint,5);\nCOMMIT;\nRESET ROLE;\nALTER POLICY r330_clients_read ON public.taxacc_clients USING (qa_private.r330_client(office_id,id));\n\
+        SELECT public.r333_gate();\n-- Final: baseline user still has tenant-limited reads, no anon privileges, no persistent policy changes.\nSET ROLE\
+        \ authenticated;\nBEGIN;\nSET LOCAL request.jwt.claim.sub='00000001-0001-4001-8001-000000000001';\nSELECT public.r330_assert('r333-final-owner-valid-clients',(SELECT\
+        \ count(*) FROM public.taxacc_clients)::bigint,3);\nSELECT public.r330_assert('r333-final-owner-cannot-see-other-tenant',(SELECT count(*) FROM public.taxacc_clients\
+        \ WHERE office_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')::bigint,0);\nCOMMIT;\nRESET ROLE;\nSELECT public.r333_gate();\nSELECT 'R333_MUTATION_GUARD_12_SECURITY_DRIFTS_CAUGHT__RELEASE_HOLD'\
+        \ AS result;\n\nR333_STAGE2\n"
+    - name: Execute R333 fail-closed policy drift regression in disposable PostgreSQL 17
+      shell: bash
+      run: 'set -euo pipefail
+
+        pgid="${{ job.services.pg.id }}"
+
+        test -n "$pgid"
+
+        docker exec -i "$pgid" psql -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 < /tmp/r333_stage2.sql > /tmp/r333_result_2.log 2>&1 || { tail -85
+        /tmp/r333_result_2.log; exit 1; }
+
+        grep -E ''R333_(PASS|GATE|MUTATION|ANON|UNSAFE)'' /tmp/r333_result_2.log | tail -32 || true
+
+        '
+    - name: Retain commercial release HOLD and print isolated QA manifest
+      shell: bash
+      run: 'set -euo pipefail
+
+        echo ''R333_DISPOSABLE_PG17_POLICY_MUTATION_DETECTION_PASS: R331_regression=402 anonymous_privilege_hardening=verified mutation_scenarios_detected=12
+        real_supabase=false real_jwt=false actual_worker=false automatic_deploy=false commercial_release=HOLD'''
