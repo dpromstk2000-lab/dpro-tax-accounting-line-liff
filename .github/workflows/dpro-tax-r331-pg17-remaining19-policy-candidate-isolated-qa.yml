@@ -1,0 +1,1043 @@
+name: DPRO TAX R331 Ephemeral PG17 All 26 Tables Commercial RLS Read Policy Candidate QA
+'on':
+  push:
+    branches:
+    - dpro-tax-r308-auth-tenant-integration-qa-20261020
+    paths:
+    - .github/workflows/dpro-tax-r331-pg17-remaining19-policy-candidate-isolated-qa.yml
+  workflow_dispatch: null
+permissions: {}
+jobs:
+  r331-candidate-26-table-rls:
+    if: github.ref == 'refs/heads/dpro-tax-r308-auth-tenant-integration-qa-20261020'
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    services:
+      pg:
+        image: postgres:17
+        env:
+          POSTGRES_DB: r331_synthetic
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: disposable-r331-only
+        options: --health-cmd "pg_isready -U postgres -d r331_synthetic" --health-interval 10s --health-timeout 5s --health-retries
+          8
+    steps:
+    - name: Run disposable PG17 01_core_schema.sql (synthetic only)
+      shell: bash
+      run: |
+        set -euo pipefail
+        cat > /tmp/01_core_schema.sql <<'R331_01'
+        \set ON_ERROR_STOP on
+        -- DPRO TAX R330 - DISPOSABLE PG17 SCHEMA ONLY. NEVER APPLY TO SHARED SUPABASE.
+        CREATE ROLE anon NOLOGIN;
+        CREATE ROLE authenticated NOLOGIN;
+        CREATE SCHEMA qa_private;
+        REVOKE ALL ON SCHEMA qa_private FROM PUBLIC;
+        GRANT USAGE ON SCHEMA qa_private TO authenticated;
+        CREATE TABLE public.taxacc_offices (id uuid PRIMARY KEY,is_active boolean NOT NULL,is_demo boolean NOT NULL,production_guard boolean NOT NULL);
+        CREATE TABLE public.taxacc_staff (
+         id uuid PRIMARY KEY,office_id uuid NOT NULL REFERENCES public.taxacc_offices(id),
+         auth_user_id uuid,role text NOT NULL CHECK(role IN ('owner','manager','reviewer','staff')),
+         is_active boolean NOT NULL,can_view_all_clients boolean NOT NULL,can_review_documents boolean NOT NULL,can_manage_settings boolean NOT NULL,
+         UNIQUE(office_id,id),UNIQUE(office_id,auth_user_id)
+        );
+        CREATE TABLE public.taxacc_clients (
+         id uuid PRIMARY KEY,office_id uuid NOT NULL REFERENCES public.taxacc_offices(id),
+         assigned_staff_id uuid,reviewer_staff_id uuid,is_demo boolean NOT NULL,
+         UNIQUE(office_id,id),
+         FOREIGN KEY(office_id,assigned_staff_id) REFERENCES public.taxacc_staff(office_id,id),
+         FOREIGN KEY(office_id,reviewer_staff_id) REFERENCES public.taxacc_staff(office_id,id)
+        );
+        CREATE TABLE public.taxacc_cases (
+         id uuid PRIMARY KEY,office_id uuid NOT NULL,client_id uuid NOT NULL,is_demo boolean NOT NULL,
+         FOREIGN KEY(office_id,client_id) REFERENCES public.taxacc_clients(office_id,id)
+        );
+        CREATE TABLE public.taxacc_document_requests (
+         id uuid PRIMARY KEY,office_id uuid NOT NULL,client_id uuid NOT NULL,is_demo boolean NOT NULL,
+         FOREIGN KEY(office_id,client_id) REFERENCES public.taxacc_clients(office_id,id)
+        );
+        CREATE TABLE public.taxacc_document_submissions (
+         id uuid PRIMARY KEY,office_id uuid NOT NULL,client_id uuid NOT NULL,
+         FOREIGN KEY(office_id,client_id) REFERENCES public.taxacc_clients(office_id,id)
+        );
+        CREATE TABLE public.taxacc_document_access_logs (id bigint PRIMARY KEY,office_id uuid NOT NULL);
+        -- Small trusted subject decoder. The GUC has NO JWT signature validation of its own.
+        CREATE FUNCTION qa_private.r330_uid() RETURNS uuid LANGUAGE sql STABLE
+        SET search_path=pg_catalog AS $fn$
+         SELECT CASE WHEN current_setting('request.jwt.claim.sub',true) ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+         THEN current_setting('request.jwt.claim.sub',true)::uuid ELSE NULL::uuid END;
+        $fn$;
+        CREATE FUNCTION qa_private.r330_member(p_office uuid) RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER
+        SET search_path=pg_catalog AS $fn$
+         SELECT EXISTS (
+          SELECT 1 FROM public.taxacc_staff s JOIN public.taxacc_offices o ON o.id=s.office_id
+          WHERE s.office_id=p_office AND s.auth_user_id=qa_private.r330_uid() AND s.is_active
+            AND o.is_active AND NOT o.is_demo AND o.production_guard
+         );
+        $fn$;
+        CREATE FUNCTION qa_private.r330_admin(p_office uuid) RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER
+        SET search_path=pg_catalog AS $fn$
+         SELECT EXISTS (
+          SELECT 1 FROM public.taxacc_staff s JOIN public.taxacc_offices o ON o.id=s.office_id
+          WHERE s.office_id=p_office AND s.auth_user_id=qa_private.r330_uid() AND s.is_active
+            AND o.is_active AND NOT o.is_demo AND o.production_guard
+            AND s.role IN ('owner','manager') AND s.can_manage_settings
+         );
+        $fn$;
+        CREATE FUNCTION qa_private.r330_client(p_office uuid,p_client uuid) RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER
+        SET search_path=pg_catalog AS $fn$
+         SELECT EXISTS (
+          SELECT 1 FROM public.taxacc_clients c
+          JOIN public.taxacc_offices o ON o.id=c.office_id
+          JOIN public.taxacc_staff s ON s.office_id=o.id
+          WHERE c.office_id=p_office AND c.id=p_client AND NOT c.is_demo
+            AND s.auth_user_id=qa_private.r330_uid() AND s.is_active
+            AND o.is_active AND NOT o.is_demo AND o.production_guard
+            AND (s.can_view_all_clients OR s.id=c.assigned_staff_id
+               OR (s.can_review_documents AND s.id=c.reviewer_staff_id))
+         );
+        $fn$;
+        -- No default PUBLIC function execution; QA assertions verify these grants.
+        REVOKE ALL ON ALL FUNCTIONS IN SCHEMA qa_private FROM PUBLIC;
+        GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA qa_private TO authenticated;
+        GRANT USAGE ON SCHEMA public TO authenticated,anon;
+        GRANT SELECT ON public.taxacc_offices,public.taxacc_staff,public.taxacc_clients,
+         public.taxacc_cases,public.taxacc_document_requests,public.taxacc_document_submissions TO authenticated,anon;
+        -- Audit logs intentionally have NO direct table SELECT permission.
+        REVOKE ALL ON public.taxacc_document_access_logs FROM PUBLIC,anon,authenticated;
+        DO $block$
+        DECLARE t text;
+        BEGIN
+         FOREACH t IN ARRAY ARRAY['taxacc_offices','taxacc_staff','taxacc_clients','taxacc_cases',
+             'taxacc_document_requests','taxacc_document_submissions','taxacc_document_access_logs'] LOOP
+          EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY',t);
+          EXECUTE format('ALTER TABLE public.%I FORCE ROW LEVEL SECURITY',t);
+         END LOOP;
+        END $block$;
+        CREATE POLICY r330_offices_read ON public.taxacc_offices FOR SELECT TO authenticated USING (qa_private.r330_member(id));
+        CREATE POLICY r330_staff_read ON public.taxacc_staff FOR SELECT TO authenticated
+         USING (qa_private.r330_member(office_id) AND
+            (auth_user_id=qa_private.r330_uid() OR qa_private.r330_admin(office_id)));
+        CREATE POLICY r330_clients_read ON public.taxacc_clients FOR SELECT TO authenticated
+         USING (qa_private.r330_client(office_id,id));
+        CREATE POLICY r330_cases_read ON public.taxacc_cases FOR SELECT TO authenticated
+         USING (NOT is_demo AND qa_private.r330_client(office_id,client_id));
+        CREATE POLICY r330_requests_read ON public.taxacc_document_requests FOR SELECT TO authenticated
+         USING (NOT is_demo AND qa_private.r330_client(office_id,client_id));
+        CREATE POLICY r330_submissions_read ON public.taxacc_document_submissions FOR SELECT TO authenticated
+         USING (qa_private.r330_client(office_id,client_id));
+        -- No policy or grant for audit logs. No INSERT, UPDATE, DELETE policies for ANY table.
+        CREATE FUNCTION public.r330_assert(label text,actual bigint,expected bigint) RETURNS void
+        LANGUAGE plpgsql AS $fn$
+        BEGIN
+         IF actual IS DISTINCT FROM expected THEN
+          RAISE EXCEPTION 'R330_QA_FAILED: % expected=% observed=%',label,expected,actual;
+         END IF;
+         RAISE NOTICE 'R330_PASS: %',label;
+        END $fn$;
+        R331_01
+        pgid="${{ job.services.pg.id }}"
+        test -n "$pgid"
+        docker exec -i "$pgid" psql -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 < /tmp/01_core_schema.sql
+    - name: Run disposable PG17 02_core_fixtures.sql (synthetic only)
+      shell: bash
+      run: |
+        set -euo pipefail
+        cat > /tmp/02_core_fixtures.sql <<'R331_02'
+        \set ON_ERROR_STOP on
+        \set ON_ERROR_STOP on
+        INSERT INTO public.taxacc_offices VALUES
+        ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',true,false,true),('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',true,false,true),('cccccccc-cccc-4ccc-8ccc-cccccccccccc',true,true,true),('dddddddd-dddd-4ddd-8ddd-dddddddddddd',false,false,true);
+        INSERT INTO public.taxacc_staff VALUES
+        ('10000000-0000-4000-8000-000000000001','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','00000001-0001-4001-8001-000000000001','owner',true,true,true,true),
+        ('10000000-0000-4000-8000-000000000002','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','00000002-0002-4002-8002-000000000002','manager',true,true,true,true),
+        ('10000000-0000-4000-8000-000000000003','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','00000003-0003-4003-8003-000000000003','staff',true,false,false,false),
+        ('10000000-0000-4000-8000-000000000004','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','00000004-0004-4004-8004-000000000004','reviewer',true,false,true,false),
+        ('10000000-0000-4000-8000-000000000006','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','00000007-0007-4007-8007-000000000007','owner',false,true,true,true),
+        ('10000000-0000-4000-8000-000000000007','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','00000008-0008-4008-8008-000000000008','staff',true,false,false,false),
+        ('10000000-0000-4000-8000-000000000005','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','00000005-0005-4005-8005-000000000005','owner',true,true,true,true);
+        INSERT INTO public.taxacc_clients VALUES
+        ('20000000-0000-4000-8000-000000000001','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','10000000-0000-4000-8000-000000000003',NULL,false),
+        ('20000000-0000-4000-8000-000000000002','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',NULL,'10000000-0000-4000-8000-000000000004',false),
+        ('20000000-0000-4000-8000-000000000003','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',NULL,NULL,false),
+        ('20000000-0000-4000-8000-000000000004','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',NULL,NULL,false),
+        ('20000000-0000-4000-8000-000000000005','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',NULL,NULL,true);
+        INSERT INTO public.taxacc_cases VALUES
+        ('30000000-0000-4000-8000-000000000001','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000001',false),
+        ('30000000-0000-4000-8000-000000000002','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000002',false),
+        ('30000000-0000-4000-8000-000000000003','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000003',false),
+        ('30000000-0000-4000-8000-000000000004','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','20000000-0000-4000-8000-000000000004',false),
+        ('30000000-0000-4000-8000-000000000005','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000001',true);
+        INSERT INTO public.taxacc_document_requests VALUES
+        ('40000000-0000-4000-8000-000000000001','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000001',false),
+        ('40000000-0000-4000-8000-000000000002','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000002',false),
+        ('40000000-0000-4000-8000-000000000003','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000003',false),
+        ('40000000-0000-4000-8000-000000000004','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','20000000-0000-4000-8000-000000000004',false),
+        ('40000000-0000-4000-8000-000000000005','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000001',true);
+        INSERT INTO public.taxacc_document_submissions VALUES
+        ('50000000-0000-4000-8000-000000000001','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000001'),
+        ('50000000-0000-4000-8000-000000000002','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000002'),
+        ('50000000-0000-4000-8000-000000000003','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000003'),
+        ('50000000-0000-4000-8000-000000000004','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','20000000-0000-4000-8000-000000000004'),
+        ('50000000-0000-4000-8000-000000000005','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000005');
+        DO $do$
+        BEGIN
+         BEGIN
+          INSERT INTO public.taxacc_cases VALUES ('30000000-0000-4000-8000-000000000099','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000004',false);
+          RAISE EXCEPTION 'R330_UNSAFE_CROSS_TENANT_CASE_ALLOWED';
+         EXCEPTION WHEN foreign_key_violation THEN RAISE NOTICE 'R330_PASS: cross-tenant-case-fk-blocked';
+         END;
+         BEGIN
+          UPDATE public.taxacc_clients SET assigned_staff_id='10000000-0000-4000-8000-000000000005' WHERE id='20000000-0000-4000-8000-000000000002';
+          RAISE EXCEPTION 'R330_UNSAFE_CROSS_TENANT_ASSIGNEE_ALLOWED';
+         EXCEPTION WHEN foreign_key_violation THEN RAISE NOTICE 'R330_PASS: cross-tenant-assignee-fk-blocked';
+         END;
+        END $do$;
+        INSERT INTO public.taxacc_document_access_logs VALUES (1,'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+
+        R331_02
+        pgid="${{ job.services.pg.id }}"
+        test -n "$pgid"
+        docker exec -i "$pgid" psql -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 < /tmp/02_core_fixtures.sql
+    - name: Run disposable PG17 03_core_assertions.sql (synthetic only)
+      shell: bash
+      run: |
+        set -euo pipefail
+        cat > /tmp/03_core_assertions.sql <<'R331_03'
+        \set ON_ERROR_STOP on
+        SELECT public.r330_assert('core-seven-rls-force',(SELECT count(*) FROM pg_class WHERE relname IN ('taxacc_offices','taxacc_staff','taxacc_clients','taxacc_cases','taxacc_document_requests','taxacc_document_submissions','taxacc_document_access_logs') AND relrowsecurity AND relforcerowsecurity)::bigint,7);
+        SELECT public.r330_assert('six-read-policies',(SELECT count(*) FROM pg_policies WHERE schemaname='public' AND policyname LIKE 'r330_%' AND cmd='SELECT')::bigint,6);
+        SELECT public.r330_assert('zero-write-policies',(SELECT count(*) FROM pg_policies WHERE schemaname='public' AND cmd IN ('INSERT','UPDATE','DELETE','ALL') AND tablename LIKE 'taxacc_%')::bigint,0);
+        SELECT public.r330_assert('no-log-policy',(SELECT count(*) FROM pg_policies WHERE schemaname='public' AND tablename='taxacc_document_access_logs')::bigint,0);
+        SELECT public.r330_assert('anon-no-private-schema',(SELECT has_schema_privilege('anon','qa_private','USAGE')::int)::bigint,0);
+        SELECT public.r330_assert('auth-private-schema',(SELECT has_schema_privilege('authenticated','qa_private','USAGE')::int)::bigint,1);
+        SELECT public.r330_assert('anon-no-helper-execute',(SELECT has_function_privilege('anon','qa_private.r330_client(uuid,uuid)','EXECUTE')::int)::bigint,0);
+        SELECT public.r330_assert('auth-helper-execute',(SELECT has_function_privilege('authenticated','qa_private.r330_client(uuid,uuid)','EXECUTE')::int)::bigint,1);
+        SELECT public.r330_assert('anon-no-audit-grant',(SELECT has_table_privilege('anon','public.taxacc_document_access_logs','SELECT')::int)::bigint,0);
+        SELECT public.r330_assert('auth-no-audit-grant',(SELECT has_table_privilege('authenticated','public.taxacc_document_access_logs','SELECT')::int)::bigint,0);
+        SELECT public.r330_assert('auth-no-client-insert',(SELECT has_table_privilege('authenticated','public.taxacc_clients','INSERT')::int)::bigint,0);
+        SELECT public.r330_assert('auth-no-client-update',(SELECT has_table_privilege('authenticated','public.taxacc_clients','UPDATE')::int)::bigint,0);
+        SELECT public.r330_assert('auth-no-client-delete',(SELECT has_table_privilege('authenticated','public.taxacc_clients','DELETE')::int)::bigint,0);
+        SELECT public.r330_assert('helper-secdef-four',(SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='qa_private' AND p.proname IN ('r330_member','r330_admin','r330_client') AND p.prosecdef)::bigint,3);
+        SELECT public.r330_assert('helper-pinned-searchpath-four',(SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='qa_private' AND p.proname IN ('r330_uid','r330_member','r330_admin','r330_client') AND 'search_path=pg_catalog'=ANY(p.proconfig))::bigint,4);
+        SET ROLE authenticated;
+        BEGIN;
+        SET LOCAL request.jwt.claim.sub='00000001-0001-4001-8001-000000000001';
+        SELECT public.r330_assert('owner-a-offices',(SELECT count(*) FROM public.taxacc_offices)::bigint,1);
+        SELECT public.r330_assert('owner-a-staff',(SELECT count(*) FROM public.taxacc_staff)::bigint,6);
+        SELECT public.r330_assert('owner-a-clients',(SELECT count(*) FROM public.taxacc_clients)::bigint,3);
+        SELECT public.r330_assert('owner-a-cases',(SELECT count(*) FROM public.taxacc_cases)::bigint,3);
+        SELECT public.r330_assert('owner-a-document_requests',(SELECT count(*) FROM public.taxacc_document_requests)::bigint,3);
+        SELECT public.r330_assert('owner-a-document_submissions',(SELECT count(*) FROM public.taxacc_document_submissions)::bigint,3);
+        COMMIT;
+        RESET ROLE;
+        SET ROLE authenticated;
+        BEGIN;
+        SET LOCAL request.jwt.claim.sub='00000002-0002-4002-8002-000000000002';
+        SELECT public.r330_assert('manager-a-offices',(SELECT count(*) FROM public.taxacc_offices)::bigint,1);
+        SELECT public.r330_assert('manager-a-staff',(SELECT count(*) FROM public.taxacc_staff)::bigint,6);
+        SELECT public.r330_assert('manager-a-clients',(SELECT count(*) FROM public.taxacc_clients)::bigint,3);
+        SELECT public.r330_assert('manager-a-cases',(SELECT count(*) FROM public.taxacc_cases)::bigint,3);
+        SELECT public.r330_assert('manager-a-document_requests',(SELECT count(*) FROM public.taxacc_document_requests)::bigint,3);
+        SELECT public.r330_assert('manager-a-document_submissions',(SELECT count(*) FROM public.taxacc_document_submissions)::bigint,3);
+        COMMIT;
+        RESET ROLE;
+        SET ROLE authenticated;
+        BEGIN;
+        SET LOCAL request.jwt.claim.sub='00000003-0003-4003-8003-000000000003';
+        SELECT public.r330_assert('assigned-a-offices',(SELECT count(*) FROM public.taxacc_offices)::bigint,1);
+        SELECT public.r330_assert('assigned-a-staff',(SELECT count(*) FROM public.taxacc_staff)::bigint,1);
+        SELECT public.r330_assert('assigned-a-clients',(SELECT count(*) FROM public.taxacc_clients)::bigint,1);
+        SELECT public.r330_assert('assigned-a-cases',(SELECT count(*) FROM public.taxacc_cases)::bigint,1);
+        SELECT public.r330_assert('assigned-a-document_requests',(SELECT count(*) FROM public.taxacc_document_requests)::bigint,1);
+        SELECT public.r330_assert('assigned-a-document_submissions',(SELECT count(*) FROM public.taxacc_document_submissions)::bigint,1);
+        COMMIT;
+        RESET ROLE;
+        SET ROLE authenticated;
+        BEGIN;
+        SET LOCAL request.jwt.claim.sub='00000004-0004-4004-8004-000000000004';
+        SELECT public.r330_assert('reviewer-a-offices',(SELECT count(*) FROM public.taxacc_offices)::bigint,1);
+        SELECT public.r330_assert('reviewer-a-staff',(SELECT count(*) FROM public.taxacc_staff)::bigint,1);
+        SELECT public.r330_assert('reviewer-a-clients',(SELECT count(*) FROM public.taxacc_clients)::bigint,1);
+        SELECT public.r330_assert('reviewer-a-cases',(SELECT count(*) FROM public.taxacc_cases)::bigint,1);
+        SELECT public.r330_assert('reviewer-a-document_requests',(SELECT count(*) FROM public.taxacc_document_requests)::bigint,1);
+        SELECT public.r330_assert('reviewer-a-document_submissions',(SELECT count(*) FROM public.taxacc_document_submissions)::bigint,1);
+        COMMIT;
+        RESET ROLE;
+        SET ROLE authenticated;
+        BEGIN;
+        SET LOCAL request.jwt.claim.sub='00000008-0008-4008-8008-000000000008';
+        SELECT public.r330_assert('no-assignment-a-offices',(SELECT count(*) FROM public.taxacc_offices)::bigint,1);
+        SELECT public.r330_assert('no-assignment-a-staff',(SELECT count(*) FROM public.taxacc_staff)::bigint,1);
+        SELECT public.r330_assert('no-assignment-a-clients',(SELECT count(*) FROM public.taxacc_clients)::bigint,0);
+        SELECT public.r330_assert('no-assignment-a-cases',(SELECT count(*) FROM public.taxacc_cases)::bigint,0);
+        SELECT public.r330_assert('no-assignment-a-document_requests',(SELECT count(*) FROM public.taxacc_document_requests)::bigint,0);
+        SELECT public.r330_assert('no-assignment-a-document_submissions',(SELECT count(*) FROM public.taxacc_document_submissions)::bigint,0);
+        COMMIT;
+        RESET ROLE;
+        SET ROLE authenticated;
+        BEGIN;
+        SET LOCAL request.jwt.claim.sub='00000005-0005-4005-8005-000000000005';
+        SELECT public.r330_assert('owner-b-offices',(SELECT count(*) FROM public.taxacc_offices)::bigint,1);
+        SELECT public.r330_assert('owner-b-staff',(SELECT count(*) FROM public.taxacc_staff)::bigint,1);
+        SELECT public.r330_assert('owner-b-clients',(SELECT count(*) FROM public.taxacc_clients)::bigint,1);
+        SELECT public.r330_assert('owner-b-cases',(SELECT count(*) FROM public.taxacc_cases)::bigint,1);
+        SELECT public.r330_assert('owner-b-document_requests',(SELECT count(*) FROM public.taxacc_document_requests)::bigint,1);
+        SELECT public.r330_assert('owner-b-document_submissions',(SELECT count(*) FROM public.taxacc_document_submissions)::bigint,1);
+        COMMIT;
+        RESET ROLE;
+        SET ROLE authenticated;
+        BEGIN;
+        SET LOCAL request.jwt.claim.sub='00000007-0007-4007-8007-000000000007';
+        SELECT public.r330_assert('inactive-offices',(SELECT count(*) FROM public.taxacc_offices)::bigint,0);
+        SELECT public.r330_assert('inactive-staff',(SELECT count(*) FROM public.taxacc_staff)::bigint,0);
+        SELECT public.r330_assert('inactive-clients',(SELECT count(*) FROM public.taxacc_clients)::bigint,0);
+        SELECT public.r330_assert('inactive-cases',(SELECT count(*) FROM public.taxacc_cases)::bigint,0);
+        SELECT public.r330_assert('inactive-document_requests',(SELECT count(*) FROM public.taxacc_document_requests)::bigint,0);
+        SELECT public.r330_assert('inactive-document_submissions',(SELECT count(*) FROM public.taxacc_document_submissions)::bigint,0);
+        COMMIT;
+        RESET ROLE;
+        SET ROLE authenticated;
+        BEGIN;
+        SET LOCAL request.jwt.claim.sub='00000006-0006-4006-8006-000000000006';
+        SET LOCAL request.jwt.claim.role='owner';
+        SELECT public.r330_assert('outsider-offices',(SELECT count(*) FROM public.taxacc_offices)::bigint,0);
+        SELECT public.r330_assert('outsider-staff',(SELECT count(*) FROM public.taxacc_staff)::bigint,0);
+        SELECT public.r330_assert('outsider-clients',(SELECT count(*) FROM public.taxacc_clients)::bigint,0);
+        SELECT public.r330_assert('outsider-cases',(SELECT count(*) FROM public.taxacc_cases)::bigint,0);
+        SELECT public.r330_assert('outsider-document_requests',(SELECT count(*) FROM public.taxacc_document_requests)::bigint,0);
+        SELECT public.r330_assert('outsider-document_submissions',(SELECT count(*) FROM public.taxacc_document_submissions)::bigint,0);
+        COMMIT;
+        RESET ROLE;
+        SET ROLE anon;
+        BEGIN;
+        SET LOCAL request.jwt.claim.sub='00000001-0001-4001-8001-000000000001';
+        SET LOCAL request.jwt.claim.role='authenticated';
+        SELECT public.r330_assert('anon-forged-owner-offices',(SELECT count(*) FROM public.taxacc_offices)::bigint,0);
+        SELECT public.r330_assert('anon-forged-owner-staff',(SELECT count(*) FROM public.taxacc_staff)::bigint,0);
+        SELECT public.r330_assert('anon-forged-owner-clients',(SELECT count(*) FROM public.taxacc_clients)::bigint,0);
+        SELECT public.r330_assert('anon-forged-owner-cases',(SELECT count(*) FROM public.taxacc_cases)::bigint,0);
+        SELECT public.r330_assert('anon-forged-owner-document_requests',(SELECT count(*) FROM public.taxacc_document_requests)::bigint,0);
+        SELECT public.r330_assert('anon-forged-owner-document_submissions',(SELECT count(*) FROM public.taxacc_document_submissions)::bigint,0);
+        COMMIT;
+        RESET ROLE;
+        SET ROLE authenticated;
+        BEGIN;
+        SET LOCAL request.jwt.claim.sub='garbage';
+        SELECT public.r330_assert('invalid-sub-offices',(SELECT count(*) FROM public.taxacc_offices)::bigint,0);
+        SELECT public.r330_assert('invalid-sub-staff',(SELECT count(*) FROM public.taxacc_staff)::bigint,0);
+        SELECT public.r330_assert('invalid-sub-clients',(SELECT count(*) FROM public.taxacc_clients)::bigint,0);
+        SELECT public.r330_assert('invalid-sub-cases',(SELECT count(*) FROM public.taxacc_cases)::bigint,0);
+        SELECT public.r330_assert('invalid-sub-document_requests',(SELECT count(*) FROM public.taxacc_document_requests)::bigint,0);
+        SELECT public.r330_assert('invalid-sub-document_submissions',(SELECT count(*) FROM public.taxacc_document_submissions)::bigint,0);
+        COMMIT;
+        RESET ROLE;
+        UPDATE public.taxacc_staff SET is_active=false WHERE id='10000000-0000-4000-8000-000000000003';
+        SET ROLE authenticated;
+        BEGIN;
+        SET LOCAL request.jwt.claim.sub='00000003-0003-4003-8003-000000000003';
+        SELECT public.r330_assert('staff-revoked-immediately-offices',(SELECT count(*) FROM public.taxacc_offices)::bigint,0);
+        SELECT public.r330_assert('staff-revoked-immediately-clients',(SELECT count(*) FROM public.taxacc_clients)::bigint,0);
+        SELECT public.r330_assert('staff-revoked-immediately-cases',(SELECT count(*) FROM public.taxacc_cases)::bigint,0);
+        SELECT public.r330_assert('staff-revoked-immediately-document_requests',(SELECT count(*) FROM public.taxacc_document_requests)::bigint,0);
+        SELECT public.r330_assert('staff-revoked-immediately-document_submissions',(SELECT count(*) FROM public.taxacc_document_submissions)::bigint,0);
+        COMMIT;
+        RESET ROLE;
+        UPDATE public.taxacc_staff SET is_active=true WHERE id='10000000-0000-4000-8000-000000000003';
+        UPDATE public.taxacc_clients SET assigned_staff_id=NULL WHERE id='20000000-0000-4000-8000-000000000001';
+        SET ROLE authenticated;
+        BEGIN;
+        SET LOCAL request.jwt.claim.sub='00000003-0003-4003-8003-000000000003';
+        SELECT public.r330_assert('assignment-revoked-offices',(SELECT count(*) FROM public.taxacc_offices)::bigint,1);
+        SELECT public.r330_assert('assignment-revoked-clients',(SELECT count(*) FROM public.taxacc_clients)::bigint,0);
+        SELECT public.r330_assert('assignment-revoked-cases',(SELECT count(*) FROM public.taxacc_cases)::bigint,0);
+        SELECT public.r330_assert('assignment-revoked-document_requests',(SELECT count(*) FROM public.taxacc_document_requests)::bigint,0);
+        SELECT public.r330_assert('assignment-revoked-document_submissions',(SELECT count(*) FROM public.taxacc_document_submissions)::bigint,0);
+        COMMIT;
+        RESET ROLE;
+        UPDATE public.taxacc_offices SET production_guard=false WHERE id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        SET ROLE authenticated;
+        BEGIN;
+        SET LOCAL request.jwt.claim.sub='00000001-0001-4001-8001-000000000001';
+        SELECT public.r330_assert('office-guard-off-offices',(SELECT count(*) FROM public.taxacc_offices)::bigint,0);
+        SELECT public.r330_assert('office-guard-off-staff',(SELECT count(*) FROM public.taxacc_staff)::bigint,0);
+        SELECT public.r330_assert('office-guard-off-clients',(SELECT count(*) FROM public.taxacc_clients)::bigint,0);
+        SELECT public.r330_assert('office-guard-off-cases',(SELECT count(*) FROM public.taxacc_cases)::bigint,0);
+        SELECT public.r330_assert('office-guard-off-document_requests',(SELECT count(*) FROM public.taxacc_document_requests)::bigint,0);
+        SELECT public.r330_assert('office-guard-off-document_submissions',(SELECT count(*) FROM public.taxacc_document_submissions)::bigint,0);
+        COMMIT;
+        RESET ROLE;
+        UPDATE public.taxacc_offices SET production_guard=true WHERE id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        UPDATE public.taxacc_staff SET can_view_all_clients=false WHERE id='10000000-0000-4000-8000-000000000002';
+        SET ROLE authenticated;
+        BEGIN;
+        SET LOCAL request.jwt.claim.sub='00000002-0002-4002-8002-000000000002';
+        SELECT public.r330_assert('all-clients-flag-revoked-offices',(SELECT count(*) FROM public.taxacc_offices)::bigint,1);
+        SELECT public.r330_assert('all-clients-flag-revoked-staff',(SELECT count(*) FROM public.taxacc_staff)::bigint,6);
+        SELECT public.r330_assert('all-clients-flag-revoked-clients',(SELECT count(*) FROM public.taxacc_clients)::bigint,0);
+        SELECT public.r330_assert('all-clients-flag-revoked-cases',(SELECT count(*) FROM public.taxacc_cases)::bigint,0);
+        SELECT public.r330_assert('all-clients-flag-revoked-document_requests',(SELECT count(*) FROM public.taxacc_document_requests)::bigint,0);
+        SELECT public.r330_assert('all-clients-flag-revoked-document_submissions',(SELECT count(*) FROM public.taxacc_document_submissions)::bigint,0);
+        COMMIT;
+        RESET ROLE;
+        UPDATE public.taxacc_staff SET can_review_documents=false WHERE id='10000000-0000-4000-8000-000000000004';
+        SET ROLE authenticated;
+        BEGIN;
+        SET LOCAL request.jwt.claim.sub='00000004-0004-4004-8004-000000000004';
+        SELECT public.r330_assert('reviewer-flag-revoked-offices',(SELECT count(*) FROM public.taxacc_offices)::bigint,1);
+        SELECT public.r330_assert('reviewer-flag-revoked-staff',(SELECT count(*) FROM public.taxacc_staff)::bigint,1);
+        SELECT public.r330_assert('reviewer-flag-revoked-clients',(SELECT count(*) FROM public.taxacc_clients)::bigint,0);
+        SELECT public.r330_assert('reviewer-flag-revoked-cases',(SELECT count(*) FROM public.taxacc_cases)::bigint,0);
+        SELECT public.r330_assert('reviewer-flag-revoked-document_requests',(SELECT count(*) FROM public.taxacc_document_requests)::bigint,0);
+        SELECT public.r330_assert('reviewer-flag-revoked-document_submissions',(SELECT count(*) FROM public.taxacc_document_submissions)::bigint,0);
+        COMMIT;
+        RESET ROLE;
+        SET ROLE authenticated;
+        SELECT public.r330_assert('no-identity-after-commit',(SELECT count(*) FROM public.taxacc_offices),0);
+        RESET ROLE;
+        SELECT 'R330_CORE7_COMMERCIAL_POLICY_CANDIDATE_SYNTHETIC_PG17_PASS_RELEASE_HOLD' AS result;
+        R331_03
+        pgid="${{ job.services.pg.id }}"
+        test -n "$pgid"
+        docker exec -i "$pgid" psql -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 < /tmp/03_core_assertions.sql
+    - name: Run disposable PG17 04_r331_extension.sql (synthetic only)
+      shell: bash
+      run: |
+        set -euo pipefail
+        cat > /tmp/04_r331_extension.sql <<'R331_04'
+        \set ON_ERROR_STOP on
+        -- DPRO TAX R331: OFFLINE/EPHEMERAL POSTGRES ONLY. NEVER APPLY TO SHARED SUPABASE.
+        -- R330 helpers use a session GUC; it is NOT a signature-verified JWT by itself.
+        ALTER TABLE public.taxacc_document_requests ADD CONSTRAINT r331_request_office_id_id_unique UNIQUE(office_id,id);
+        CREATE TABLE public.taxacc_activity_logs (id bigint PRIMARY KEY, office_id uuid NOT NULL REFERENCES public.taxacc_offices(id));
+        CREATE TABLE public.taxacc_appointments (id uuid PRIMARY KEY, office_id uuid NOT NULL REFERENCES public.taxacc_offices(id), client_id uuid, FOREIGN KEY (office_id,client_id) REFERENCES public.taxacc_clients(office_id,id), is_demo boolean NOT NULL DEFAULT false);
+        CREATE TABLE public.taxacc_business_hours (id uuid PRIMARY KEY, office_id uuid NOT NULL REFERENCES public.taxacc_offices(id));
+        CREATE TABLE public.taxacc_client_contact_links (id uuid PRIMARY KEY, office_id uuid NOT NULL REFERENCES public.taxacc_offices(id), client_id uuid NOT NULL, FOREIGN KEY (office_id,client_id) REFERENCES public.taxacc_clients(office_id,id));
+        CREATE TABLE public.taxacc_closed_dates (id uuid PRIMARY KEY, office_id uuid NOT NULL REFERENCES public.taxacc_offices(id));
+        CREATE TABLE public.taxacc_communications (id uuid PRIMARY KEY, office_id uuid NOT NULL REFERENCES public.taxacc_offices(id), client_id uuid, FOREIGN KEY (office_id,client_id) REFERENCES public.taxacc_clients(office_id,id));
+        CREATE TABLE public.taxacc_consultation_services (id uuid PRIMARY KEY, office_id uuid NOT NULL REFERENCES public.taxacc_offices(id));
+        CREATE TABLE public.taxacc_contacts (id uuid PRIMARY KEY, office_id uuid NOT NULL REFERENCES public.taxacc_offices(id), is_demo boolean NOT NULL DEFAULT false);
+        CREATE TABLE public.taxacc_deadline_templates (id uuid PRIMARY KEY, office_id uuid NOT NULL REFERENCES public.taxacc_offices(id));
+        CREATE TABLE public.taxacc_document_request_items (id uuid PRIMARY KEY, office_id uuid NOT NULL REFERENCES public.taxacc_offices(id), request_id uuid NOT NULL, FOREIGN KEY (office_id,request_id) REFERENCES public.taxacc_document_requests(office_id,id));
+        CREATE TABLE public.taxacc_document_request_templates (id uuid PRIMARY KEY, office_id uuid NOT NULL REFERENCES public.taxacc_offices(id));
+        CREATE TABLE public.taxacc_engagements (id uuid PRIMARY KEY, office_id uuid NOT NULL REFERENCES public.taxacc_offices(id), client_id uuid NOT NULL, FOREIGN KEY (office_id,client_id) REFERENCES public.taxacc_clients(office_id,id));
+        CREATE TABLE public.taxacc_inquiries (id uuid PRIMARY KEY, office_id uuid NOT NULL REFERENCES public.taxacc_offices(id), client_id uuid, FOREIGN KEY (office_id,client_id) REFERENCES public.taxacc_clients(office_id,id), is_demo boolean NOT NULL DEFAULT false);
+        CREATE TABLE public.taxacc_link_tokens (id uuid PRIMARY KEY, office_id uuid NOT NULL REFERENCES public.taxacc_offices(id));
+        CREATE TABLE public.taxacc_message_templates (id uuid PRIMARY KEY, office_id uuid NOT NULL REFERENCES public.taxacc_offices(id));
+        CREATE TABLE public.taxacc_r91_review_events (id uuid PRIMARY KEY, office_id uuid NOT NULL REFERENCES public.taxacc_offices(id));
+        CREATE TABLE public.taxacc_r9_monthly_review_batches (id uuid PRIMARY KEY, office_id uuid NOT NULL REFERENCES public.taxacc_offices(id));
+        CREATE TABLE public.taxacc_r9_monthly_review_items (id uuid PRIMARY KEY, office_id uuid NOT NULL REFERENCES public.taxacc_offices(id), client_id uuid NOT NULL, FOREIGN KEY (office_id,client_id) REFERENCES public.taxacc_clients(office_id,id));
+        CREATE TABLE public.taxacc_tasks (id uuid PRIMARY KEY, office_id uuid NOT NULL REFERENCES public.taxacc_offices(id), client_id uuid NOT NULL, FOREIGN KEY (office_id,client_id) REFERENCES public.taxacc_clients(office_id,id), is_demo boolean NOT NULL DEFAULT false);
+        CREATE FUNCTION qa_private.r331_request(p_office uuid,p_request uuid) RETURNS boolean
+        LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $fn$
+         SELECT EXISTS (
+          SELECT 1 FROM public.taxacc_document_requests r
+          WHERE r.office_id=p_office AND r.id=p_request AND NOT r.is_demo
+            AND qa_private.r330_client(r.office_id,r.client_id)
+         );
+        $fn$;
+        REVOKE ALL ON FUNCTION qa_private.r331_request(uuid,uuid) FROM PUBLIC;
+        GRANT EXECUTE ON FUNCTION qa_private.r331_request(uuid,uuid) TO authenticated;
+        CREATE POLICY r331_read_business_hours ON public.taxacc_business_hours FOR SELECT TO authenticated USING (qa_private.r330_admin(office_id));
+        CREATE POLICY r331_read_closed_dates ON public.taxacc_closed_dates FOR SELECT TO authenticated USING (qa_private.r330_admin(office_id));
+        CREATE POLICY r331_read_consultation_services ON public.taxacc_consultation_services FOR SELECT TO authenticated USING (qa_private.r330_admin(office_id));
+        CREATE POLICY r331_read_deadline_templates ON public.taxacc_deadline_templates FOR SELECT TO authenticated USING (qa_private.r330_admin(office_id));
+        CREATE POLICY r331_read_document_request_templates ON public.taxacc_document_request_templates FOR SELECT TO authenticated USING (qa_private.r330_admin(office_id));
+        CREATE POLICY r331_read_message_templates ON public.taxacc_message_templates FOR SELECT TO authenticated USING (qa_private.r330_admin(office_id));
+        CREATE POLICY r331_read_r9_monthly_review_batches ON public.taxacc_r9_monthly_review_batches FOR SELECT TO authenticated USING (qa_private.r330_admin(office_id));
+        CREATE POLICY r331_read_appointments ON public.taxacc_appointments FOR SELECT TO authenticated USING (NOT is_demo AND client_id IS NOT NULL AND qa_private.r330_client(office_id,client_id));
+        CREATE POLICY r331_read_client_contact_links ON public.taxacc_client_contact_links FOR SELECT TO authenticated USING (client_id IS NOT NULL AND qa_private.r330_client(office_id,client_id));
+        CREATE POLICY r331_read_communications ON public.taxacc_communications FOR SELECT TO authenticated USING (client_id IS NOT NULL AND qa_private.r330_client(office_id,client_id));
+        CREATE POLICY r331_read_engagements ON public.taxacc_engagements FOR SELECT TO authenticated USING (client_id IS NOT NULL AND qa_private.r330_client(office_id,client_id));
+        CREATE POLICY r331_read_inquiries ON public.taxacc_inquiries FOR SELECT TO authenticated USING (NOT is_demo AND client_id IS NOT NULL AND qa_private.r330_client(office_id,client_id));
+        CREATE POLICY r331_read_r9_monthly_review_items ON public.taxacc_r9_monthly_review_items FOR SELECT TO authenticated USING (client_id IS NOT NULL AND qa_private.r330_client(office_id,client_id));
+        CREATE POLICY r331_read_tasks ON public.taxacc_tasks FOR SELECT TO authenticated USING (NOT is_demo AND client_id IS NOT NULL AND qa_private.r330_client(office_id,client_id));
+        CREATE POLICY r331_read_document_request_items ON public.taxacc_document_request_items FOR SELECT TO authenticated USING (qa_private.r331_request(office_id,request_id));
+        ALTER TABLE public.taxacc_activity_logs ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_activity_logs FORCE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_appointments ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_appointments FORCE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_business_hours ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_business_hours FORCE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_client_contact_links ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_client_contact_links FORCE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_closed_dates ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_closed_dates FORCE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_communications ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_communications FORCE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_consultation_services ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_consultation_services FORCE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_contacts ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_contacts FORCE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_deadline_templates ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_deadline_templates FORCE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_document_request_items ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_document_request_items FORCE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_document_request_templates ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_document_request_templates FORCE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_engagements ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_engagements FORCE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_inquiries ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_inquiries FORCE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_link_tokens ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_link_tokens FORCE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_message_templates ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_message_templates FORCE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_r91_review_events ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_r91_review_events FORCE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_r9_monthly_review_batches ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_r9_monthly_review_batches FORCE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_r9_monthly_review_items ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_r9_monthly_review_items FORCE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_tasks ENABLE ROW LEVEL SECURITY;
+        ALTER TABLE public.taxacc_tasks FORCE ROW LEVEL SECURITY;
+        GRANT SELECT ON public.taxacc_appointments, public.taxacc_business_hours, public.taxacc_client_contact_links, public.taxacc_closed_dates, public.taxacc_communications, public.taxacc_consultation_services, public.taxacc_deadline_templates, public.taxacc_document_request_items, public.taxacc_document_request_templates, public.taxacc_engagements, public.taxacc_inquiries, public.taxacc_message_templates, public.taxacc_r9_monthly_review_batches, public.taxacc_r9_monthly_review_items, public.taxacc_tasks TO anon,authenticated;
+        REVOKE ALL ON public.taxacc_activity_logs, public.taxacc_contacts, public.taxacc_link_tokens, public.taxacc_r91_review_events FROM PUBLIC,anon,authenticated;
+        -- No INSERT/UPDATE/DELETE policies or grants; no direct audit/token/contact reads.
+        R331_04
+        pgid="${{ job.services.pg.id }}"
+        test -n "$pgid"
+        docker exec -i "$pgid" psql -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 < /tmp/04_r331_extension.sql
+    - name: Run disposable PG17 05_r331_fixtures.sql (synthetic only)
+      shell: bash
+      run: |
+        set -euo pipefail
+        cat > /tmp/05_r331_fixtures.sql <<'R331_05'
+        \set ON_ERROR_STOP on
+        -- R330 regression revokes several grants deliberately. Reset ONLY disposable synthetic fixtures.
+        UPDATE public.taxacc_clients SET assigned_staff_id='10000000-0000-4000-8000-000000000003'
+         WHERE id='20000000-0000-4000-8000-000000000001';
+        UPDATE public.taxacc_staff SET can_view_all_clients=true WHERE id='10000000-0000-4000-8000-000000000002';
+        UPDATE public.taxacc_staff SET can_review_documents=true WHERE id='10000000-0000-4000-8000-000000000004';
+        INSERT INTO public.taxacc_activity_logs(id,office_id) VALUES (1,'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),(2,'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
+        INSERT INTO public.taxacc_appointments(id,office_id,client_id,is_demo) VALUES
+        ('60020000-0000-4000-8000-000000000001','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000001',false),
+        ('60020000-0000-4000-8000-000000000002','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000002',false),
+        ('60020000-0000-4000-8000-000000000003','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','20000000-0000-4000-8000-000000000004',false),
+        ('60020000-0000-4000-8000-000000000004','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000005',true),
+        ('60020000-0000-4000-8000-000000000005','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',NULL,false);
+        INSERT INTO public.taxacc_business_hours(id,office_id) VALUES
+        ('60030000-0000-4000-8000-000000000001','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
+        ('60030000-0000-4000-8000-000000000002','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'),
+        ('60030000-0000-4000-8000-000000000003','cccccccc-cccc-4ccc-8ccc-cccccccccccc'),
+        ('60030000-0000-4000-8000-000000000004','dddddddd-dddd-4ddd-8ddd-dddddddddddd');
+        INSERT INTO public.taxacc_client_contact_links(id,office_id,client_id) VALUES
+        ('60040000-0000-4000-8000-000000000001','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000001'),
+        ('60040000-0000-4000-8000-000000000002','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000002'),
+        ('60040000-0000-4000-8000-000000000003','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','20000000-0000-4000-8000-000000000004'),
+        ('60040000-0000-4000-8000-000000000004','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000005');
+        INSERT INTO public.taxacc_closed_dates(id,office_id) VALUES
+        ('60050000-0000-4000-8000-000000000001','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
+        ('60050000-0000-4000-8000-000000000002','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'),
+        ('60050000-0000-4000-8000-000000000003','cccccccc-cccc-4ccc-8ccc-cccccccccccc'),
+        ('60050000-0000-4000-8000-000000000004','dddddddd-dddd-4ddd-8ddd-dddddddddddd');
+        INSERT INTO public.taxacc_communications(id,office_id,client_id) VALUES
+        ('60060000-0000-4000-8000-000000000001','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000001'),
+        ('60060000-0000-4000-8000-000000000002','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000002'),
+        ('60060000-0000-4000-8000-000000000003','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','20000000-0000-4000-8000-000000000004'),
+        ('60060000-0000-4000-8000-000000000004','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000005'),
+        ('60060000-0000-4000-8000-000000000005','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',NULL);
+        INSERT INTO public.taxacc_consultation_services(id,office_id) VALUES
+        ('60070000-0000-4000-8000-000000000001','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
+        ('60070000-0000-4000-8000-000000000002','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'),
+        ('60070000-0000-4000-8000-000000000003','cccccccc-cccc-4ccc-8ccc-cccccccccccc'),
+        ('60070000-0000-4000-8000-000000000004','dddddddd-dddd-4ddd-8ddd-dddddddddddd');
+        INSERT INTO public.taxacc_contacts(id,office_id) VALUES
+        ('60080000-0000-4000-8000-000000000001','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
+        ('60080000-0000-4000-8000-000000000002','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
+        INSERT INTO public.taxacc_deadline_templates(id,office_id) VALUES
+        ('60090000-0000-4000-8000-000000000001','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
+        ('60090000-0000-4000-8000-000000000002','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'),
+        ('60090000-0000-4000-8000-000000000003','cccccccc-cccc-4ccc-8ccc-cccccccccccc'),
+        ('60090000-0000-4000-8000-000000000004','dddddddd-dddd-4ddd-8ddd-dddddddddddd');
+        INSERT INTO public.taxacc_document_request_items(id,office_id,request_id) VALUES
+        ('60100000-0000-4000-8000-000000000001','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','40000000-0000-4000-8000-000000000001'),
+        ('60100000-0000-4000-8000-000000000002','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','40000000-0000-4000-8000-000000000002'),
+        ('60100000-0000-4000-8000-000000000003','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','40000000-0000-4000-8000-000000000004'),
+        ('60100000-0000-4000-8000-000000000004','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','40000000-0000-4000-8000-000000000005');
+        INSERT INTO public.taxacc_document_request_templates(id,office_id) VALUES
+        ('60110000-0000-4000-8000-000000000001','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
+        ('60110000-0000-4000-8000-000000000002','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'),
+        ('60110000-0000-4000-8000-000000000003','cccccccc-cccc-4ccc-8ccc-cccccccccccc'),
+        ('60110000-0000-4000-8000-000000000004','dddddddd-dddd-4ddd-8ddd-dddddddddddd');
+        INSERT INTO public.taxacc_engagements(id,office_id,client_id) VALUES
+        ('60120000-0000-4000-8000-000000000001','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000001'),
+        ('60120000-0000-4000-8000-000000000002','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000002'),
+        ('60120000-0000-4000-8000-000000000003','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','20000000-0000-4000-8000-000000000004'),
+        ('60120000-0000-4000-8000-000000000004','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000005');
+        INSERT INTO public.taxacc_inquiries(id,office_id,client_id,is_demo) VALUES
+        ('60130000-0000-4000-8000-000000000001','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000001',false),
+        ('60130000-0000-4000-8000-000000000002','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000002',false),
+        ('60130000-0000-4000-8000-000000000003','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','20000000-0000-4000-8000-000000000004',false),
+        ('60130000-0000-4000-8000-000000000004','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000005',true),
+        ('60130000-0000-4000-8000-000000000005','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',NULL,false);
+        INSERT INTO public.taxacc_link_tokens(id,office_id) VALUES
+        ('60140000-0000-4000-8000-000000000001','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
+        ('60140000-0000-4000-8000-000000000002','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
+        INSERT INTO public.taxacc_message_templates(id,office_id) VALUES
+        ('60150000-0000-4000-8000-000000000001','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
+        ('60150000-0000-4000-8000-000000000002','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'),
+        ('60150000-0000-4000-8000-000000000003','cccccccc-cccc-4ccc-8ccc-cccccccccccc'),
+        ('60150000-0000-4000-8000-000000000004','dddddddd-dddd-4ddd-8ddd-dddddddddddd');
+        INSERT INTO public.taxacc_r91_review_events(id,office_id) VALUES
+        ('60160000-0000-4000-8000-000000000001','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
+        ('60160000-0000-4000-8000-000000000002','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
+        INSERT INTO public.taxacc_r9_monthly_review_batches(id,office_id) VALUES
+        ('60170000-0000-4000-8000-000000000001','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
+        ('60170000-0000-4000-8000-000000000002','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'),
+        ('60170000-0000-4000-8000-000000000003','cccccccc-cccc-4ccc-8ccc-cccccccccccc'),
+        ('60170000-0000-4000-8000-000000000004','dddddddd-dddd-4ddd-8ddd-dddddddddddd');
+        INSERT INTO public.taxacc_r9_monthly_review_items(id,office_id,client_id) VALUES
+        ('60180000-0000-4000-8000-000000000001','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000001'),
+        ('60180000-0000-4000-8000-000000000002','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000002'),
+        ('60180000-0000-4000-8000-000000000003','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','20000000-0000-4000-8000-000000000004'),
+        ('60180000-0000-4000-8000-000000000004','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000005');
+        INSERT INTO public.taxacc_tasks(id,office_id,client_id,is_demo) VALUES
+        ('60190000-0000-4000-8000-000000000001','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000001',false),
+        ('60190000-0000-4000-8000-000000000002','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000002',false),
+        ('60190000-0000-4000-8000-000000000003','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','20000000-0000-4000-8000-000000000004',false),
+        ('60190000-0000-4000-8000-000000000004','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000005',true);
+        R331_05
+        pgid="${{ job.services.pg.id }}"
+        test -n "$pgid"
+        docker exec -i "$pgid" psql -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 < /tmp/05_r331_fixtures.sql
+    - name: Run disposable PG17 06_r331_catalog.sql (synthetic only)
+      shell: bash
+      run: |
+        set -euo pipefail
+        cat > /tmp/06_r331_catalog.sql <<'R331_06'
+        \set ON_ERROR_STOP on
+        SELECT public.r330_assert('r331-all-26-tables',(SELECT count(*) FROM pg_class WHERE relnamespace='public'::regnamespace AND relkind='r' AND relname LIKE 'taxacc\_%' ESCAPE '\')::bigint,26);
+        SELECT public.r330_assert('r331-all-26-rls-and-force',(SELECT count(*) FROM pg_class WHERE relnamespace='public'::regnamespace AND relkind='r' AND relname LIKE 'taxacc\_%' ESCAPE '\' AND relrowsecurity AND relforcerowsecurity)::bigint,26);
+        SELECT public.r330_assert('r331-extension-15-select-policies',(SELECT count(*) FROM pg_policies WHERE schemaname='public' AND policyname LIKE 'r331_read_%' AND cmd='SELECT')::bigint,15);
+        SELECT public.r330_assert('r331-core-six-select-policies',(SELECT count(*) FROM pg_policies WHERE schemaname='public' AND policyname LIKE 'r330_%' AND cmd='SELECT')::bigint,6);
+        SELECT public.r330_assert('r331-zero-write-policies',(SELECT count(*) FROM pg_policies WHERE schemaname='public' AND cmd IN ('INSERT','UPDATE','DELETE','ALL') AND tablename LIKE 'taxacc_%')::bigint,0);
+        SELECT public.r330_assert('r331-no-select-policy-sensitive',(SELECT count(*) FROM pg_policies WHERE schemaname='public' AND tablename IN ('taxacc_activity_logs','taxacc_contacts','taxacc_link_tokens','taxacc_r91_review_events'))::bigint,0);
+        SELECT public.r330_assert('r331-extension-definer-locked',(SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='qa_private' AND p.proname='r331_request' AND p.prosecdef AND 'search_path=pg_catalog'=ANY(p.proconfig))::bigint,1);
+        SELECT public.r330_assert('r331-anon-no-definer-execute',(SELECT has_function_privilege('anon','qa_private.r331_request(uuid,uuid)','EXECUTE')::int)::bigint,0);
+        SELECT public.r330_assert('r331-auth-definer-execute',(SELECT has_function_privilege('authenticated','qa_private.r331_request(uuid,uuid)','EXECUTE')::int)::bigint,1);
+        SELECT public.r330_assert('r331-taxacc_activity_logs-authenticated-no-direct-select',(SELECT has_table_privilege('authenticated','public.taxacc_activity_logs','SELECT')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_activity_logs-anon-no-direct-select',(SELECT has_table_privilege('anon','public.taxacc_activity_logs','SELECT')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_appointments-auth-read-grant',(SELECT has_table_privilege('authenticated','public.taxacc_appointments','SELECT')::int)::bigint,1);
+        SELECT public.r330_assert('r331-taxacc_appointments-no-update-grant',(SELECT has_table_privilege('authenticated','public.taxacc_appointments','UPDATE')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_appointments-no-insert-grant',(SELECT has_table_privilege('authenticated','public.taxacc_appointments','INSERT')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_appointments-no-delete-grant',(SELECT has_table_privilege('authenticated','public.taxacc_appointments','DELETE')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_business_hours-auth-read-grant',(SELECT has_table_privilege('authenticated','public.taxacc_business_hours','SELECT')::int)::bigint,1);
+        SELECT public.r330_assert('r331-taxacc_business_hours-no-update-grant',(SELECT has_table_privilege('authenticated','public.taxacc_business_hours','UPDATE')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_business_hours-no-insert-grant',(SELECT has_table_privilege('authenticated','public.taxacc_business_hours','INSERT')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_business_hours-no-delete-grant',(SELECT has_table_privilege('authenticated','public.taxacc_business_hours','DELETE')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_client_contact_links-auth-read-grant',(SELECT has_table_privilege('authenticated','public.taxacc_client_contact_links','SELECT')::int)::bigint,1);
+        SELECT public.r330_assert('r331-taxacc_client_contact_links-no-update-grant',(SELECT has_table_privilege('authenticated','public.taxacc_client_contact_links','UPDATE')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_client_contact_links-no-insert-grant',(SELECT has_table_privilege('authenticated','public.taxacc_client_contact_links','INSERT')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_client_contact_links-no-delete-grant',(SELECT has_table_privilege('authenticated','public.taxacc_client_contact_links','DELETE')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_closed_dates-auth-read-grant',(SELECT has_table_privilege('authenticated','public.taxacc_closed_dates','SELECT')::int)::bigint,1);
+        SELECT public.r330_assert('r331-taxacc_closed_dates-no-update-grant',(SELECT has_table_privilege('authenticated','public.taxacc_closed_dates','UPDATE')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_closed_dates-no-insert-grant',(SELECT has_table_privilege('authenticated','public.taxacc_closed_dates','INSERT')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_closed_dates-no-delete-grant',(SELECT has_table_privilege('authenticated','public.taxacc_closed_dates','DELETE')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_communications-auth-read-grant',(SELECT has_table_privilege('authenticated','public.taxacc_communications','SELECT')::int)::bigint,1);
+        SELECT public.r330_assert('r331-taxacc_communications-no-update-grant',(SELECT has_table_privilege('authenticated','public.taxacc_communications','UPDATE')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_communications-no-insert-grant',(SELECT has_table_privilege('authenticated','public.taxacc_communications','INSERT')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_communications-no-delete-grant',(SELECT has_table_privilege('authenticated','public.taxacc_communications','DELETE')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_consultation_services-auth-read-grant',(SELECT has_table_privilege('authenticated','public.taxacc_consultation_services','SELECT')::int)::bigint,1);
+        SELECT public.r330_assert('r331-taxacc_consultation_services-no-update-grant',(SELECT has_table_privilege('authenticated','public.taxacc_consultation_services','UPDATE')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_consultation_services-no-insert-grant',(SELECT has_table_privilege('authenticated','public.taxacc_consultation_services','INSERT')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_consultation_services-no-delete-grant',(SELECT has_table_privilege('authenticated','public.taxacc_consultation_services','DELETE')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_contacts-authenticated-no-direct-select',(SELECT has_table_privilege('authenticated','public.taxacc_contacts','SELECT')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_contacts-anon-no-direct-select',(SELECT has_table_privilege('anon','public.taxacc_contacts','SELECT')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_deadline_templates-auth-read-grant',(SELECT has_table_privilege('authenticated','public.taxacc_deadline_templates','SELECT')::int)::bigint,1);
+        SELECT public.r330_assert('r331-taxacc_deadline_templates-no-update-grant',(SELECT has_table_privilege('authenticated','public.taxacc_deadline_templates','UPDATE')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_deadline_templates-no-insert-grant',(SELECT has_table_privilege('authenticated','public.taxacc_deadline_templates','INSERT')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_deadline_templates-no-delete-grant',(SELECT has_table_privilege('authenticated','public.taxacc_deadline_templates','DELETE')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_document_request_items-auth-read-grant',(SELECT has_table_privilege('authenticated','public.taxacc_document_request_items','SELECT')::int)::bigint,1);
+        SELECT public.r330_assert('r331-taxacc_document_request_items-no-update-grant',(SELECT has_table_privilege('authenticated','public.taxacc_document_request_items','UPDATE')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_document_request_items-no-insert-grant',(SELECT has_table_privilege('authenticated','public.taxacc_document_request_items','INSERT')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_document_request_items-no-delete-grant',(SELECT has_table_privilege('authenticated','public.taxacc_document_request_items','DELETE')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_document_request_templates-auth-read-grant',(SELECT has_table_privilege('authenticated','public.taxacc_document_request_templates','SELECT')::int)::bigint,1);
+        SELECT public.r330_assert('r331-taxacc_document_request_templates-no-update-grant',(SELECT has_table_privilege('authenticated','public.taxacc_document_request_templates','UPDATE')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_document_request_templates-no-insert-grant',(SELECT has_table_privilege('authenticated','public.taxacc_document_request_templates','INSERT')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_document_request_templates-no-delete-grant',(SELECT has_table_privilege('authenticated','public.taxacc_document_request_templates','DELETE')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_engagements-auth-read-grant',(SELECT has_table_privilege('authenticated','public.taxacc_engagements','SELECT')::int)::bigint,1);
+        SELECT public.r330_assert('r331-taxacc_engagements-no-update-grant',(SELECT has_table_privilege('authenticated','public.taxacc_engagements','UPDATE')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_engagements-no-insert-grant',(SELECT has_table_privilege('authenticated','public.taxacc_engagements','INSERT')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_engagements-no-delete-grant',(SELECT has_table_privilege('authenticated','public.taxacc_engagements','DELETE')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_inquiries-auth-read-grant',(SELECT has_table_privilege('authenticated','public.taxacc_inquiries','SELECT')::int)::bigint,1);
+        SELECT public.r330_assert('r331-taxacc_inquiries-no-update-grant',(SELECT has_table_privilege('authenticated','public.taxacc_inquiries','UPDATE')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_inquiries-no-insert-grant',(SELECT has_table_privilege('authenticated','public.taxacc_inquiries','INSERT')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_inquiries-no-delete-grant',(SELECT has_table_privilege('authenticated','public.taxacc_inquiries','DELETE')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_link_tokens-authenticated-no-direct-select',(SELECT has_table_privilege('authenticated','public.taxacc_link_tokens','SELECT')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_link_tokens-anon-no-direct-select',(SELECT has_table_privilege('anon','public.taxacc_link_tokens','SELECT')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_message_templates-auth-read-grant',(SELECT has_table_privilege('authenticated','public.taxacc_message_templates','SELECT')::int)::bigint,1);
+        SELECT public.r330_assert('r331-taxacc_message_templates-no-update-grant',(SELECT has_table_privilege('authenticated','public.taxacc_message_templates','UPDATE')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_message_templates-no-insert-grant',(SELECT has_table_privilege('authenticated','public.taxacc_message_templates','INSERT')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_message_templates-no-delete-grant',(SELECT has_table_privilege('authenticated','public.taxacc_message_templates','DELETE')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_r91_review_events-authenticated-no-direct-select',(SELECT has_table_privilege('authenticated','public.taxacc_r91_review_events','SELECT')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_r91_review_events-anon-no-direct-select',(SELECT has_table_privilege('anon','public.taxacc_r91_review_events','SELECT')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_r9_monthly_review_batches-auth-read-grant',(SELECT has_table_privilege('authenticated','public.taxacc_r9_monthly_review_batches','SELECT')::int)::bigint,1);
+        SELECT public.r330_assert('r331-taxacc_r9_monthly_review_batches-no-update-grant',(SELECT has_table_privilege('authenticated','public.taxacc_r9_monthly_review_batches','UPDATE')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_r9_monthly_review_batches-no-insert-grant',(SELECT has_table_privilege('authenticated','public.taxacc_r9_monthly_review_batches','INSERT')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_r9_monthly_review_batches-no-delete-grant',(SELECT has_table_privilege('authenticated','public.taxacc_r9_monthly_review_batches','DELETE')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_r9_monthly_review_items-auth-read-grant',(SELECT has_table_privilege('authenticated','public.taxacc_r9_monthly_review_items','SELECT')::int)::bigint,1);
+        SELECT public.r330_assert('r331-taxacc_r9_monthly_review_items-no-update-grant',(SELECT has_table_privilege('authenticated','public.taxacc_r9_monthly_review_items','UPDATE')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_r9_monthly_review_items-no-insert-grant',(SELECT has_table_privilege('authenticated','public.taxacc_r9_monthly_review_items','INSERT')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_r9_monthly_review_items-no-delete-grant',(SELECT has_table_privilege('authenticated','public.taxacc_r9_monthly_review_items','DELETE')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_tasks-auth-read-grant',(SELECT has_table_privilege('authenticated','public.taxacc_tasks','SELECT')::int)::bigint,1);
+        SELECT public.r330_assert('r331-taxacc_tasks-no-update-grant',(SELECT has_table_privilege('authenticated','public.taxacc_tasks','UPDATE')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_tasks-no-insert-grant',(SELECT has_table_privilege('authenticated','public.taxacc_tasks','INSERT')::int)::bigint,0);
+        SELECT public.r330_assert('r331-taxacc_tasks-no-delete-grant',(SELECT has_table_privilege('authenticated','public.taxacc_tasks','DELETE')::int)::bigint,0);
+        R331_06
+        pgid="${{ job.services.pg.id }}"
+        test -n "$pgid"
+        docker exec -i "$pgid" psql -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 < /tmp/06_r331_catalog.sql
+    - name: Run disposable PG17 07_r331_roles_a.sql (synthetic only)
+      shell: bash
+      run: |
+        set -euo pipefail
+        cat > /tmp/07_r331_roles_a.sql <<'R331_07'
+        \set ON_ERROR_STOP on
+        SET ROLE authenticated;
+        BEGIN;
+        SET LOCAL request.jwt.claim.sub='00000001-0001-4001-8001-000000000001';
+        SELECT public.r330_assert('r331-owner-a-taxacc_business_hours',(SELECT count(*) FROM public.taxacc_business_hours)::bigint,1);
+        SELECT public.r330_assert('r331-owner-a-taxacc_closed_dates',(SELECT count(*) FROM public.taxacc_closed_dates)::bigint,1);
+        SELECT public.r330_assert('r331-owner-a-taxacc_consultation_services',(SELECT count(*) FROM public.taxacc_consultation_services)::bigint,1);
+        SELECT public.r330_assert('r331-owner-a-taxacc_deadline_templates',(SELECT count(*) FROM public.taxacc_deadline_templates)::bigint,1);
+        SELECT public.r330_assert('r331-owner-a-taxacc_document_request_templates',(SELECT count(*) FROM public.taxacc_document_request_templates)::bigint,1);
+        SELECT public.r330_assert('r331-owner-a-taxacc_message_templates',(SELECT count(*) FROM public.taxacc_message_templates)::bigint,1);
+        SELECT public.r330_assert('r331-owner-a-taxacc_r9_monthly_review_batches',(SELECT count(*) FROM public.taxacc_r9_monthly_review_batches)::bigint,1);
+        SELECT public.r330_assert('r331-owner-a-taxacc_appointments',(SELECT count(*) FROM public.taxacc_appointments)::bigint,2);
+        SELECT public.r330_assert('r331-owner-a-taxacc_client_contact_links',(SELECT count(*) FROM public.taxacc_client_contact_links)::bigint,2);
+        SELECT public.r330_assert('r331-owner-a-taxacc_communications',(SELECT count(*) FROM public.taxacc_communications)::bigint,2);
+        SELECT public.r330_assert('r331-owner-a-taxacc_engagements',(SELECT count(*) FROM public.taxacc_engagements)::bigint,2);
+        SELECT public.r330_assert('r331-owner-a-taxacc_inquiries',(SELECT count(*) FROM public.taxacc_inquiries)::bigint,2);
+        SELECT public.r330_assert('r331-owner-a-taxacc_r9_monthly_review_items',(SELECT count(*) FROM public.taxacc_r9_monthly_review_items)::bigint,2);
+        SELECT public.r330_assert('r331-owner-a-taxacc_tasks',(SELECT count(*) FROM public.taxacc_tasks)::bigint,2);
+        SELECT public.r330_assert('r331-owner-a-taxacc_document_request_items',(SELECT count(*) FROM public.taxacc_document_request_items)::bigint,2);
+        COMMIT;
+        RESET ROLE;
+        SET ROLE authenticated;
+        BEGIN;
+        SET LOCAL request.jwt.claim.sub='00000002-0002-4002-8002-000000000002';
+        SELECT public.r330_assert('r331-manager-a-taxacc_business_hours',(SELECT count(*) FROM public.taxacc_business_hours)::bigint,1);
+        SELECT public.r330_assert('r331-manager-a-taxacc_closed_dates',(SELECT count(*) FROM public.taxacc_closed_dates)::bigint,1);
+        SELECT public.r330_assert('r331-manager-a-taxacc_consultation_services',(SELECT count(*) FROM public.taxacc_consultation_services)::bigint,1);
+        SELECT public.r330_assert('r331-manager-a-taxacc_deadline_templates',(SELECT count(*) FROM public.taxacc_deadline_templates)::bigint,1);
+        SELECT public.r330_assert('r331-manager-a-taxacc_document_request_templates',(SELECT count(*) FROM public.taxacc_document_request_templates)::bigint,1);
+        SELECT public.r330_assert('r331-manager-a-taxacc_message_templates',(SELECT count(*) FROM public.taxacc_message_templates)::bigint,1);
+        SELECT public.r330_assert('r331-manager-a-taxacc_r9_monthly_review_batches',(SELECT count(*) FROM public.taxacc_r9_monthly_review_batches)::bigint,1);
+        SELECT public.r330_assert('r331-manager-a-taxacc_appointments',(SELECT count(*) FROM public.taxacc_appointments)::bigint,2);
+        SELECT public.r330_assert('r331-manager-a-taxacc_client_contact_links',(SELECT count(*) FROM public.taxacc_client_contact_links)::bigint,2);
+        SELECT public.r330_assert('r331-manager-a-taxacc_communications',(SELECT count(*) FROM public.taxacc_communications)::bigint,2);
+        SELECT public.r330_assert('r331-manager-a-taxacc_engagements',(SELECT count(*) FROM public.taxacc_engagements)::bigint,2);
+        SELECT public.r330_assert('r331-manager-a-taxacc_inquiries',(SELECT count(*) FROM public.taxacc_inquiries)::bigint,2);
+        SELECT public.r330_assert('r331-manager-a-taxacc_r9_monthly_review_items',(SELECT count(*) FROM public.taxacc_r9_monthly_review_items)::bigint,2);
+        SELECT public.r330_assert('r331-manager-a-taxacc_tasks',(SELECT count(*) FROM public.taxacc_tasks)::bigint,2);
+        SELECT public.r330_assert('r331-manager-a-taxacc_document_request_items',(SELECT count(*) FROM public.taxacc_document_request_items)::bigint,2);
+        COMMIT;
+        RESET ROLE;
+        SET ROLE authenticated;
+        BEGIN;
+        SET LOCAL request.jwt.claim.sub='00000003-0003-4003-8003-000000000003';
+        SELECT public.r330_assert('r331-assigned-staff-taxacc_business_hours',(SELECT count(*) FROM public.taxacc_business_hours)::bigint,0);
+        SELECT public.r330_assert('r331-assigned-staff-taxacc_closed_dates',(SELECT count(*) FROM public.taxacc_closed_dates)::bigint,0);
+        SELECT public.r330_assert('r331-assigned-staff-taxacc_consultation_services',(SELECT count(*) FROM public.taxacc_consultation_services)::bigint,0);
+        SELECT public.r330_assert('r331-assigned-staff-taxacc_deadline_templates',(SELECT count(*) FROM public.taxacc_deadline_templates)::bigint,0);
+        SELECT public.r330_assert('r331-assigned-staff-taxacc_document_request_templates',(SELECT count(*) FROM public.taxacc_document_request_templates)::bigint,0);
+        SELECT public.r330_assert('r331-assigned-staff-taxacc_message_templates',(SELECT count(*) FROM public.taxacc_message_templates)::bigint,0);
+        SELECT public.r330_assert('r331-assigned-staff-taxacc_r9_monthly_review_batches',(SELECT count(*) FROM public.taxacc_r9_monthly_review_batches)::bigint,0);
+        SELECT public.r330_assert('r331-assigned-staff-taxacc_appointments',(SELECT count(*) FROM public.taxacc_appointments)::bigint,1);
+        SELECT public.r330_assert('r331-assigned-staff-taxacc_client_contact_links',(SELECT count(*) FROM public.taxacc_client_contact_links)::bigint,1);
+        SELECT public.r330_assert('r331-assigned-staff-taxacc_communications',(SELECT count(*) FROM public.taxacc_communications)::bigint,1);
+        SELECT public.r330_assert('r331-assigned-staff-taxacc_engagements',(SELECT count(*) FROM public.taxacc_engagements)::bigint,1);
+        SELECT public.r330_assert('r331-assigned-staff-taxacc_inquiries',(SELECT count(*) FROM public.taxacc_inquiries)::bigint,1);
+        SELECT public.r330_assert('r331-assigned-staff-taxacc_r9_monthly_review_items',(SELECT count(*) FROM public.taxacc_r9_monthly_review_items)::bigint,1);
+        SELECT public.r330_assert('r331-assigned-staff-taxacc_tasks',(SELECT count(*) FROM public.taxacc_tasks)::bigint,1);
+        SELECT public.r330_assert('r331-assigned-staff-taxacc_document_request_items',(SELECT count(*) FROM public.taxacc_document_request_items)::bigint,1);
+        COMMIT;
+        RESET ROLE;
+        SET ROLE authenticated;
+        BEGIN;
+        SET LOCAL request.jwt.claim.sub='00000004-0004-4004-8004-000000000004';
+        SELECT public.r330_assert('r331-reviewer-taxacc_business_hours',(SELECT count(*) FROM public.taxacc_business_hours)::bigint,0);
+        SELECT public.r330_assert('r331-reviewer-taxacc_closed_dates',(SELECT count(*) FROM public.taxacc_closed_dates)::bigint,0);
+        SELECT public.r330_assert('r331-reviewer-taxacc_consultation_services',(SELECT count(*) FROM public.taxacc_consultation_services)::bigint,0);
+        SELECT public.r330_assert('r331-reviewer-taxacc_deadline_templates',(SELECT count(*) FROM public.taxacc_deadline_templates)::bigint,0);
+        SELECT public.r330_assert('r331-reviewer-taxacc_document_request_templates',(SELECT count(*) FROM public.taxacc_document_request_templates)::bigint,0);
+        SELECT public.r330_assert('r331-reviewer-taxacc_message_templates',(SELECT count(*) FROM public.taxacc_message_templates)::bigint,0);
+        SELECT public.r330_assert('r331-reviewer-taxacc_r9_monthly_review_batches',(SELECT count(*) FROM public.taxacc_r9_monthly_review_batches)::bigint,0);
+        SELECT public.r330_assert('r331-reviewer-taxacc_appointments',(SELECT count(*) FROM public.taxacc_appointments)::bigint,1);
+        SELECT public.r330_assert('r331-reviewer-taxacc_client_contact_links',(SELECT count(*) FROM public.taxacc_client_contact_links)::bigint,1);
+        SELECT public.r330_assert('r331-reviewer-taxacc_communications',(SELECT count(*) FROM public.taxacc_communications)::bigint,1);
+        SELECT public.r330_assert('r331-reviewer-taxacc_engagements',(SELECT count(*) FROM public.taxacc_engagements)::bigint,1);
+        SELECT public.r330_assert('r331-reviewer-taxacc_inquiries',(SELECT count(*) FROM public.taxacc_inquiries)::bigint,1);
+        SELECT public.r330_assert('r331-reviewer-taxacc_r9_monthly_review_items',(SELECT count(*) FROM public.taxacc_r9_monthly_review_items)::bigint,1);
+        SELECT public.r330_assert('r331-reviewer-taxacc_tasks',(SELECT count(*) FROM public.taxacc_tasks)::bigint,1);
+        SELECT public.r330_assert('r331-reviewer-taxacc_document_request_items',(SELECT count(*) FROM public.taxacc_document_request_items)::bigint,1);
+        COMMIT;
+        RESET ROLE;
+        SET ROLE authenticated;
+        BEGIN;
+        SET LOCAL request.jwt.claim.sub='00000005-0005-4005-8005-000000000005';
+        SELECT public.r330_assert('r331-office-b-owner-taxacc_business_hours',(SELECT count(*) FROM public.taxacc_business_hours)::bigint,1);
+        SELECT public.r330_assert('r331-office-b-owner-taxacc_closed_dates',(SELECT count(*) FROM public.taxacc_closed_dates)::bigint,1);
+        SELECT public.r330_assert('r331-office-b-owner-taxacc_consultation_services',(SELECT count(*) FROM public.taxacc_consultation_services)::bigint,1);
+        SELECT public.r330_assert('r331-office-b-owner-taxacc_deadline_templates',(SELECT count(*) FROM public.taxacc_deadline_templates)::bigint,1);
+        SELECT public.r330_assert('r331-office-b-owner-taxacc_document_request_templates',(SELECT count(*) FROM public.taxacc_document_request_templates)::bigint,1);
+        SELECT public.r330_assert('r331-office-b-owner-taxacc_message_templates',(SELECT count(*) FROM public.taxacc_message_templates)::bigint,1);
+        SELECT public.r330_assert('r331-office-b-owner-taxacc_r9_monthly_review_batches',(SELECT count(*) FROM public.taxacc_r9_monthly_review_batches)::bigint,1);
+        SELECT public.r330_assert('r331-office-b-owner-taxacc_appointments',(SELECT count(*) FROM public.taxacc_appointments)::bigint,1);
+        SELECT public.r330_assert('r331-office-b-owner-taxacc_client_contact_links',(SELECT count(*) FROM public.taxacc_client_contact_links)::bigint,1);
+        SELECT public.r330_assert('r331-office-b-owner-taxacc_communications',(SELECT count(*) FROM public.taxacc_communications)::bigint,1);
+        SELECT public.r330_assert('r331-office-b-owner-taxacc_engagements',(SELECT count(*) FROM public.taxacc_engagements)::bigint,1);
+        SELECT public.r330_assert('r331-office-b-owner-taxacc_inquiries',(SELECT count(*) FROM public.taxacc_inquiries)::bigint,1);
+        SELECT public.r330_assert('r331-office-b-owner-taxacc_r9_monthly_review_items',(SELECT count(*) FROM public.taxacc_r9_monthly_review_items)::bigint,1);
+        SELECT public.r330_assert('r331-office-b-owner-taxacc_tasks',(SELECT count(*) FROM public.taxacc_tasks)::bigint,1);
+        SELECT public.r330_assert('r331-office-b-owner-taxacc_document_request_items',(SELECT count(*) FROM public.taxacc_document_request_items)::bigint,1);
+        COMMIT;
+        RESET ROLE;
+        R331_07
+        pgid="${{ job.services.pg.id }}"
+        test -n "$pgid"
+        docker exec -i "$pgid" psql -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 < /tmp/07_r331_roles_a.sql
+    - name: Run disposable PG17 08_r331_roles_b.sql (synthetic only)
+      shell: bash
+      run: |
+        set -euo pipefail
+        cat > /tmp/08_r331_roles_b.sql <<'R331_08'
+        \set ON_ERROR_STOP on
+        SET ROLE authenticated;
+        BEGIN;
+        SET LOCAL request.jwt.claim.sub='00000008-0008-4008-8008-000000000008';
+        SELECT public.r330_assert('r331-no-client-assignment-taxacc_business_hours',(SELECT count(*) FROM public.taxacc_business_hours)::bigint,0);
+        SELECT public.r330_assert('r331-no-client-assignment-taxacc_closed_dates',(SELECT count(*) FROM public.taxacc_closed_dates)::bigint,0);
+        SELECT public.r330_assert('r331-no-client-assignment-taxacc_consultation_services',(SELECT count(*) FROM public.taxacc_consultation_services)::bigint,0);
+        SELECT public.r330_assert('r331-no-client-assignment-taxacc_deadline_templates',(SELECT count(*) FROM public.taxacc_deadline_templates)::bigint,0);
+        SELECT public.r330_assert('r331-no-client-assignment-taxacc_document_request_templates',(SELECT count(*) FROM public.taxacc_document_request_templates)::bigint,0);
+        SELECT public.r330_assert('r331-no-client-assignment-taxacc_message_templates',(SELECT count(*) FROM public.taxacc_message_templates)::bigint,0);
+        SELECT public.r330_assert('r331-no-client-assignment-taxacc_r9_monthly_review_batches',(SELECT count(*) FROM public.taxacc_r9_monthly_review_batches)::bigint,0);
+        SELECT public.r330_assert('r331-no-client-assignment-taxacc_appointments',(SELECT count(*) FROM public.taxacc_appointments)::bigint,0);
+        SELECT public.r330_assert('r331-no-client-assignment-taxacc_client_contact_links',(SELECT count(*) FROM public.taxacc_client_contact_links)::bigint,0);
+        SELECT public.r330_assert('r331-no-client-assignment-taxacc_communications',(SELECT count(*) FROM public.taxacc_communications)::bigint,0);
+        SELECT public.r330_assert('r331-no-client-assignment-taxacc_engagements',(SELECT count(*) FROM public.taxacc_engagements)::bigint,0);
+        SELECT public.r330_assert('r331-no-client-assignment-taxacc_inquiries',(SELECT count(*) FROM public.taxacc_inquiries)::bigint,0);
+        SELECT public.r330_assert('r331-no-client-assignment-taxacc_r9_monthly_review_items',(SELECT count(*) FROM public.taxacc_r9_monthly_review_items)::bigint,0);
+        SELECT public.r330_assert('r331-no-client-assignment-taxacc_tasks',(SELECT count(*) FROM public.taxacc_tasks)::bigint,0);
+        SELECT public.r330_assert('r331-no-client-assignment-taxacc_document_request_items',(SELECT count(*) FROM public.taxacc_document_request_items)::bigint,0);
+        COMMIT;
+        RESET ROLE;
+        SET ROLE authenticated;
+        BEGIN;
+        SET LOCAL request.jwt.claim.sub='00000007-0007-4007-8007-000000000007';
+        SELECT public.r330_assert('r331-inactive-staff-taxacc_business_hours',(SELECT count(*) FROM public.taxacc_business_hours)::bigint,0);
+        SELECT public.r330_assert('r331-inactive-staff-taxacc_closed_dates',(SELECT count(*) FROM public.taxacc_closed_dates)::bigint,0);
+        SELECT public.r330_assert('r331-inactive-staff-taxacc_consultation_services',(SELECT count(*) FROM public.taxacc_consultation_services)::bigint,0);
+        SELECT public.r330_assert('r331-inactive-staff-taxacc_deadline_templates',(SELECT count(*) FROM public.taxacc_deadline_templates)::bigint,0);
+        SELECT public.r330_assert('r331-inactive-staff-taxacc_document_request_templates',(SELECT count(*) FROM public.taxacc_document_request_templates)::bigint,0);
+        SELECT public.r330_assert('r331-inactive-staff-taxacc_message_templates',(SELECT count(*) FROM public.taxacc_message_templates)::bigint,0);
+        SELECT public.r330_assert('r331-inactive-staff-taxacc_r9_monthly_review_batches',(SELECT count(*) FROM public.taxacc_r9_monthly_review_batches)::bigint,0);
+        SELECT public.r330_assert('r331-inactive-staff-taxacc_appointments',(SELECT count(*) FROM public.taxacc_appointments)::bigint,0);
+        SELECT public.r330_assert('r331-inactive-staff-taxacc_client_contact_links',(SELECT count(*) FROM public.taxacc_client_contact_links)::bigint,0);
+        SELECT public.r330_assert('r331-inactive-staff-taxacc_communications',(SELECT count(*) FROM public.taxacc_communications)::bigint,0);
+        SELECT public.r330_assert('r331-inactive-staff-taxacc_engagements',(SELECT count(*) FROM public.taxacc_engagements)::bigint,0);
+        SELECT public.r330_assert('r331-inactive-staff-taxacc_inquiries',(SELECT count(*) FROM public.taxacc_inquiries)::bigint,0);
+        SELECT public.r330_assert('r331-inactive-staff-taxacc_r9_monthly_review_items',(SELECT count(*) FROM public.taxacc_r9_monthly_review_items)::bigint,0);
+        SELECT public.r330_assert('r331-inactive-staff-taxacc_tasks',(SELECT count(*) FROM public.taxacc_tasks)::bigint,0);
+        SELECT public.r330_assert('r331-inactive-staff-taxacc_document_request_items',(SELECT count(*) FROM public.taxacc_document_request_items)::bigint,0);
+        COMMIT;
+        RESET ROLE;
+        SET ROLE authenticated;
+        BEGIN;
+        SET LOCAL request.jwt.claim.sub='00000006-0006-4006-8006-000000000006';
+        SET LOCAL request.jwt.claim.role='owner';
+        SELECT public.r330_assert('r331-outsider-spoofed-role-taxacc_business_hours',(SELECT count(*) FROM public.taxacc_business_hours)::bigint,0);
+        SELECT public.r330_assert('r331-outsider-spoofed-role-taxacc_closed_dates',(SELECT count(*) FROM public.taxacc_closed_dates)::bigint,0);
+        SELECT public.r330_assert('r331-outsider-spoofed-role-taxacc_consultation_services',(SELECT count(*) FROM public.taxacc_consultation_services)::bigint,0);
+        SELECT public.r330_assert('r331-outsider-spoofed-role-taxacc_deadline_templates',(SELECT count(*) FROM public.taxacc_deadline_templates)::bigint,0);
+        SELECT public.r330_assert('r331-outsider-spoofed-role-taxacc_document_request_templates',(SELECT count(*) FROM public.taxacc_document_request_templates)::bigint,0);
+        SELECT public.r330_assert('r331-outsider-spoofed-role-taxacc_message_templates',(SELECT count(*) FROM public.taxacc_message_templates)::bigint,0);
+        SELECT public.r330_assert('r331-outsider-spoofed-role-taxacc_r9_monthly_review_batches',(SELECT count(*) FROM public.taxacc_r9_monthly_review_batches)::bigint,0);
+        SELECT public.r330_assert('r331-outsider-spoofed-role-taxacc_appointments',(SELECT count(*) FROM public.taxacc_appointments)::bigint,0);
+        SELECT public.r330_assert('r331-outsider-spoofed-role-taxacc_client_contact_links',(SELECT count(*) FROM public.taxacc_client_contact_links)::bigint,0);
+        SELECT public.r330_assert('r331-outsider-spoofed-role-taxacc_communications',(SELECT count(*) FROM public.taxacc_communications)::bigint,0);
+        SELECT public.r330_assert('r331-outsider-spoofed-role-taxacc_engagements',(SELECT count(*) FROM public.taxacc_engagements)::bigint,0);
+        SELECT public.r330_assert('r331-outsider-spoofed-role-taxacc_inquiries',(SELECT count(*) FROM public.taxacc_inquiries)::bigint,0);
+        SELECT public.r330_assert('r331-outsider-spoofed-role-taxacc_r9_monthly_review_items',(SELECT count(*) FROM public.taxacc_r9_monthly_review_items)::bigint,0);
+        SELECT public.r330_assert('r331-outsider-spoofed-role-taxacc_tasks',(SELECT count(*) FROM public.taxacc_tasks)::bigint,0);
+        SELECT public.r330_assert('r331-outsider-spoofed-role-taxacc_document_request_items',(SELECT count(*) FROM public.taxacc_document_request_items)::bigint,0);
+        COMMIT;
+        RESET ROLE;
+        SET ROLE anon;
+        BEGIN;
+        SET LOCAL request.jwt.claim.sub='00000001-0001-4001-8001-000000000001';
+        SET LOCAL request.jwt.claim.role='authenticated';
+        SELECT public.r330_assert('r331-anon-forged-owner-taxacc_business_hours',(SELECT count(*) FROM public.taxacc_business_hours)::bigint,0);
+        SELECT public.r330_assert('r331-anon-forged-owner-taxacc_closed_dates',(SELECT count(*) FROM public.taxacc_closed_dates)::bigint,0);
+        SELECT public.r330_assert('r331-anon-forged-owner-taxacc_consultation_services',(SELECT count(*) FROM public.taxacc_consultation_services)::bigint,0);
+        SELECT public.r330_assert('r331-anon-forged-owner-taxacc_deadline_templates',(SELECT count(*) FROM public.taxacc_deadline_templates)::bigint,0);
+        SELECT public.r330_assert('r331-anon-forged-owner-taxacc_document_request_templates',(SELECT count(*) FROM public.taxacc_document_request_templates)::bigint,0);
+        SELECT public.r330_assert('r331-anon-forged-owner-taxacc_message_templates',(SELECT count(*) FROM public.taxacc_message_templates)::bigint,0);
+        SELECT public.r330_assert('r331-anon-forged-owner-taxacc_r9_monthly_review_batches',(SELECT count(*) FROM public.taxacc_r9_monthly_review_batches)::bigint,0);
+        SELECT public.r330_assert('r331-anon-forged-owner-taxacc_appointments',(SELECT count(*) FROM public.taxacc_appointments)::bigint,0);
+        SELECT public.r330_assert('r331-anon-forged-owner-taxacc_client_contact_links',(SELECT count(*) FROM public.taxacc_client_contact_links)::bigint,0);
+        SELECT public.r330_assert('r331-anon-forged-owner-taxacc_communications',(SELECT count(*) FROM public.taxacc_communications)::bigint,0);
+        SELECT public.r330_assert('r331-anon-forged-owner-taxacc_engagements',(SELECT count(*) FROM public.taxacc_engagements)::bigint,0);
+        SELECT public.r330_assert('r331-anon-forged-owner-taxacc_inquiries',(SELECT count(*) FROM public.taxacc_inquiries)::bigint,0);
+        SELECT public.r330_assert('r331-anon-forged-owner-taxacc_r9_monthly_review_items',(SELECT count(*) FROM public.taxacc_r9_monthly_review_items)::bigint,0);
+        SELECT public.r330_assert('r331-anon-forged-owner-taxacc_tasks',(SELECT count(*) FROM public.taxacc_tasks)::bigint,0);
+        SELECT public.r330_assert('r331-anon-forged-owner-taxacc_document_request_items',(SELECT count(*) FROM public.taxacc_document_request_items)::bigint,0);
+        COMMIT;
+        RESET ROLE;
+        SET ROLE authenticated;
+        BEGIN;
+        SET LOCAL request.jwt.claim.sub='garbage';
+        SELECT public.r330_assert('r331-invalid-sub-taxacc_business_hours',(SELECT count(*) FROM public.taxacc_business_hours)::bigint,0);
+        SELECT public.r330_assert('r331-invalid-sub-taxacc_closed_dates',(SELECT count(*) FROM public.taxacc_closed_dates)::bigint,0);
+        SELECT public.r330_assert('r331-invalid-sub-taxacc_consultation_services',(SELECT count(*) FROM public.taxacc_consultation_services)::bigint,0);
+        SELECT public.r330_assert('r331-invalid-sub-taxacc_deadline_templates',(SELECT count(*) FROM public.taxacc_deadline_templates)::bigint,0);
+        SELECT public.r330_assert('r331-invalid-sub-taxacc_document_request_templates',(SELECT count(*) FROM public.taxacc_document_request_templates)::bigint,0);
+        SELECT public.r330_assert('r331-invalid-sub-taxacc_message_templates',(SELECT count(*) FROM public.taxacc_message_templates)::bigint,0);
+        SELECT public.r330_assert('r331-invalid-sub-taxacc_r9_monthly_review_batches',(SELECT count(*) FROM public.taxacc_r9_monthly_review_batches)::bigint,0);
+        SELECT public.r330_assert('r331-invalid-sub-taxacc_appointments',(SELECT count(*) FROM public.taxacc_appointments)::bigint,0);
+        SELECT public.r330_assert('r331-invalid-sub-taxacc_client_contact_links',(SELECT count(*) FROM public.taxacc_client_contact_links)::bigint,0);
+        SELECT public.r330_assert('r331-invalid-sub-taxacc_communications',(SELECT count(*) FROM public.taxacc_communications)::bigint,0);
+        SELECT public.r330_assert('r331-invalid-sub-taxacc_engagements',(SELECT count(*) FROM public.taxacc_engagements)::bigint,0);
+        SELECT public.r330_assert('r331-invalid-sub-taxacc_inquiries',(SELECT count(*) FROM public.taxacc_inquiries)::bigint,0);
+        SELECT public.r330_assert('r331-invalid-sub-taxacc_r9_monthly_review_items',(SELECT count(*) FROM public.taxacc_r9_monthly_review_items)::bigint,0);
+        SELECT public.r330_assert('r331-invalid-sub-taxacc_tasks',(SELECT count(*) FROM public.taxacc_tasks)::bigint,0);
+        SELECT public.r330_assert('r331-invalid-sub-taxacc_document_request_items',(SELECT count(*) FROM public.taxacc_document_request_items)::bigint,0);
+        COMMIT;
+        RESET ROLE;
+        R331_08
+        pgid="${{ job.services.pg.id }}"
+        test -n "$pgid"
+        docker exec -i "$pgid" psql -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 < /tmp/08_r331_roles_b.sql
+    - name: Run disposable PG17 09_r331_revocation.sql (synthetic only)
+      shell: bash
+      run: |
+        set -euo pipefail
+        cat > /tmp/09_r331_revocation.sql <<'R331_09'
+        \set ON_ERROR_STOP on
+        SET ROLE authenticated;
+        BEGIN;
+        SET LOCAL request.jwt.claim.sub='00000001-0001-4001-8001-000000000001';
+        SELECT public.r330_assert('r331-office-a-cannot-read-office-b-taxacc_appointments',(SELECT count(*) FROM public.taxacc_appointments WHERE office_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')::bigint,0);
+        SELECT public.r330_assert('r331-office-a-cannot-read-office-b-taxacc_business_hours',(SELECT count(*) FROM public.taxacc_business_hours WHERE office_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')::bigint,0);
+        SELECT public.r330_assert('r331-office-a-cannot-read-office-b-taxacc_client_contact_links',(SELECT count(*) FROM public.taxacc_client_contact_links WHERE office_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')::bigint,0);
+        SELECT public.r330_assert('r331-office-a-cannot-read-office-b-taxacc_closed_dates',(SELECT count(*) FROM public.taxacc_closed_dates WHERE office_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')::bigint,0);
+        SELECT public.r330_assert('r331-office-a-cannot-read-office-b-taxacc_communications',(SELECT count(*) FROM public.taxacc_communications WHERE office_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')::bigint,0);
+        SELECT public.r330_assert('r331-office-a-cannot-read-office-b-taxacc_consultation_services',(SELECT count(*) FROM public.taxacc_consultation_services WHERE office_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')::bigint,0);
+        SELECT public.r330_assert('r331-office-a-cannot-read-office-b-taxacc_deadline_templates',(SELECT count(*) FROM public.taxacc_deadline_templates WHERE office_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')::bigint,0);
+        SELECT public.r330_assert('r331-office-a-cannot-read-office-b-taxacc_document_request_items',(SELECT count(*) FROM public.taxacc_document_request_items WHERE office_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')::bigint,0);
+        SELECT public.r330_assert('r331-office-a-cannot-read-office-b-taxacc_document_request_templates',(SELECT count(*) FROM public.taxacc_document_request_templates WHERE office_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')::bigint,0);
+        SELECT public.r330_assert('r331-office-a-cannot-read-office-b-taxacc_engagements',(SELECT count(*) FROM public.taxacc_engagements WHERE office_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')::bigint,0);
+        SELECT public.r330_assert('r331-office-a-cannot-read-office-b-taxacc_inquiries',(SELECT count(*) FROM public.taxacc_inquiries WHERE office_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')::bigint,0);
+        SELECT public.r330_assert('r331-office-a-cannot-read-office-b-taxacc_message_templates',(SELECT count(*) FROM public.taxacc_message_templates WHERE office_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')::bigint,0);
+        SELECT public.r330_assert('r331-office-a-cannot-read-office-b-taxacc_r9_monthly_review_batches',(SELECT count(*) FROM public.taxacc_r9_monthly_review_batches WHERE office_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')::bigint,0);
+        SELECT public.r330_assert('r331-office-a-cannot-read-office-b-taxacc_r9_monthly_review_items',(SELECT count(*) FROM public.taxacc_r9_monthly_review_items WHERE office_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')::bigint,0);
+        SELECT public.r330_assert('r331-office-a-cannot-read-office-b-taxacc_tasks',(SELECT count(*) FROM public.taxacc_tasks WHERE office_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')::bigint,0);
+        SELECT public.r330_assert('r331-demo-client-hidden-taxacc_appointments',(SELECT count(*) FROM public.taxacc_appointments WHERE client_id='20000000-0000-4000-8000-000000000005')::bigint,0);
+        SELECT public.r330_assert('r331-demo-client-hidden-taxacc_client_contact_links',(SELECT count(*) FROM public.taxacc_client_contact_links WHERE client_id='20000000-0000-4000-8000-000000000005')::bigint,0);
+        SELECT public.r330_assert('r331-demo-client-hidden-taxacc_communications',(SELECT count(*) FROM public.taxacc_communications WHERE client_id='20000000-0000-4000-8000-000000000005')::bigint,0);
+        SELECT public.r330_assert('r331-demo-client-hidden-taxacc_engagements',(SELECT count(*) FROM public.taxacc_engagements WHERE client_id='20000000-0000-4000-8000-000000000005')::bigint,0);
+        SELECT public.r330_assert('r331-demo-client-hidden-taxacc_inquiries',(SELECT count(*) FROM public.taxacc_inquiries WHERE client_id='20000000-0000-4000-8000-000000000005')::bigint,0);
+        SELECT public.r330_assert('r331-demo-client-hidden-taxacc_r9_monthly_review_items',(SELECT count(*) FROM public.taxacc_r9_monthly_review_items WHERE client_id='20000000-0000-4000-8000-000000000005')::bigint,0);
+        SELECT public.r330_assert('r331-demo-client-hidden-taxacc_tasks',(SELECT count(*) FROM public.taxacc_tasks WHERE client_id='20000000-0000-4000-8000-000000000005')::bigint,0);
+        SELECT public.r330_assert('r331-null-client-hidden-taxacc_appointments',(SELECT count(*) FROM public.taxacc_appointments WHERE client_id IS NULL)::bigint,0);
+        SELECT public.r330_assert('r331-null-client-hidden-taxacc_communications',(SELECT count(*) FROM public.taxacc_communications WHERE client_id IS NULL)::bigint,0);
+        SELECT public.r330_assert('r331-null-client-hidden-taxacc_inquiries',(SELECT count(*) FROM public.taxacc_inquiries WHERE client_id IS NULL)::bigint,0);
+        SELECT public.r330_assert('r331-demo-request-item-hidden',(SELECT count(*) FROM public.taxacc_document_request_items WHERE request_id='40000000-0000-4000-8000-000000000005')::bigint,0);
+        COMMIT;
+        RESET ROLE;
+        UPDATE public.taxacc_clients SET assigned_staff_id=NULL WHERE id='20000000-0000-4000-8000-000000000001';
+        SET ROLE authenticated;
+        BEGIN;
+        SET LOCAL request.jwt.claim.sub='00000003-0003-4003-8003-000000000003';
+        SELECT public.r330_assert('r331-assignment-revoked-taxacc_appointments',(SELECT count(*) FROM public.taxacc_appointments)::bigint,0);
+        SELECT public.r330_assert('r331-assignment-revoked-taxacc_client_contact_links',(SELECT count(*) FROM public.taxacc_client_contact_links)::bigint,0);
+        SELECT public.r330_assert('r331-assignment-revoked-taxacc_communications',(SELECT count(*) FROM public.taxacc_communications)::bigint,0);
+        SELECT public.r330_assert('r331-assignment-revoked-taxacc_engagements',(SELECT count(*) FROM public.taxacc_engagements)::bigint,0);
+        SELECT public.r330_assert('r331-assignment-revoked-taxacc_inquiries',(SELECT count(*) FROM public.taxacc_inquiries)::bigint,0);
+        SELECT public.r330_assert('r331-assignment-revoked-taxacc_r9_monthly_review_items',(SELECT count(*) FROM public.taxacc_r9_monthly_review_items)::bigint,0);
+        SELECT public.r330_assert('r331-assignment-revoked-taxacc_tasks',(SELECT count(*) FROM public.taxacc_tasks)::bigint,0);
+        SELECT public.r330_assert('r331-assignment-revoked-taxacc_document_request_items',(SELECT count(*) FROM public.taxacc_document_request_items)::bigint,0);
+        COMMIT;
+        RESET ROLE;
+        UPDATE public.taxacc_staff SET can_review_documents=false WHERE id='10000000-0000-4000-8000-000000000004';
+        SET ROLE authenticated;
+        BEGIN;
+        SET LOCAL request.jwt.claim.sub='00000004-0004-4004-8004-000000000004';
+        SELECT public.r330_assert('r331-reviewer-revoked-taxacc_appointments',(SELECT count(*) FROM public.taxacc_appointments)::bigint,0);
+        SELECT public.r330_assert('r331-reviewer-revoked-taxacc_client_contact_links',(SELECT count(*) FROM public.taxacc_client_contact_links)::bigint,0);
+        SELECT public.r330_assert('r331-reviewer-revoked-taxacc_communications',(SELECT count(*) FROM public.taxacc_communications)::bigint,0);
+        SELECT public.r330_assert('r331-reviewer-revoked-taxacc_engagements',(SELECT count(*) FROM public.taxacc_engagements)::bigint,0);
+        SELECT public.r330_assert('r331-reviewer-revoked-taxacc_inquiries',(SELECT count(*) FROM public.taxacc_inquiries)::bigint,0);
+        SELECT public.r330_assert('r331-reviewer-revoked-taxacc_r9_monthly_review_items',(SELECT count(*) FROM public.taxacc_r9_monthly_review_items)::bigint,0);
+        SELECT public.r330_assert('r331-reviewer-revoked-taxacc_tasks',(SELECT count(*) FROM public.taxacc_tasks)::bigint,0);
+        SELECT public.r330_assert('r331-reviewer-revoked-taxacc_document_request_items',(SELECT count(*) FROM public.taxacc_document_request_items)::bigint,0);
+        COMMIT;
+        RESET ROLE;
+        UPDATE public.taxacc_staff SET can_manage_settings=false WHERE id='10000000-0000-4000-8000-000000000001';
+        SET ROLE authenticated;
+        BEGIN;
+        SET LOCAL request.jwt.claim.sub='00000001-0001-4001-8001-000000000001';
+        SELECT public.r330_assert('r331-owner-admin-flag-revoked-taxacc_business_hours',(SELECT count(*) FROM public.taxacc_business_hours)::bigint,0);
+        SELECT public.r330_assert('r331-owner-admin-flag-revoked-taxacc_closed_dates',(SELECT count(*) FROM public.taxacc_closed_dates)::bigint,0);
+        SELECT public.r330_assert('r331-owner-admin-flag-revoked-taxacc_consultation_services',(SELECT count(*) FROM public.taxacc_consultation_services)::bigint,0);
+        SELECT public.r330_assert('r331-owner-admin-flag-revoked-taxacc_deadline_templates',(SELECT count(*) FROM public.taxacc_deadline_templates)::bigint,0);
+        SELECT public.r330_assert('r331-owner-admin-flag-revoked-taxacc_document_request_templates',(SELECT count(*) FROM public.taxacc_document_request_templates)::bigint,0);
+        SELECT public.r330_assert('r331-owner-admin-flag-revoked-taxacc_message_templates',(SELECT count(*) FROM public.taxacc_message_templates)::bigint,0);
+        SELECT public.r330_assert('r331-owner-admin-flag-revoked-taxacc_r9_monthly_review_batches',(SELECT count(*) FROM public.taxacc_r9_monthly_review_batches)::bigint,0);
+        SELECT public.r330_assert('r331-owner-still-client-grant-taxacc_appointments',(SELECT count(*) FROM public.taxacc_appointments)::bigint,2);
+        SELECT public.r330_assert('r331-owner-still-client-grant-taxacc_client_contact_links',(SELECT count(*) FROM public.taxacc_client_contact_links)::bigint,2);
+        SELECT public.r330_assert('r331-owner-still-client-grant-taxacc_communications',(SELECT count(*) FROM public.taxacc_communications)::bigint,2);
+        SELECT public.r330_assert('r331-owner-still-client-grant-taxacc_engagements',(SELECT count(*) FROM public.taxacc_engagements)::bigint,2);
+        SELECT public.r330_assert('r331-owner-still-client-grant-taxacc_inquiries',(SELECT count(*) FROM public.taxacc_inquiries)::bigint,2);
+        SELECT public.r330_assert('r331-owner-still-client-grant-taxacc_r9_monthly_review_items',(SELECT count(*) FROM public.taxacc_r9_monthly_review_items)::bigint,2);
+        SELECT public.r330_assert('r331-owner-still-client-grant-taxacc_tasks',(SELECT count(*) FROM public.taxacc_tasks)::bigint,2);
+        COMMIT;
+        RESET ROLE;
+        UPDATE public.taxacc_offices SET production_guard=false WHERE id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        SET ROLE authenticated;
+        BEGIN;
+        SET LOCAL request.jwt.claim.sub='00000001-0001-4001-8001-000000000001';
+        SELECT public.r330_assert('r331-office-guard-off-taxacc_appointments',(SELECT count(*) FROM public.taxacc_appointments)::bigint,0);
+        SELECT public.r330_assert('r331-office-guard-off-taxacc_business_hours',(SELECT count(*) FROM public.taxacc_business_hours)::bigint,0);
+        SELECT public.r330_assert('r331-office-guard-off-taxacc_client_contact_links',(SELECT count(*) FROM public.taxacc_client_contact_links)::bigint,0);
+        SELECT public.r330_assert('r331-office-guard-off-taxacc_closed_dates',(SELECT count(*) FROM public.taxacc_closed_dates)::bigint,0);
+        SELECT public.r330_assert('r331-office-guard-off-taxacc_communications',(SELECT count(*) FROM public.taxacc_communications)::bigint,0);
+        SELECT public.r330_assert('r331-office-guard-off-taxacc_consultation_services',(SELECT count(*) FROM public.taxacc_consultation_services)::bigint,0);
+        SELECT public.r330_assert('r331-office-guard-off-taxacc_deadline_templates',(SELECT count(*) FROM public.taxacc_deadline_templates)::bigint,0);
+        SELECT public.r330_assert('r331-office-guard-off-taxacc_document_request_items',(SELECT count(*) FROM public.taxacc_document_request_items)::bigint,0);
+        SELECT public.r330_assert('r331-office-guard-off-taxacc_document_request_templates',(SELECT count(*) FROM public.taxacc_document_request_templates)::bigint,0);
+        SELECT public.r330_assert('r331-office-guard-off-taxacc_engagements',(SELECT count(*) FROM public.taxacc_engagements)::bigint,0);
+        SELECT public.r330_assert('r331-office-guard-off-taxacc_inquiries',(SELECT count(*) FROM public.taxacc_inquiries)::bigint,0);
+        SELECT public.r330_assert('r331-office-guard-off-taxacc_message_templates',(SELECT count(*) FROM public.taxacc_message_templates)::bigint,0);
+        SELECT public.r330_assert('r331-office-guard-off-taxacc_r9_monthly_review_batches',(SELECT count(*) FROM public.taxacc_r9_monthly_review_batches)::bigint,0);
+        SELECT public.r330_assert('r331-office-guard-off-taxacc_r9_monthly_review_items',(SELECT count(*) FROM public.taxacc_r9_monthly_review_items)::bigint,0);
+        SELECT public.r330_assert('r331-office-guard-off-taxacc_tasks',(SELECT count(*) FROM public.taxacc_tasks)::bigint,0);
+        COMMIT;
+        RESET ROLE;
+        DO $r331_negative$
+        BEGIN
+         BEGIN
+          INSERT INTO public.taxacc_engagements(id,office_id,client_id) VALUES
+            ('ffffffff-ffff-4fff-8fff-fffffffffff1','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','20000000-0000-4000-8000-000000000004');
+          RAISE EXCEPTION 'R331_CROSS_TENANT_CLIENT_FK_UNEXPECTEDLY_ACCEPTED';
+         EXCEPTION WHEN foreign_key_violation THEN RAISE NOTICE 'R331_PASS: cross-tenant-client-FK-blocked';
+         END;
+         BEGIN
+          INSERT INTO public.taxacc_document_request_items(id,office_id,request_id) VALUES
+            ('ffffffff-ffff-4fff-8fff-fffffffffff2','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','40000000-0000-4000-8000-000000000004');
+          RAISE EXCEPTION 'R331_CROSS_TENANT_REQUEST_FK_UNEXPECTEDLY_ACCEPTED';
+         EXCEPTION WHEN foreign_key_violation THEN RAISE NOTICE 'R331_PASS: cross-tenant-request-FK-blocked';
+         END;
+        END $r331_negative$;
+        SELECT 'R331_CORE7_PLUS_19_TABLE_POLICY_QA_PASS__COMMERCIAL_HOLD' AS result;
+        R331_09
+        pgid="${{ job.services.pg.id }}"
+        test -n "$pgid"
+        docker exec -i "$pgid" psql -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 < /tmp/09_r331_revocation.sql
+    - name: Release HOLD evidence only (no deployment)
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo 'R331_EPHEMERAL_PG17_RLS_POLICY_MATRIX_PASS core7_replayed=104 additional_assertions=298 tables_covered=26 policy_candidacy_only=true real_supabase=false real_jwt=false production_deployment=false commercial_release=HOLD'
