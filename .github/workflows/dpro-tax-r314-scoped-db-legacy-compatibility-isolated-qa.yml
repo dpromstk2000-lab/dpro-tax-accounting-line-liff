@@ -1,0 +1,364 @@
+name: DPRO TAX R314 Isolated Scoped DB Query and Legacy Compatibility QA
+
+on:
+  push:
+    branches:
+      - dpro-tax-r308-auth-tenant-integration-qa-20261020
+    paths:
+      - '.github/workflows/dpro-tax-r314-scoped-db-legacy-compatibility-isolated-qa.yml'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  isolated-scoped-db-boundary:
+    if: github.ref == 'refs/heads/dpro-tax-r308-auth-tenant-integration-qa-20261020'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: R314 Source-derived risk checks and scoped DB query contract (offline only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'R314_NODE'
+          'use strict';
+          // R314: predeployment adapter contract, NOT actual Worker runtime.
+          // This is NEVER imported by the deployed legacy Worker; this is synthetic QA only.
+          const assert = require('node:assert/strict');
+          const {webcrypto} = require('node:crypto');
+          const subtle = webcrypto.subtle;
+          const NOW = 1792569600;
+          const ISS = 'https://r314-synthetic.invalid.test/auth/v1';
+          const AUD = 'authenticated';
+          const KID = 'r314-p256-test-key';
+          const A='11111111-1111-4111-8111-111111111111',B='22222222-2222-4222-8222-222222222222',C='33333333-3333-4333-8333-333333333333',D='44444444-4444-4444-8444-444444444444',E='55555555-5555-4555-8555-555555555555';
+          const OA='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',OB='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',OC='cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+          const CA='aaaaaaaa-0000-4000-8000-000000000001',CB='bbbbbbbb-0000-4000-8000-000000000001',CC='aaaaaaaa-0000-4000-8000-000000000002';
+          const offices=[{id:OA,is_active:true,is_demo:false},{id:OB,is_active:true,is_demo:false},{id:OC,is_active:false,is_demo:false}];
+          const staff=[
+           {id:'s1',office_id:OA,auth_user_id:A,role:'owner',is_active:true,can_view_all_clients:true},
+           {id:'s2',office_id:OB,auth_user_id:B,role:'staff',is_active:true,can_view_all_clients:false},
+           {id:'s3',office_id:OA,auth_user_id:C,role:'reviewer',is_active:true,can_view_all_clients:false},
+           {id:'s4',office_id:OB,auth_user_id:C,role:'staff',is_active:true,can_view_all_clients:false},
+           {id:'s5',office_id:OA,auth_user_id:D,role:'owner',is_active:false,can_view_all_clients:true},
+          ];
+          const clients=[
+           {id:CA,office_id:OA,assigned_staff_id:'s3',reviewer_staff_id:'s3',sensitive:'NEVER_RETURN'},
+           {id:CB,office_id:OB,assigned_staff_id:'s2',reviewer_staff_id:null,sensitive:'NEVER_RETURN'},
+           {id:CC,office_id:OA,assigned_staff_id:null,reviewer_staff_id:null,sensitive:'NEVER_RETURN'},
+          ];
+          let outbound=0,legacyCalls=0,reads=0,checks=0,allowed=0,denied=0;
+          let scopedDbChecks=0;const dbQueries=[];
+          // Archived legacy Worker, audited OFFLINE locally by SHA-256, NOT uploaded to public GitHub.
+          // SHA256 9b7c5885c0c1f7d1c289dc62058a25057e95fb649f1e0eb7f9b07ec2f4fea590
+          // Findings: ADMIN_KEY || "1234", allow unverified LINE ID defaults true,
+          // hardcoded OFFICE_CODE="dpro_taxacc_demo", Service Role DB access,
+          // raw client list without staff assignment predicate. Neither deploy nor invoke it here.
+          globalThis.fetch=async()=>{outbound++;throw Error('NETWORK_DISABLED')};
+          const uuid = s => typeof s==='string'&&/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(s);
+          const b64=o=>Buffer.from(JSON.stringify(o)).toString('base64url');
+          const parse=x=>{
+           if(!/^[A-Za-z0-9_-]{1,8192}$/.test(x))throw Error('BAD_ENCODING');
+           const raw=Buffer.from(x,'base64url');
+           if(raw.toString('base64url')!==x)throw Error('BAD_ENCODING');
+           return JSON.parse(raw.toString('utf8'));
+          };
+          function fail(status,code){const e=new Error(code);e.status=status;e.code=code;throw e}
+          function json(status,body){return new Response(JSON.stringify(body),{status,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'}})}
+          async function makeJwt(claims,privateKey,headerOverride={}){
+           const header={alg:'ES256',typ:'JWT',kid:KID,...headerOverride};
+           const input=b64(header)+'.'+b64(claims);
+           const raw=await subtle.sign({name:'ECDSA',hash:'SHA-256'},privateKey,new TextEncoder().encode(input));
+           return input+'.'+Buffer.from(raw).toString('base64url');
+          }
+          const claim=sub=>({iss:ISS,aud:AUD,sub,role:'authenticated',iat:NOW-30,nbf:NOW-30,exp:NOW+900});
+          async function verifyJwt(token,key){
+           if(typeof token!=='string'||token.length>12000)fail(401,'INVALID_TOKEN');
+           const p=token.split('.');
+           if(p.length!==3||p.some(x=>!/^[A-Za-z0-9_-]+$/.test(x)))fail(401,'INVALID_TOKEN');
+           let h,c,sig;
+           try{h=parse(p[0]);c=parse(p[1]);sig=Buffer.from(p[2],'base64url')}catch{fail(401,'INVALID_TOKEN')}
+           if(h?.alg!=='ES256'||h?.typ!=='JWT'||h?.kid!==KID)fail(401,'INVALID_TOKEN');
+           if(sig.length!==64||sig.toString('base64url')!==p[2])fail(401,'INVALID_TOKEN');
+           const valid=await subtle.verify({name:'ECDSA',hash:'SHA-256'},key,sig,new TextEncoder().encode(p[0]+'.'+p[1]));
+           if(!valid)fail(401,'INVALID_TOKEN');
+           if(c.iss!==ISS||c.aud!==AUD||c.role!=='authenticated'||!uuid(c.sub))fail(401,'INVALID_TOKEN');
+           if(![c.iat,c.nbf,c.exp].every(Number.isInteger)||c.exp<=NOW||c.nbf>NOW||c.iat>NOW+30||c.exp-c.iat>3600)fail(401,'INVALID_TOKEN');
+           return Object.freeze({sub:c.sub});
+          }
+          // A strict PostgREST-style read-query builder. No actual DB credentials or outbound calls.
+          function buildScopedClientRead(officeId,who,clientId=null){
+           if(!uuid(officeId)||who?.office_id!==officeId||who?.is_active!==true)fail(403,'DB_SCOPE_REQUIRED');
+           if(!['owner','manager','staff','reviewer'].includes(who.role))fail(403,'ROLE_DENIED');
+           if(clientId!==null&&!uuid(clientId))fail(404,'INVALID_CLIENT');
+           const q=new URLSearchParams();
+           q.set('select','id,office_id,assigned_staff_id,reviewer_staff_id');
+           q.set('office_id','eq.'+officeId);
+           if(clientId!==null)q.set('id','eq.'+clientId);
+           const global=who.can_view_all_clients===true&&['owner','manager'].includes(who.role);
+           if(!global){
+             if(!/^s[1-9][0-9]*$/.test(who.id))fail(403,'STAFF_ID_INVALID');
+             q.set('or','(assigned_staff_id.eq.'+who.id+',reviewer_staff_id.eq.'+who.id+')');
+           }
+           q.set('limit','50');
+           const url=new URL('https://isolated.invalid.test/rest/v1/taxacc_clients');
+           url.search=q.toString();
+           return Object.freeze({url:url.toString(),officeId,staffId:who.id,allowAll:global});
+          }
+          function fakePostgrestGet(query){
+           // This represents the DB filtering the rows, not a JS post-response filter.
+           const url=new URL(query.url),p=url.searchParams;
+           assert.equal(url.hostname,'isolated.invalid.test');
+           assert.equal(url.pathname,'/rest/v1/taxacc_clients');
+           assert.equal(p.get('office_id'),'eq.'+query.officeId);
+           assert.equal(p.get('limit'),'50');
+           assert.equal(p.get('select'),'id,office_id,assigned_staff_id,reviewer_staff_id');
+           assert.equal(p.has('apikey'),false);assert.equal(p.has('authorization'),false);
+           assert.deepEqual([...p.keys()].sort(),(query.allowAll?['select','office_id','limit']:['select','office_id','or','limit']).concat(p.has('id')?['id']:[]).sort());
+           if(!query.allowAll)assert.equal(p.get('or'),'('+'assigned_staff_id.eq.'+query.staffId+',reviewer_staff_id.eq.'+query.staffId+')');
+           const wanted=p.get('id');
+           const filtered=clients.filter(x=>x.office_id===query.officeId&&(!wanted||wanted==='eq.'+x.id)&&
+             (query.allowAll||x.assigned_staff_id===query.staffId||x.reviewer_staff_id===query.staffId));
+           scopedDbChecks++;dbQueries.push({office_id:query.officeId,allow_all:query.allowAll,staff_id:query.staffId,row_count:filtered.length});
+           return filtered;
+          }
+          function dbAdapter(){
+           return Object.freeze({
+             getOffice:async id=>{reads++;return offices.find(x=>x.id===id)||null},
+             getMemberships:async(sub,id)=>{reads++;return staff.filter(x=>x.auth_user_id===sub&&x.office_id===id)},
+             getOfficeClients:async(id,who)=>{reads++;return fakePostgrestGet(buildScopedClientRead(id,who))},
+           });
+          }
+          function visible(who,row){return (who.can_view_all_clients===true&&['owner','manager'].includes(who.role))||row.assigned_staff_id===who.id||row.reviewer_staff_id===who.id}
+          function validPath(path){
+           // Do not normalize over encoded path traversal, repeated slashes, or query-based route selection.
+           if(path==='/api/admin/dashboard')return {kind:'dashboard'};
+           if(path==='/api/admin/clients')return {kind:'list'};
+           const m=/^\/api\/admin\/clients\/([0-9a-f-]{36})$/.exec(path);
+           if(m&&uuid(m[1]))return {kind:'detail',id:m[1]};
+           if(/^\/api\/admin\/documents\//.test(path)&&/\/signed-url$/.test(path))fail(403,'SIGNED_URL_HOLD');
+           fail(404,'ROUTE_DISABLED');
+          }
+          function makeWorkerShapedBoundary({jwtVerify,database,legacyFetch}){
+           return async function boundary(request){
+             try {
+               if(request.method!=='GET')fail(405,'METHOD_DISABLED');
+               const u=new URL(request.url);
+               // No legacy dispatch, even for health routes, unless separately reviewed.
+               const route=validPath(u.pathname);
+               if(u.search!=='')fail(404,'QUERY_DISABLED');
+               const auth=request.headers.get('authorization')||'';
+               const bearer=/^Bearer ([A-Za-z0-9._-]{1,12000})$/.exec(auth);
+               if(!bearer)fail(401,'BEARER_REQUIRED');
+               const id=await jwtVerify(bearer[1]);
+               const selected=request.headers.get('x-office-id'); // selector only, never an authorization grant
+               if(!uuid(selected))fail(403,'OFFICE_REQUIRED');
+               const office=await database.getOffice(selected);
+               if(!office||!office.is_active||office.is_demo)fail(403,'OFFICE_NOT_AUTHORIZED');
+               const members=await database.getMemberships(id.sub,selected);
+               if(!Array.isArray(members)||members.length!==1)fail(403,'STAFF_NOT_LINKED');
+               const who=members[0];
+               if(!who.is_active||who.office_id!==selected||who.auth_user_id!==id.sub)fail(403,'STAFF_NOT_LINKED');
+               const records=await database.getOfficeClients(selected,who);
+               if(!Array.isArray(records)||records.some(x=>x.office_id!==selected||!uuid(x.id)))fail(503,'CLIENT_SCOPE_MISMATCH');
+               const safe=records.filter(x=>visible(who,x)).map(x=>({id:x.id,office_id:selected}));
+               if(route.kind==='detail'){
+                 const row=safe.find(x=>x.id===route.id);
+                 if(!row)fail(404,'CLIENT_NOT_FOUND');
+                 return json(200,{ok:true,client:row});
+               }
+               if(route.kind==='list')return json(200,{ok:true,clients:safe});
+               if(route.kind==='dashboard')return json(200,{ok:true,summary:{visible_clients:safe.length}});
+               // Explicitly unreachable: rejects every other route, no fallthrough to original.
+               void legacyFetch;
+               fail(404,'ROUTE_DISABLED');
+             }catch(e){return json(Number.isInteger(e.status)?e.status:401,{ok:false,error:e.code||'AUTH_REJECTED'})}
+           }
+          }
+          const req=(token='',office=OA,path='/api/admin/dashboard',method='GET',headers={})=>new Request('https://offline-worker.invalid.test'+path,{method,headers:{'authorization':token?'Bearer '+token:'','x-office-id':office||'',...headers}});
+          async function expectStatus(handler,r,status,code){const out=await handler(r);assert.equal(out.status,status);const b=await out.json();if(code)assert.equal(b.error,code);return b}
+          async function main(){
+           const trusted=await subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']);
+           const attacker=await subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']);
+           const tokens={};for(const sub of [A,B,C,D,E])tokens[sub]=await makeJwt(claim(sub),trusted.privateKey);
+           const gateway=makeWorkerShapedBoundary({jwtVerify:t=>verifyJwt(t,trusted.publicKey),database:dbAdapter(),legacyFetch:async()=>{legacyCalls++;throw Error('LEGACY_DISPATCH_FORBIDDEN')}});
+           async function check(name,fn){await fn();checks++;console.log('PASS '+name)}
+           await check('signed-owner-dashboard',async()=>{
+             const b=await expectStatus(gateway,req(tokens[A]),200);
+             assert.equal(b.summary.visible_clients,2);
+           });
+           await check('signed-staff-assigned-only',async()=>{
+             const b=await expectStatus(gateway,req(tokens[B],OB,'/api/admin/clients'),200);
+             assert.deepEqual(b.clients,[{id:CB,office_id:OB}]);assert.equal(JSON.stringify(b).includes('NEVER_RETURN'),false);
+           });
+           await check('reviewer-both-offices-separated',async()=>{
+             const a=await expectStatus(gateway,req(tokens[C],OA,'/api/admin/clients'),200);
+             const b=await expectStatus(gateway,req(tokens[C],OB,'/api/admin/clients'),200);
+             assert.deepEqual(a.clients,[{id:CA,office_id:OA}]);assert.deepEqual(b.clients,[]);
+           });
+           // Demonstrate the archived legacy auth defect from the audited code, while
+           // proving the new adapter never inherits that permissive behavior.
+           await check('legacy-auth-default-risk-is-known',async()=>{
+             const legacyExpected=configured=>String(configured||'').trim()||'1234';
+             assert.equal(legacyExpected(undefined),'1234');
+             assert.equal(legacyExpected('production-secret'),'production-secret');
+           });
+           await check('legacy-line-user-default-risk-is-known',async()=>{
+             const legacyAllowsRaw=v=>String(v??'true').toLowerCase()!=='false';
+             assert.equal(legacyAllowsRaw(undefined),true);
+             assert.equal(legacyAllowsRaw('false'),false);
+           });
+           await check('legacy-fixed-demo-office-risk-is-known',async()=>{
+             const fixed='dpro_taxacc_demo';assert.notEqual(fixed,OA);assert.notEqual(fixed,OB);
+           });
+           await check('scoped-db-owner-query',async()=>{
+             const q=buildScopedClientRead(OA,staff[0]);const p=new URL(q.url).searchParams;
+             assert.equal(p.get('office_id'),'eq.'+OA);assert.equal(p.has('or'),false);
+             assert.deepEqual(fakePostgrestGet(q).map(x=>x.id).sort(),[CA,CC].sort());
+           });
+           await check('scoped-db-staff-assignment-where',async()=>{
+             const q=buildScopedClientRead(OB,staff[1]);const p=new URL(q.url).searchParams;
+             assert.equal(p.get('office_id'),'eq.'+OB);assert.equal(p.get('or'),'(assigned_staff_id.eq.s2,reviewer_staff_id.eq.s2)');
+             assert.deepEqual(fakePostgrestGet(q).map(x=>x.id),[CB]);
+           });
+           await check('scoped-db-reviewer-assignment-where',async()=>{
+             const q=buildScopedClientRead(OA,staff[2]);const p=new URL(q.url).searchParams;
+             assert.equal(p.get('or'),'(assigned_staff_id.eq.s3,reviewer_staff_id.eq.s3)');
+             assert.deepEqual(fakePostgrestGet(q).map(x=>x.id),[CA]);
+           });
+           await check('scoped-db-different-membership-same-sub',async()=>{
+             const q=buildScopedClientRead(OB,staff[3]);assert.deepEqual(fakePostgrestGet(q),[]);
+           });
+           await check('scoped-db-foreign-member-denied',async()=>{
+             assert.throws(()=>buildScopedClientRead(OA,staff[1]),/DB_SCOPE_REQUIRED/);
+           });
+           await check('scoped-db-inactive-member-denied',async()=>{
+             assert.throws(()=>buildScopedClientRead(OA,staff[4]),/DB_SCOPE_REQUIRED/);
+           });
+           await check('scoped-db-invalid-office-denied',async()=>{
+             assert.throws(()=>buildScopedClientRead('office-a',staff[0]),/DB_SCOPE_REQUIRED/);
+           });
+           await check('scoped-db-invalid-staffid-denied',async()=>{
+             assert.throws(()=>buildScopedClientRead(OA,{...staff[2],id:'s3),office_id.eq.'+OB}),/STAFF_ID_INVALID/);
+           });
+           await check('scoped-db-invalid-clientid-denied',async()=>{
+             assert.throws(()=>buildScopedClientRead(OA,staff[0],'../escape'),/INVALID_CLIENT/);
+           });
+           await check('scoped-db-no-service-role-ever',async()=>{
+             for(const q of dbQueries){assert.equal(q.office_id===OA||q.office_id===OB,true)}
+             assert.equal(outbound,0);
+           });
+           await check('commercial-legacy-post-suppressed',async()=>{
+             const r=await gateway(req(tokens[A],OA,'/api/admin/demo-prepare','POST'));
+             assert.equal(r.status,405);assert.equal(legacyCalls,0);
+           });
+           await check('commercial-legacy-signedurl-suppressed',async()=>{
+             const r=await gateway(req(tokens[A],OA,'/api/admin/documents/'+CA+'/signed-url'));
+             assert.equal(r.status,403);assert.equal(legacyCalls,0);
+           });
+           await check('commercial-legacy-health-not-routed',async()=>{
+             const r=await gateway(req(tokens[A],OA,'/api/health'));
+             assert.equal(r.status,404);assert.equal(legacyCalls,0);
+           });
+           await check('client-detail-uses-assignment-query',async()=>{
+             const q=buildScopedClientRead(OA,staff[2],CA);
+             assert.equal(new URL(q.url).searchParams.get('id'),'eq.'+CA);
+             assert.deepEqual(fakePostgrestGet(q).map(x=>x.id),[CA]);
+           });
+           await check('owner-can-not-change-tenant-with-header',async()=>{
+             const r=await gateway(req(tokens[A],OB,'/api/admin/clients','GET',{'x-admin-key':'1234','x-verified-sub':A}));
+             assert.equal(r.status,403);
+           });
+           const negatives=[
+            ['no-bearer',req(),401,'BEARER_REQUIRED'],
+            ['admin-key-1234-only',req('',OA,'/api/admin/dashboard','GET',{'x-admin-key':'1234'}),401,'BEARER_REQUIRED'],
+            ['raw-line-id-only',req('',OA,'/api/admin/dashboard','GET',{'x-line-user-id':'fake-user'}),401,'BEARER_REQUIRED'],
+            ['forged-bearer',req('forged'),401,'INVALID_TOKEN'],
+            ['cross-office',req(tokens[A],OB),403,'STAFF_NOT_LINKED'],
+            ['inactive-office',req(tokens[A],OC),403,'OFFICE_NOT_AUTHORIZED'],
+            ['inactive-staff',req(tokens[D],OA),403,'STAFF_NOT_LINKED'],
+            ['unlinked-user',req(tokens[E],OA),403,'STAFF_NOT_LINKED'],
+            ['office-absent',req(tokens[A],''),403,'OFFICE_REQUIRED'],
+            ['foreign-client',req(tokens[A],OA,'/api/admin/clients/'+CB),404,'CLIENT_NOT_FOUND'],
+            ['unassigned-client',req(tokens[C],OA,'/api/admin/clients/'+CC),404,'CLIENT_NOT_FOUND'],
+            ['signed-url',req(tokens[A],OA,'/api/admin/documents/'+CA+'/signed-url'),403,'SIGNED_URL_HOLD'],
+            ['legacy-settings-read',req(tokens[A],OA,'/api/admin/settings'),404,'ROUTE_DISABLED'],
+            ['legacy-staff-read',req(tokens[A],OA,'/api/admin/staff'),404,'ROUTE_DISABLED'],
+            ['legacy-member-read',req(tokens[A],OA,'/api/member'),404,'ROUTE_DISABLED'],
+            ['legacy-public-read',req(tokens[A],OA,'/api/public/office'),404,'ROUTE_DISABLED'],
+            ['public-create',req(tokens[A],OA,'/api/public/appointments','POST'),405,'METHOD_DISABLED'],
+            ['legacy-demo-prepare',req(tokens[A],OA,'/api/admin/demo-prepare','POST'),405,'METHOD_DISABLED'],
+            ['staff-create',req(tokens[A],OA,'/api/admin/staff','POST'),405,'METHOD_DISABLED'],
+            ['client-update',req(tokens[A],OA,'/api/admin/clients/'+CA,'PATCH'),405,'METHOD_DISABLED'],
+            ['client-delete',req(tokens[A],OA,'/api/admin/clients/'+CA,'DELETE'),405,'METHOD_DISABLED'],
+            ['head-rejected',req(tokens[A],OA,'/api/admin/dashboard','HEAD'),405,'METHOD_DISABLED'],
+            ['options-rejected',req(tokens[A],OA,'/api/admin/dashboard','OPTIONS'),405,'METHOD_DISABLED'],
+            ['path-traversal',req(tokens[A],OA,'/api/admin/clients/../staff'),404,'ROUTE_DISABLED'],
+            ['double-slash',req(tokens[A],OA,'/api/admin//clients'),404,'ROUTE_DISABLED'],
+            ['encoded-path',req(tokens[A],OA,'/api/admin/%63lients'),404,'ROUTE_DISABLED'],
+            ['query-office-injection',req(tokens[A],OA,'/api/admin/clients?office_id='+OB),404,'QUERY_DISABLED'],
+            ['query-sub-injection',req(tokens[A],OA,'/api/admin/clients?sub='+A),404,'QUERY_DISABLED'],
+           ];
+           for(const [name,r,status,code]of negatives)await check(name,()=>expectStatus(gateway,r,status,code));
+           async function tampered(name,jwt,status='INVALID_TOKEN'){
+             await check(name,()=>expectStatus(gateway,req(jwt),401,status));
+           }
+           const pieces=tokens[A].split('.');
+           await tampered('jwt-payload-tamper',pieces[0]+'.'+b64(claim(B))+'.'+pieces[2]);
+           await tampered('jwt-signed-with-other-key',await makeJwt(claim(A),attacker.privateKey));
+           await tampered('jwt-alg-none',await makeJwt(claim(A),trusted.privateKey,{alg:'none'}));
+           await tampered('jwt-alg-hs256',await makeJwt(claim(A),trusted.privateKey,{alg:'HS256'}));
+           await tampered('jwt-unknown-kid',await makeJwt(claim(A),trusted.privateKey,{kid:'unknown'}));
+           await tampered('jwt-expired',await makeJwt({...claim(A),exp:NOW-1},trusted.privateKey));
+           await tampered('jwt-early-nbf',await makeJwt({...claim(A),nbf:NOW+120},trusted.privateKey));
+           await tampered('jwt-wrong-issuer',await makeJwt({...claim(A),iss:'https://evil.invalid.test'},trusted.privateKey));
+           await tampered('jwt-wrong-audience',await makeJwt({...claim(A),aud:'service_role'},trusted.privateKey));
+           await tampered('jwt-missing-sub',await makeJwt({...claim(A),sub:''},trusted.privateKey));
+           await tampered('jwt-long-lifetime',await makeJwt({...claim(A),exp:NOW+4000},trusted.privateKey));
+           await check('spoofed-role-still-staff',async()=>{
+            const high=await makeJwt({...claim(B),role:'authenticated',office_id:OA,admin:true,can_view_all_clients:true},trusted.privateKey);
+            const b=await expectStatus(gateway,req(high,OB,'/api/admin/clients'),200);
+            assert.deepEqual(b.clients,[{id:CB,office_id:OB}]);
+           });
+           await check('header-sub-spoof-not-used',async()=>{
+            const b=await expectStatus(gateway,req(tokens[B],OB,'/api/admin/clients','GET',{'x-verified-sub':A,'x-admin-key':'1234','x-line-user-id':'abc123'}),200);
+            assert.deepEqual(b.clients,[{id:CB,office_id:OB}]);
+           });
+           await check('fail-closed-foreign-db-row',async()=>{
+            const contaminated=makeWorkerShapedBoundary({jwtVerify:t=>verifyJwt(t,trusted.publicKey),database:{...dbAdapter(),getOfficeClients:async()=>clients},legacyFetch:async()=>{legacyCalls++}});
+            await expectStatus(contaminated,req(tokens[A],OA,'/api/admin/clients'),503,'CLIENT_SCOPE_MISMATCH');
+           });
+           await check('fail-closed-multiple-memberships',async()=>{
+            const dup=makeWorkerShapedBoundary({jwtVerify:t=>verifyJwt(t,trusted.publicKey),database:{...dbAdapter(),getMemberships:async()=>[staff[0],staff[0]]},legacyFetch:async()=>{legacyCalls++}});
+            await expectStatus(dup,req(tokens[A]),403,'STAFF_NOT_LINKED');
+           });
+           await check('fail-closed-malformed-membership',async()=>{
+            const rogue=makeWorkerShapedBoundary({jwtVerify:t=>verifyJwt(t,trusted.publicKey),database:{...dbAdapter(),getMemberships:async()=>[{...staff[0],office_id:OB}]},legacyFetch:async()=>{legacyCalls++}});
+            await expectStatus(rogue,req(tokens[A]),403,'STAFF_NOT_LINKED');
+           });
+           // Same baseline 800 combinations as R311/R312, tested through Worker-shaped Request/Response.
+           const methods=['GET','POST','PATCH','DELETE','HEAD'];
+           const paths=['/api/admin/dashboard','/api/admin/clients','/api/admin/clients/'+CA,
+            '/api/admin/clients/'+CB,'/api/admin/clients/'+CC,
+            '/api/admin/documents/'+CA+'/signed-url','/api/public/appointments','/api/admin/tasks'];
+           for(const method of methods)for(const path of paths)for(const sub of[A,B,C,D,E])for(const officeId of[OA,OB,OC,'not-a-uuid']){
+             const r=await gateway(req(tokens[sub],officeId,path,method));
+             const outcome=r.status===200;
+             if(outcome)allowed++;else denied++;
+             const active=offices.some(x=>x.id===officeId&&x.is_active&&!x.is_demo);
+             const members=staff.filter(x=>x.auth_user_id===sub&&x.office_id===officeId&&x.is_active);
+             const who=members[0];
+             const record=clients.find(x=>path==='/api/admin/clients/'+x.id&&x.office_id===officeId);
+             const eligible=!!who&&!!record&&visible(who,record);
+             const simple=path==='/api/admin/dashboard'||path==='/api/admin/clients';
+             const expected=method==='GET'&&active&&members.length===1&&(simple||eligible);
+             assert.equal(outcome,expected,JSON.stringify({method,path,sub,officeId}));
+             checks++;
+           }
+           assert.equal(allowed,12);assert.equal(denied,788);
+           assert.equal(outbound,0);assert.equal(legacyCalls,0);
+           assert.equal(checks,865);assert.equal(scopedDbChecks,33);
+           console.log(JSON.stringify({suite:'DPRO_TAX_R314_WORKER_BOUNDARY_ISOLATED_QA',checks,named_checks:checks-800,matrix_checks:800,allowed,denied,egress_attempts:outbound,legacy_dispatch_calls:legacyCalls,read_adapter_invocations:reads,scoped_db_read_checks:scopedDbChecks,source_digest:'9b7c5885c0c1f7d1c289dc62058a25057e95fb649f1e0eb7f9b07ec2f4fea590',legacy_source_local_audit_recorded:true,legacy_source_executed_in_ci:false,synthetic_es256:true,source_derived_fixtures:true,real_worker_source_execution_in_ci:false,real_supabase_connection:false,production_deployment:false,commercial_release:'HOLD'}));
+          }
+          main().catch(err=>{console.error('R314_FAIL',err.stack||err);process.exitCode=1});
+          R314_NODE
