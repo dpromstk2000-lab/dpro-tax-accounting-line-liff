@@ -1,0 +1,104 @@
+name: DPRO TAX R320 RLS Readiness HOLD Gate Isolated QA
+
+on:
+  push:
+    branches:
+      - dpro-tax-r308-auth-tenant-integration-qa-20261020
+    paths:
+      - '.github/workflows/dpro-tax-r320-rls-readiness-hold-gate-isolated-qa.yml'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  offline-rls-readiness-gate:
+    if: github.ref == 'refs/heads/dpro-tax-r308-auth-tenant-integration-qa-20261020'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: RLS readiness guard using synthetic policy scenarios only (no checkout or secrets)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'R320_SYNTHETIC_NODE'
+          'use strict';
+          // R320: public-safe SYNTHETIC RLS authorization acceptance gate.
+          // No live project metadata, credentials, JWT, or DB calls in this test.
+          const assert = require('node:assert/strict');
+          const entities=['offices','staff','clients','cases','document_requests','document_submissions','document_access_logs'];
+          const base=()=>({
+           role:'authenticated',connectionRole:'authenticated',jwtVerified:false,
+           officeDerivedFromMembership:false,realRlsPolicyValidated:false,
+           crossTenantDenied:false,assignedClientEnforced:false,storagePolicyValidated:false,
+           legacyAdminFallbackRemoved:false,realWorkerVerified:false,userApproved:false,
+           rlsTables:entities.map(name=>({name,rlsEnabled:true,policyCount:0})),
+           serviceRoleBypassesRls:true,writeRoutesDisabled:true,signedUrlDisabled:true,
+          });
+          function gate(s){
+           if(!s||!Array.isArray(s.rlsTables)||s.rlsTables.length!==entities.length||
+              entities.some(n=>s.rlsTables.filter(t=>t.name===n).length!==1))return 'INVENTORY_INVALID';
+           if(s.rlsTables.some(t=>t.rlsEnabled!==true))return 'RLS_OFF';
+           if(s.role!=='authenticated')return 'IDENTITY_ROLE_INVALID';
+           if(s.connectionRole==='service_role' && s.serviceRoleBypassesRls)return 'BYPASS_RLS_BLOCK';
+           if(s.connectionRole!=='authenticated')return 'CONNECTION_ROLE_INVALID';
+           if(!s.jwtVerified)return 'JWT_UNVERIFIED';
+           if(!s.officeDerivedFromMembership)return 'OFFICE_UNVERIFIED';
+           if(s.rlsTables.some(t=>!Number.isInteger(t.policyCount)||t.policyCount<1))return 'POLICY_COVERAGE_MISSING';
+           if(!s.realRlsPolicyValidated)return 'RLS_EFFECTIVENESS_UNVERIFIED';
+           if(!s.crossTenantDenied)return 'TENANT_ISOLATION_UNVERIFIED';
+           if(!s.assignedClientEnforced)return 'CLIENT_ASSIGNMENT_UNVERIFIED';
+           if(!s.storagePolicyValidated)return 'STORAGE_AUTH_UNVERIFIED';
+           if(!s.legacyAdminFallbackRemoved)return 'LEGACY_ADMIN_FALLBACK';
+           if(!s.writeRoutesDisabled)return 'WRITES_NOT_DISABLED';
+           if(!s.signedUrlDisabled)return 'SIGNED_URL_NOT_HELD';
+           if(!s.realWorkerVerified)return 'REAL_WORKER_UNVERIFIED';
+           if(!s.userApproved)return 'USER_APPROVAL_REQUIRED';
+           return 'MANUAL_COMMERCIAL_REVIEW_REQUIRED';
+          }
+          let checks=0;
+          function pass(name,fn){fn();checks++;console.log('PASS '+name)}
+          const baseline=base(),copy=x=>JSON.parse(JSON.stringify(x));
+          pass('synthetic-missing-policy-is-HOLD',()=>{
+           const x=base();x.jwtVerified=true;x.officeDerivedFromMembership=true;
+           assert.equal(gate(x),'POLICY_COVERAGE_MISSING');
+          });
+          pass('explicit-service-role-bypass-assumption',()=>assert.equal(baseline.serviceRoleBypassesRls,true));
+          for(const name of entities)pass('synthetic-rls-table-'+name,()=>{
+           const t=base().rlsTables.find(x=>x.name===name);assert.equal(t.rlsEnabled,true);
+          });
+          const ready=base();for(const t of ready.rlsTables)t.policyCount=1;
+          for(const p of ['jwtVerified','officeDerivedFromMembership','realRlsPolicyValidated','crossTenantDenied',
+           'assignedClientEnforced','storagePolicyValidated','legacyAdminFallbackRemoved','realWorkerVerified','userApproved'])ready[p]=true;
+          const experiments=[
+           ['missing-table',x=>x.rlsTables.pop(),'INVENTORY_INVALID'],
+           ['duplicate-table',x=>x.rlsTables[0]=x.rlsTables[1],'INVENTORY_INVALID'],
+           ['rls-disabled',x=>x.rlsTables[0].rlsEnabled=false,'RLS_OFF'],
+           ['unknown-role',x=>x.role='anon','IDENTITY_ROLE_INVALID'],
+           ['admin-bypass',x=>x.connectionRole='service_role','BYPASS_RLS_BLOCK'],
+           ['unknown-connection-role',x=>x.connectionRole='postgres','CONNECTION_ROLE_INVALID'],
+           ['jwt-unverified',x=>x.jwtVerified=false,'JWT_UNVERIFIED'],
+           ['office-header-untrusted',x=>x.officeDerivedFromMembership=false,'OFFICE_UNVERIFIED'],
+           ['policy-missing-one-table',x=>x.rlsTables[1].policyCount=0,'POLICY_COVERAGE_MISSING'],
+           ['policy-negative',x=>x.rlsTables[1].policyCount=-1,'POLICY_COVERAGE_MISSING'],
+           ['rls-untested',x=>x.realRlsPolicyValidated=false,'RLS_EFFECTIVENESS_UNVERIFIED'],
+           ['cross-tenant-untested',x=>x.crossTenantDenied=false,'TENANT_ISOLATION_UNVERIFIED'],
+           ['assignment-untested',x=>x.assignedClientEnforced=false,'CLIENT_ASSIGNMENT_UNVERIFIED'],
+           ['storage-untested',x=>x.storagePolicyValidated=false,'STORAGE_AUTH_UNVERIFIED'],
+           ['legacy-fallback',x=>x.legacyAdminFallbackRemoved=false,'LEGACY_ADMIN_FALLBACK'],
+           ['writes-enabled',x=>x.writeRoutesDisabled=false,'WRITES_NOT_DISABLED'],
+           ['signed-url-enabled',x=>x.signedUrlDisabled=false,'SIGNED_URL_NOT_HELD'],
+           ['worker-untested',x=>x.realWorkerVerified=false,'REAL_WORKER_UNVERIFIED'],
+           ['approval-missing',x=>x.userApproved=false,'USER_APPROVAL_REQUIRED'],
+          ];
+          for(const [name,change,denial] of experiments)pass('denial-'+name,()=>{
+           const s=copy(ready);change(s);assert.equal(gate(s),denial);
+          });
+          pass('never-autorelease-after-hypothetical-evidence',()=>{
+           assert.equal(gate(ready),'MANUAL_COMMERCIAL_REVIEW_REQUIRED');
+          });
+          assert.equal(checks,29);
+          console.log(JSON.stringify({suite:'DPRO_TAX_R320_PUBLIC_SAFE_SYNTHETIC_RLS_GATE',checks,
+           synthetic_entities:entities.length,denial_scenarios:experiments.length,
+           live_db_queries:0,live_policy_coverage_checked:false,actual_worker_executed:false,
+           read_only_qa:true,automatic_deploy:false,commercial_release:'HOLD'}));
+          R320_SYNTHETIC_NODE
