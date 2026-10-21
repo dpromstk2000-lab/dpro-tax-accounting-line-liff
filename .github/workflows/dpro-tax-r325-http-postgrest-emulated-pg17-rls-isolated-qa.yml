@@ -1,4 +1,4 @@
-name: DPRO TAX R325 Executable HTTP Bridge to Ephemeral PG17 RLS QA
+name: DPRO TAX R325 Executable HTTP Bridge to Ephemeral PG17 RLS QA (Diagnostic Fix)
 on:
   push:
     branches:
@@ -282,7 +282,7 @@ jobs:
            const sig=await subtle.sign({name:'ECDSA',hash:'SHA-256'},pubpriv.privateKey,Buffer.from(h+'.'+p));
            return h+'.'+p+'.'+Buffer.from(sig).toString('base64url');
           }
-          let checks=0,transportHits=0,realPgCalls=0,violations=0,deniedBeforeTransport=0;
+          let checks=0,transportHits=0,realPgCalls=0,violations=0,deniedBeforeTransport=0,lastTransportTable=null,lastTransportRowCount=0;
           function check(name,actual,expected){assert.deepEqual(actual,expected,name);checks++;}
           const PGID=process.env.R325_PG_CONTAINER_ID||'';
           const dry=process.env.R325_DRY_RUN==='1';
@@ -308,6 +308,8 @@ jobs:
           }
           async function transport(url,opts){
            transportHits++;
+           const diagnosticTable=(()=>{try{return new URL(url).pathname.split('/').at(-1)}catch{return 'invalid-url'}})();
+           try {
            const dest=new URL(url),table=dest.pathname.split('/').at(-1);
            if(dest.origin!==new URL(REST).origin||dest.pathname!=='/rest/v1/'+table||!(table in allowed)||opts?.method!=='GET'||opts.headers?.apikey!==KEY||opts.redirect!=='error'||opts.credentials!=='omit')throw Error('TRANSPORT_CONTRACT_VIOLATION');
            if(dest.searchParams.get('select')!==allowed[table])throw Error('COLUMNS_DENIED');
@@ -336,7 +338,21 @@ jobs:
              if(arrays.length!==1)throw Error('INVALID_PG_RESULT');
              rows=JSON.parse(arrays[0]);realPgCalls++;
            }
+           lastTransportTable=table;lastTransportRowCount=rows.length;
            return new Response(JSON.stringify(rows),{status:200,headers:{'content-type':'application/json'}});
+           } catch(err){
+             // Test-only diagnostics. The database, IDs and endpoints in this suite are synthetic.
+             // Do not log JWTs, Authorization headers, SQL query text or private credentials.
+             const output=String(err?.stderr??'').replace(/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,'[JWT_REDACTED]');
+             const reason=String(err?.message??err).replace(/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,'[JWT_REDACTED]');
+             const safe=s=>s.slice(0,640).replace(/[\r\n]+/g,' ').replace(/(?:password|authorization|apikey)[^,; ]*/ig,'[REDACTED]');
+             console.error('R325_ISOLATED_TRANSPORT_DIAGNOSTIC',JSON.stringify({
+               table:diagnosticTable,kind:err?.name??'Error',code:err?.code??null,
+               message:safe(reason),pg_stderr:safe(output),is_disposable_postgres:!dry,
+               real_supabase_connection:false,commercial_release:'HOLD'
+             }));
+             throw err;
+           }
           }
           const bridge=createR318OfflineRequestBridge({trustedPublicKeys:trust,issuer:ISS,restUrl:REST,publishableKey:KEY,now:()=>TIME,transport});
           function request(jwt,office,path='/api/admin/clients',method='GET',extra={}){
@@ -345,6 +361,7 @@ jobs:
           }
           async function verify(name,token,office,path,status,expectedIds=null,method='GET',extra={}){
            const res=await bridge.handle(request(token,office,path,method,extra));checks++;
+           if(res.status!==status)console.error('R325_SYNTHETIC_HTTP_DIAGNOSTIC',JSON.stringify({case:name,expected_status:status,actual_status:res.status,real_pg_calls:realPgCalls,transport_calls:transportHits,last_success_table:lastTransportTable,last_success_rows:lastTransportRowCount,commercial_release:'HOLD'}));
            assert.equal(res.status,status,`${name} HTTP status`);
            check(name+'-no-store',res.headers.get('cache-control'),'no-store');
            const body=await res.json();
