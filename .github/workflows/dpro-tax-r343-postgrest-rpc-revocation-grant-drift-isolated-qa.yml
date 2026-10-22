@@ -1,0 +1,1458 @@
+name: DPRO TAX R343 Real PostgREST Scoped RPC Revocation and Direct Grant Drift Isolated QA
+'on':
+  push:
+    branches:
+    - dpro-tax-r308-auth-tenant-integration-qa-20261020
+    paths:
+    - .github/workflows/dpro-tax-r343-postgrest-rpc-revocation-grant-drift-isolated-qa.yml
+  workflow_dispatch: null
+permissions:
+  contents: read
+jobs:
+  r343-rpc-revocation-drift:
+    if: github.ref == 'refs/heads/dpro-tax-r308-auth-tenant-integration-qa-20261020'
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    services:
+      pg:
+        image: postgres:17
+        env:
+          POSTGRES_DB: r331_synthetic
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: r333_disposable_only
+        options: --health-cmd "pg_isready -U postgres -d r331_synthetic" --health-interval 10s --health-timeout 5s --health-retries
+          8
+        ports:
+        - 5432:5432
+    steps:
+    - name: Checkout only isolated QA branch with no saved credentials
+      uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+    - name: R343 hash-pin R342 formally passed source before executing regression
+      shell: bash
+      run: 'set -euo pipefail
+
+        src=''.github/workflows/dpro-tax-r342-postgrest-scoped-audited-write-rpc-isolated-qa.yml''
+
+        actual="$(sha256sum "$src" | cut -d'' '' -f1)"
+
+        [[ "$actual" == ''fb3e2250ea99cbe20242a02227ed2a8c194625f6aba1aa9bc96bcb5cb96ca017'' ]] || { echo R343_R342_SOURCE_DRIFT_HOLD;
+        exit 1; }
+
+        echo R343_R342_SOURCE_PIN_PASS
+
+        '
+    - name: R342 hash-pin formally passed R341 source
+      shell: bash
+      run: 'set -euo pipefail
+
+        src=".github/workflows/dpro-tax-r341-postgrest-readonly-write-barrier-isolated-qa.yml"
+
+        actual="$(sha256sum "$src" | cut -d'' '' -f1)"
+
+        [[ "$actual" == "ad1410a701f330323cd1d6ff8db5dffcd99f1db959fb329350f9c88a3c6e503f" ]] || { echo ''R342_R341_SOURCE_DRIFT_HOLD'';
+        exit 1; }
+
+        echo R342_R341_SOURCE_PIN_PASS
+
+        '
+    - name: R341 pin formally passed R340 VIEW security workflow source
+      shell: bash
+      run: 'set -euo pipefail
+
+        source=".github/workflows/dpro-tax-r340-postgrest-security-invoker-view-isolated-qa.yml"
+
+        actual="$(sha256sum "$source" | cut -d'' '' -f1)"
+
+        [[ "$actual" == "93478faf202526ba2c81504f90abedbd322ae3af598cde1b31b985d63bb85b6b" ]] || { echo "R341_R340_SOURCE_DRIFT_HOLD";
+        exit 1; }
+
+        echo "R341_R340_SOURCE_PIN_PASS"
+
+        '
+    - name: R340 fail-closed pin of R339 formally passed workflow source
+      shell: bash
+      run: 'set -euo pipefail
+
+        ref=".github/workflows/dpro-tax-r339-postgrest-security-definer-rpc-exposure-isolated-qa.yml"
+
+        actual="$(sha256sum "$ref" | cut -d'' '' -f1)"
+
+        [[ "$actual" == "c851cd6d626e7a899565ff7b62b09e64d634af4a491d356ebcbde1d0f2336948" ]] || { echo "R340_R339_SOURCE_DRIFT_HOLD";
+        exit 1; }
+
+        echo "R340_R339_PINNED_SOURCE_PASS c851cd6d626e7a899565ff7b62b09e64d634af4a491d356ebcbde1d0f2336948"
+
+        '
+    - name: R339 pin previously passed R338 reference-table hardening source
+      shell: bash
+      run: 'set -euo pipefail
+
+        p=.github/workflows/dpro-tax-r338-pg17-staff-office-defense-in-depth-postgrest-isolated-qa.yml
+
+        test -f "$p"
+
+        test "$(sha256sum "$p" | cut -d'' '' -f1)" = ''a29cb9e0bb1f58a92d986c8445f3c569fbd1caf5f4a924b1fac25eea360a8ae6''
+        || { echo ''R339_R338_SOURCE_DRIFT_HOLD''; exit 1; }
+
+        echo R339_R338_SOURCE_PIN_PASS
+
+        '
+    - name: R338 pin previously passed R337 real PostgREST workflow source
+      shell: bash
+      run: 'set -euo pipefail
+
+        p=.github/workflows/dpro-tax-r337-real-postgrest-pagination-filter-tenant-isolated-qa.yml
+
+        test -f "$p"
+
+        test "$(sha256sum "$p" | cut -d'' '' -f1)" = ''ae767048020db0a6e71e34fbcece7ed0dab51ef9e8aa3a477c28415af6ff5556''
+        || { echo ''R338_R337_SOURCE_DRIFT_HOLD''; exit 1; }
+
+        echo ''R338_R337_PINNED_SOURCE_PASS''
+
+        '
+    - name: R337 hash-pin previous R336 real PostgREST count and revocation suite
+      shell: bash
+      run: 'set -euo pipefail
+
+        p=.github/workflows/dpro-tax-r336-real-postgrest-count-head-revocation-isolated-qa.yml
+
+        test -f "$p"
+
+        actual=$(sha256sum "$p" | cut -d'' '' -f1)
+
+        [[ "$actual" == ''17fe2d81bf3a7919c5b9152a4247d85a6c15ebdee9f217c8f5eb48b09e68ad72'' ]] || { echo ''R337_R336_SOURCE_DRIFT_HOLD'';
+        exit 1; }
+
+        echo R337_R336_SOURCE_PIN_PASS
+
+        '
+    - name: R336 pin previously passed R335 12.2.8 real PostgREST workflow source
+      shell: bash
+      run: 'set -euo pipefail
+
+        p=.github/workflows/dpro-tax-r335-real-postgrest-jwt-rls-isolated-qa.yml
+
+        test -f "$p"
+
+        actual=$(sha256sum "$p" | cut -d'' '' -f1)
+
+        [[ "$actual" == ''cfe7f40e1cd1d136ae4bf647413e6abde96d9105c116642da4f9b95d8b948d57'' ]] || { echo ''R336_R335_SOURCE_DRIFT_HOLD'';
+        exit 1; }
+
+        echo ''R336_R335_PINNED_SOURCE_PASS''
+
+        '
+    - name: R335 pin previous R334 workflow to prevent unauthorized changes
+      shell: bash
+      run: 'set -euo pipefail
+
+        f=.github/workflows/dpro-tax-r334-pg17-jwt-guc-trust-boundary-isolated-qa.yml
+
+        test -f "$f"
+
+        test "$(sha256sum "$f" | cut -d'' '' -f1)" = ''26411925b059125d830dd8dd7104f91d41cdb09ec7fa2be656858d9848ad9db3''
+        || { echo ''R335_R334_SOURCE_DRIFT_HOLD''; exit 1; }
+
+        echo ''R335_R334_SOURCE_PIN_PASS''
+
+        '
+    - name: R334 pin previously passed R333 workflow source (fail on drift)
+      shell: bash
+      run: 'set -euo pipefail
+
+        file=.github/workflows/dpro-tax-r333-pg17-rls-mutation-anon-hardening-isolated-qa.yml
+
+        test -f "$file"
+
+        test "$(sha256sum "$file" | cut -d'' '' -f1)" = ''f7cfee70d895499829cb8152f8c3f047dc6e6a43fffd697f0cad381d9088ef45''
+        || { echo ''R334_R333_SOURCE_DRIFT_HOLD''; exit 1; }
+
+        echo ''R334_R333_SOURCE_SHA256_PIN_PASS''
+
+        '
+    - name: Verify hash-pinned R331 source and restore nine SQL scripts
+      shell: bash
+      run: "set -euo pipefail\npython3 - <<'R333_EXTRACT'\nimport re,hashlib,pathlib\np=pathlib.Path('.github/workflows/dpro-tax-r331-pg17-remaining19-policy-candidate-isolated-qa.yml')\n\
+        assert p.is_file(),'R331_PINNED_SOURCE_MISSING'\ns=p.read_bytes(); assert hashlib.sha256(s).hexdigest()=='564a94632e60f76d228501852298be347fe40fe8af4092026a3ea68478cca4c0','R331_SHA256_DRIFT_HOLD'\n\
+        text=s.decode('utf-8')\nnames=['core_schema','core_fixtures','core_assertions','r331_extension','r331_fixtures','r331_catalog','r331_roles_a','r331_roles_b','r331_revocation']\n\
+        for idx,name in enumerate(names,1):\n label=f'R331_{idx:02}'\n match=re.search(r\"^        cat > /tmp/([^\\n ]+) <<'\"\
+        +label+r\"'\\n(.*?)^        \"+label+r\"[ \\t]*$\",text,re.M|re.S)\n if not match: raise SystemExit('R333_R331_SCRIPT_NOT_FOUND_'+label)\n\
+        \ output=pathlib.Path('/tmp')/(f'{idx:02}_'+name+'.sql')\n if match.group(1)!=output.name:raise SystemExit('R333_FILENAME_CHANGED_'+label)\n\
+        \ content='\\n'.join(line[8:] if line.startswith('        ') else line for line in match.group(2).split('\\n'))\n\
+        \ if not content.lstrip().startswith('\\\\set ON_ERROR_STOP on'):raise SystemExit('R333_PSQL_FAIL_CLOSED_MISSING_'+label)\n\
+        \ output.write_text(content)\nprint('R333_R331_SCRIPTS_PINNED=true sha256_verified=true count=9')\nR333_EXTRACT"
+    - name: Re-run unchanged R331 402 assertions in disposable PostgreSQL 17
+      shell: bash
+      run: "set -euo pipefail\npgid=\"${{ job.services.pg.id }}\"\ntest -n \"$pgid\"\nfor name in 01_core_schema 02_core_fixtures\
+        \ 03_core_assertions 04_r331_extension 05_r331_fixtures 06_r331_catalog 07_r331_roles_a 08_r331_roles_b 09_r331_revocation;\
+        \ do\n docker exec -i \"$pgid\" psql -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 < \"/tmp/${name}.sql\" >\
+        \ \"/tmp/r333_${name}.log\" 2>&1 || { tail -45 \"/tmp/r333_${name}.log\"; exit 1; }\n echo \"R333_R331_REGRESSION_PASS\
+        \ $name\"\ndone"
+    - name: Prepare R333 anonymous grant hardening SQL (disposable only)
+      shell: bash
+      run: "set -euo pipefail\ncat > /tmp/r333_stage1.sql <<'R333_STAGE1'\n\\set ON_ERROR_STOP on\n-- ALL DATA IN THIS SUITE\
+        \ IS SYNTHETIC AND LOCAL TO EPHEMERAL POSTGRES 17.\n-- NEVER APPLY TO PRODUCTION SUPABASE.\n-- R331 tests end with\
+        \ office A intentionally disabled; restore ONLY disposable fixtures here.\nUPDATE public.taxacc_offices SET production_guard=true\
+        \ WHERE id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';\nUPDATE public.taxacc_staff SET can_manage_settings=true WHERE\
+        \ id='10000000-0000-4000-8000-000000000001';\nSELECT public.r330_assert('r333-baseline-taxacc-tables',(SELECT count(*)\
+        \ FROM pg_class c WHERE c.relnamespace='public'::regnamespace AND c.relkind='r' AND c.relname LIKE 'taxacc\\_%' ESCAPE\
+        \ '\\')::bigint,26);\nSELECT public.r330_assert('r333-original-anon-select-grants',(SELECT count(*) FROM pg_class\
+        \ c WHERE c.relnamespace='public'::regnamespace AND c.relkind='r' AND c.relname LIKE 'taxacc\\_%' ESCAPE '\\' AND\
+        \ has_table_privilege('anon',c.oid,'SELECT'))::bigint,21);\nSELECT public.r330_assert('r333-original-auth-select-grants',(SELECT\
+        \ count(*) FROM pg_class c WHERE c.relnamespace='public'::regnamespace AND c.relkind='r' AND c.relname LIKE 'taxacc\\\
+        _%' ESCAPE '\\' AND has_table_privilege('authenticated',c.oid,'SELECT'))::bigint,21);\n-- Before hardening: accidental\
+        \ PUBLIC permissive policy is enough to reveal synthetic clients to anon because SELECT grant already exists.\nCREATE\
+        \ POLICY r333_intentionally_unsafe_public_read ON public.taxacc_clients FOR SELECT TO PUBLIC USING (true);\nSET ROLE\
+        \ anon;\nSELECT public.r330_assert('r333-pre-hardening-public-policy-exposes-five-synthetic-clients',(SELECT count(*)\
+        \ FROM public.taxacc_clients)::bigint,5);\nRESET ROLE;\nDROP POLICY r333_intentionally_unsafe_public_read ON public.taxacc_clients;\n\
+        -- Defense in depth: drop anonymous SELECT table grants, not just RLS visibility.\nDO $revoke_anon$\nDECLARE t record;\n\
+        BEGIN\n FOR t IN SELECT c.relname FROM pg_class c WHERE c.relnamespace='public'::regnamespace AND c.relkind='r' AND\
+        \ c.relname LIKE 'taxacc\\_%' ESCAPE '\\' LOOP\n  EXECUTE format('REVOKE SELECT ON TABLE public.%I FROM anon,PUBLIC',t.relname);\n\
+        \ END LOOP;\nEND $revoke_anon$;\nSELECT public.r330_assert('r333-hardened-anon-no-select-any-of-26',(SELECT count(*)\
+        \ FROM pg_class c WHERE c.relnamespace='public'::regnamespace AND c.relkind='r' AND c.relname LIKE 'taxacc\\_%' ESCAPE\
+        \ '\\' AND has_table_privilege('anon',c.oid,'SELECT'))::bigint,0);\nSELECT public.r330_assert('r333-hardened-auth-still-readable-21',(SELECT\
+        \ count(*) FROM pg_class c WHERE c.relnamespace='public'::regnamespace AND c.relkind='r' AND c.relname LIKE 'taxacc\\\
+        _%' ESCAPE '\\' AND has_table_privilege('authenticated',c.oid,'SELECT'))::bigint,21);\n-- Even if a PUBLIC permissive\
+        \ policy appears again, anon has no SELECT privilege.\nCREATE POLICY r333_intentionally_unsafe_public_read ON public.taxacc_clients\
+        \ FOR SELECT TO PUBLIC USING (true);\nSET ROLE anon;\nDO $anon_denied$\nBEGIN\n BEGIN\n  PERFORM count(*) FROM public.taxacc_clients;\n\
+        \  RAISE EXCEPTION 'R333_ANON_READ_NOT_DENIED';\n EXCEPTION WHEN insufficient_privilege THEN\n  RAISE NOTICE 'R333_PASS:\
+        \ anon grant removed; permissive PUBLIC policy alone cannot expose table';\n END;\nEND $anon_denied$;\nRESET ROLE;\n\
+        DROP POLICY r333_intentionally_unsafe_public_read ON public.taxacc_clients;\n-- Baseline owner must still have legitimate\
+        \ access after anon hardening.\nSET ROLE authenticated;\nBEGIN;\nSET LOCAL request.jwt.claim.sub='00000001-0001-4001-8001-000000000001';\n\
+        SELECT public.r330_assert('r333-hardened-owner-a-sees-three-own-clients',(SELECT count(*) FROM public.taxacc_clients)::bigint,3);\n\
+        SELECT public.r330_assert('r333-hardened-owner-a-no-other-office',(SELECT count(*) FROM public.taxacc_clients WHERE\
+        \ office_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')::bigint,0);\nCOMMIT;\nRESET ROLE;\nSELECT 'R333_ANON_GRANT_HARDENING_REPRODUCED_IN_DISPOSABLE_DB_ONLY'\
+        \ AS stage;\n\nR333_STAGE1\n"
+    - name: Execute R333 anonymous grant vulnerability and correction in disposable PostgreSQL 17
+      shell: bash
+      run: 'set -euo pipefail
+
+        pgid="${{ job.services.pg.id }}"
+
+        test -n "$pgid"
+
+        docker exec -i "$pgid" psql -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 < /tmp/r333_stage1.sql > /tmp/r333_result_1.log
+        2>&1 || { tail -85 /tmp/r333_result_1.log; exit 1; }
+
+        grep -E ''R333_(PASS|GATE|MUTATION|ANON|UNSAFE)'' /tmp/r333_result_1.log | tail -32 || true
+
+        '
+    - name: Prepare R333 12 security policy mutations SQL (disposable only)
+      shell: bash
+      run: "set -euo pipefail\ncat > /tmp/r333_stage2.sql <<'R333_STAGE2'\n\\set ON_ERROR_STOP on\n-- QA release gate is DENY-ON-DRIFT,\
+        \ never a real production migration.\n-- Freeze EXACT policy SQL definitions so same-count policy edits are also detected.\n\
+        CREATE TABLE qa_private.r333_expected_policies AS\n SELECT tablename,policyname,roles::text[] AS roles,cmd,permissive,qual,with_check\n\
+        \ FROM pg_policies WHERE schemaname='public' AND tablename LIKE 'taxacc\\_%' ESCAPE '\\';\nREVOKE ALL ON qa_private.r333_expected_policies\
+        \ FROM PUBLIC,anon,authenticated;\nCREATE FUNCTION public.r333_gate() RETURNS void LANGUAGE plpgsql AS $r333_guard$\n\
+        DECLARE t record; n int; protected boolean;\nBEGIN\n SELECT count(*) INTO n FROM pg_class c WHERE c.relnamespace='public'::regnamespace\
+        \ AND c.relkind='r' AND c.relname LIKE 'taxacc\\_%' ESCAPE '\\';\n IF n<>26 THEN RAISE EXCEPTION 'R333_GATE_TABLE_COUNT_%',n\
+        \ USING ERRCODE='check_violation'; END IF;\n SELECT count(*) INTO n FROM pg_class c WHERE c.relnamespace='public'::regnamespace\
+        \ AND c.relkind='r' AND c.relname LIKE 'taxacc\\_%' ESCAPE '\\' AND c.relrowsecurity AND c.relforcerowsecurity;\n\
+        \ IF n<>26 THEN RAISE EXCEPTION 'R333_GATE_RLS_ENABLED_FORCE_%',n USING ERRCODE='check_violation'; END IF;\n SELECT\
+        \ count(*) INTO n FROM pg_policies WHERE schemaname='public' AND tablename LIKE 'taxacc\\_%' ESCAPE '\\' AND cmd='SELECT';\n\
+        \ IF n<>21 THEN RAISE EXCEPTION 'R333_GATE_READ_POLICY_COUNT_%',n USING ERRCODE='check_violation'; END IF;\n IF EXISTS\
+        \ (\n  SELECT 1 FROM (\n   (SELECT tablename,policyname,roles::text[] AS roles,cmd,permissive,qual,with_check FROM\
+        \ pg_policies\n      WHERE schemaname='public' AND tablename LIKE 'taxacc\\_%' ESCAPE '\\'\n    EXCEPT SELECT tablename,policyname,roles,cmd,permissive,qual,with_check\
+        \ FROM qa_private.r333_expected_policies)\n   UNION ALL\n   (SELECT tablename,policyname,roles,cmd,permissive,qual,with_check\
+        \ FROM qa_private.r333_expected_policies\n    EXCEPT SELECT tablename,policyname,roles::text[] AS roles,cmd,permissive,qual,with_check\
+        \ FROM pg_policies\n      WHERE schemaname='public' AND tablename LIKE 'taxacc\\_%' ESCAPE '\\')\n  ) policy_diff\n\
+        \ ) THEN RAISE EXCEPTION 'R333_GATE_POLICY_DEFINITION_DRIFT' USING ERRCODE='check_violation'; END IF;\n SELECT count(*)\
+        \ INTO n FROM pg_policies WHERE schemaname='public' AND tablename LIKE 'taxacc\\_%' ESCAPE '\\' AND cmd<>'SELECT';\n\
+        \ IF n<>0 THEN RAISE EXCEPTION 'R333_GATE_WRITE_POLICY_PRESENT_%',n USING ERRCODE='check_violation'; END IF;\n IF\
+        \ EXISTS (SELECT 1 FROM pg_roles WHERE rolname IN ('anon','authenticated') AND rolbypassrls) THEN\n  RAISE EXCEPTION\
+        \ 'R333_GATE_BYPASSRLS_ROLE' USING ERRCODE='check_violation';\n END IF;\n IF has_schema_privilege('anon','qa_private','USAGE')\
+        \ THEN\n  RAISE EXCEPTION 'R333_GATE_ANON_PRIVATE_SCHEMA_USAGE' USING ERRCODE='check_violation';\n END IF;\n IF has_function_privilege('anon','qa_private.r330_client(uuid,uuid)','EXECUTE')\
+        \ THEN\n  RAISE EXCEPTION 'R333_GATE_ANON_HELPER_EXECUTE' USING ERRCODE='check_violation';\n END IF;\n FOR t IN SELECT\
+        \ c.oid,c.relname FROM pg_class c WHERE c.relnamespace='public'::regnamespace AND c.relkind='r' AND c.relname LIKE\
+        \ 'taxacc\\_%' ESCAPE '\\' LOOP\n  IF has_table_privilege('anon',t.oid,'SELECT') THEN\n   RAISE EXCEPTION 'R333_GATE_ANON_SELECT_%',t.relname\
+        \ USING ERRCODE='check_violation';\n  END IF;\n  protected := t.relname IN ('taxacc_activity_logs','taxacc_contacts','taxacc_link_tokens','taxacc_r91_review_events','taxacc_document_access_logs');\n\
+        \  IF has_table_privilege('authenticated',t.oid,'SELECT')=protected THEN\n   RAISE EXCEPTION 'R333_GATE_AUTH_READ_GRANT_%',t.relname\
+        \ USING ERRCODE='check_violation';\n  END IF;\n  IF has_table_privilege('anon',t.oid,'INSERT') OR has_table_privilege('anon',t.oid,'UPDATE')\
+        \ OR has_table_privilege('anon',t.oid,'DELETE')\n  OR has_table_privilege('authenticated',t.oid,'INSERT') OR has_table_privilege('authenticated',t.oid,'UPDATE')\
+        \ OR has_table_privilege('authenticated',t.oid,'DELETE') THEN\n   RAISE EXCEPTION 'R333_GATE_WRITE_GRANT_%',t.relname\
+        \ USING ERRCODE='check_violation';\n  END IF;\n  IF protected AND EXISTS (SELECT 1 FROM pg_policies p WHERE p.schemaname='public'\
+        \ AND p.tablename=t.relname) THEN\n   RAISE EXCEPTION 'R333_GATE_SENSITIVE_POLICY_%',t.relname USING ERRCODE='check_violation';\n\
+        \  END IF;\n END LOOP;\n RAISE NOTICE 'R333_GATE_PASS: 26 RLS+FORCE, 21 SELECT policies, 0 anon SELECT, 0 write grants,\
+        \ 5 protected tables';\nEND $r333_guard$;\nCREATE FUNCTION public.r333_expect_guard_to_reject(label text) RETURNS\
+        \ void LANGUAGE plpgsql AS $r333_expect$\nDECLARE details text;\nBEGIN\n BEGIN\n  PERFORM public.r333_gate();\n  RAISE\
+        \ EXCEPTION 'R333_UNDETECTED_MUTATION_%',label;\n EXCEPTION WHEN check_violation THEN\n  GET STACKED DIAGNOSTICS details\
+        \ = MESSAGE_TEXT;\n  IF details NOT LIKE 'R333_GATE_%' THEN RAISE EXCEPTION 'R333_UNEXPECTED_GUARD_ERROR_%',details;\
+        \ END IF;\n  RAISE NOTICE 'R333_MUTATION_DETECTED: % (% )',label,details;\n END;\nEND $r333_expect$;\nSELECT public.r333_gate();\n\
+        -- 1: PERMISSIVE authenticated policy broadens tenant visibility.\nCREATE POLICY r333_bad_auth ON public.taxacc_clients\
+        \ FOR SELECT TO authenticated USING (true);\nSELECT public.r333_expect_guard_to_reject('permissive_policy');\nSET\
+        \ ROLE authenticated;\nBEGIN;\nSET LOCAL request.jwt.claim.sub='00000001-0001-4001-8001-000000000001';\nSELECT public.r330_assert('r333-intentionally-unsafe-owner-sees-all-five',(SELECT\
+        \ count(*) FROM public.taxacc_clients)::bigint,5);\nCOMMIT;\nRESET ROLE;\nDROP POLICY r333_bad_auth ON public.taxacc_clients;\n\
+        SELECT public.r333_gate();\n-- 2: A table accidentally loses RLS enforcement.\nALTER TABLE public.taxacc_clients DISABLE\
+        \ ROW LEVEL SECURITY;\nSELECT public.r333_expect_guard_to_reject('rls_disabled');\nALTER TABLE public.taxacc_clients\
+        \ ENABLE ROW LEVEL SECURITY;\nSELECT public.r333_gate();\n-- 3: FORCE RLS drift (especially dangerous under table-owner\
+        \ paths).\nALTER TABLE public.taxacc_clients NO FORCE ROW LEVEL SECURITY;\nSELECT public.r333_expect_guard_to_reject('force_disabled');\n\
+        ALTER TABLE public.taxacc_clients FORCE ROW LEVEL SECURITY;\nSELECT public.r333_gate();\n-- 4: Unexpected write grant.\n\
+        GRANT UPDATE ON public.taxacc_clients TO authenticated;\nSELECT public.r333_expect_guard_to_reject('write_grant');\n\
+        REVOKE UPDATE ON public.taxacc_clients FROM authenticated;\nSELECT public.r333_gate();\n-- 5: BYPASSRLS is never an\
+        \ ordinary session privilege.\nALTER ROLE authenticated BYPASSRLS;\nSELECT public.r333_expect_guard_to_reject('bypassrls_role');\n\
+        ALTER ROLE authenticated NOBYPASSRLS;\nSELECT public.r333_gate();\n-- 6: Sensitive tables must never expose raw secrets/audit\
+        \ rows.\nGRANT SELECT ON public.taxacc_link_tokens TO authenticated;\nSELECT public.r333_expect_guard_to_reject('sensitive_table_grant');\n\
+        REVOKE SELECT ON public.taxacc_link_tokens FROM authenticated;\nSELECT public.r333_gate();\n-- 7: Policy on a sensitive\
+        \ table is detected EVEN if no table grant exists.\nCREATE POLICY r333_bad_sensitive ON public.taxacc_link_tokens\
+        \ FOR SELECT TO authenticated USING (true);\nSELECT public.r333_expect_guard_to_reject('sensitive_table_policy');\n\
+        DROP POLICY r333_bad_sensitive ON public.taxacc_link_tokens;\nSELECT public.r333_gate();\n-- 8: An accidentally restored\
+        \ anon table grant is detected.\nGRANT SELECT ON public.taxacc_clients TO anon;\nSELECT public.r333_expect_guard_to_reject('anon_select_grant');\n\
+        REVOKE SELECT ON public.taxacc_clients FROM anon;\nSELECT public.r333_gate();\n-- 9: Private helper/schema privileges\
+        \ must not extend to anon.\nGRANT USAGE ON SCHEMA qa_private TO anon;\nSELECT public.r333_expect_guard_to_reject('private_schema_usage');\n\
+        REVOKE USAGE ON SCHEMA qa_private FROM anon;\nSELECT public.r333_gate();\n-- 10: A missing legitimate authenticated\
+        \ grant should be caught (availability security).\nREVOKE SELECT ON public.taxacc_clients FROM authenticated;\nSELECT\
+        \ public.r333_expect_guard_to_reject('legitimate_client_grant_missing');\nGRANT SELECT ON public.taxacc_clients TO\
+        \ authenticated;\nSELECT public.r333_gate();\n-- 11: The definer helper must not be callable by anon.\nGRANT EXECUTE\
+        \ ON FUNCTION qa_private.r330_client(uuid,uuid) TO anon;\nSELECT public.r333_expect_guard_to_reject('anon_definer_execute');\n\
+        REVOKE EXECUTE ON FUNCTION qa_private.r330_client(uuid,uuid) FROM anon;\nSELECT public.r333_gate();\n-- 12: A stealth\
+        \ UPDATE to an existing policy is caught even if the policy count remains 21.\nALTER POLICY r330_clients_read ON public.taxacc_clients\
+        \ USING (true);\nSELECT public.r333_expect_guard_to_reject('same_count_policy_rewrite');\nSET ROLE authenticated;\n\
+        BEGIN;\nSET LOCAL request.jwt.claim.sub='00000001-0001-4001-8001-000000000001';\nSELECT public.r330_assert('r333-mutated-policy-exposes-all-five',(SELECT\
+        \ count(*) FROM public.taxacc_clients)::bigint,5);\nCOMMIT;\nRESET ROLE;\nALTER POLICY r330_clients_read ON public.taxacc_clients\
+        \ USING (qa_private.r330_client(office_id,id));\nSELECT public.r333_gate();\n-- Final: baseline user still has tenant-limited\
+        \ reads, no anon privileges, no persistent policy changes.\nSET ROLE authenticated;\nBEGIN;\nSET LOCAL request.jwt.claim.sub='00000001-0001-4001-8001-000000000001';\n\
+        SELECT public.r330_assert('r333-final-owner-valid-clients',(SELECT count(*) FROM public.taxacc_clients)::bigint,3);\n\
+        SELECT public.r330_assert('r333-final-owner-cannot-see-other-tenant',(SELECT count(*) FROM public.taxacc_clients WHERE\
+        \ office_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')::bigint,0);\nCOMMIT;\nRESET ROLE;\nSELECT public.r333_gate();\n\
+        SELECT 'R333_MUTATION_GUARD_12_SECURITY_DRIFTS_CAUGHT__RELEASE_HOLD' AS result;\n\nR333_STAGE2\n"
+    - name: Execute R333 fail-closed policy drift regression in disposable PostgreSQL 17
+      shell: bash
+      run: 'set -euo pipefail
+
+        pgid="${{ job.services.pg.id }}"
+
+        test -n "$pgid"
+
+        docker exec -i "$pgid" psql -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 < /tmp/r333_stage2.sql > /tmp/r333_result_2.log
+        2>&1 || { tail -85 /tmp/r333_result_2.log; exit 1; }
+
+        grep -E ''R333_(PASS|GATE|MUTATION|ANON|UNSAFE)'' /tmp/r333_result_2.log | tail -32 || true
+
+        '
+    - name: R334 run R316-R319 real offline verifier and scoped request-bridge tests
+      shell: bash
+      run: "set -euo pipefail\nfor test in qa/r316/read-only-gateway.test.mjs qa/r316/r317-scoped-postgrest-adapter.test.mjs\
+        \ qa/r316/r318-offline-request-bridge.test.mjs qa/r316/r319-adversarial-response-integrity.test.mjs; do\n test -f\
+        \ \"$test\" || { echo \"R334_QA_TEST_MISSING $test\"; exit 1; }\n node \"$test\" > /tmp/r334_node_qa.log 2>&1 || {\
+        \ tail -55 /tmp/r334_node_qa.log; exit 1; }\n echo \"R334_SIGNED_JWT_SOURCE_REGRESSION_PASS $test\"\ndone\n"
+    - name: R334 create synthetic GUC spoof and connection-reuse SQL; demonstrate unresolved trust boundary
+      shell: bash
+      run: "set -euo pipefail\ncat > /tmp/r334_jwt_guc_boundary.sql <<'R334_SQL'\n\\set ON_ERROR_STOP on\n-- Disposable PostgreSQL\
+        \ only. Synthetic identities (no real JWTs or service-role keys).\n-- Important: SQL custom GUC (request.jwt.claim.sub)\
+        \ is not a cryptographic proof.\nSELECT public.r333_gate();\n-- R333 replay deliberately restored this baseline at\
+        \ its end.\nSELECT public.r330_assert('r334-26-tables-still-forced-rls',(\n SELECT count(*) FROM pg_class c WHERE\
+        \ c.relnamespace='public'::regnamespace\n AND c.relkind='r' AND c.relname LIKE 'taxacc\\_%' ESCAPE '\\' AND c.relrowsecurity\
+        \ AND c.relforcerowsecurity)::bigint,26);\nSELECT public.r330_assert('r334-anon-no-readable-tables',(\n SELECT count(*)\
+        \ FROM pg_class c WHERE c.relnamespace='public'::regnamespace\n AND c.relkind='r' AND c.relname LIKE 'taxacc\\_%'\
+        \ ESCAPE '\\' AND has_table_privilege('anon',c.oid,'SELECT'))::bigint,0);\nSELECT public.r330_assert('r334-21-readonly-policies',(\n\
+        \ SELECT count(*) FROM pg_policies WHERE schemaname='public' AND cmd='SELECT' AND tablename LIKE 'taxacc\\_%' ESCAPE\
+        \ '\\')::bigint,21);\nSELECT public.r330_assert('r334-authenticated-nobypassrls',(\n SELECT rolbypassrls::int FROM\
+        \ pg_roles WHERE rolname='authenticated')::bigint,0);\n-- Four SECURITY DEFINER helpers hard pin search_path to pg_catalog.\
+        \ Only synthetic functions.\nSELECT public.r330_assert('r334-definer-functions-fixed-searchpath',(\n SELECT count(*)\
+        \ FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace\n WHERE n.nspname='qa_private' AND p.prosecdef AND 'search_path=pg_catalog'=ANY(p.proconfig))::bigint,4);\n\
+        -- Verify legitimate, baseline tenant-local reads before deliberately spoofing sub.\nSET ROLE authenticated;\nBEGIN;\n\
+        SET LOCAL request.jwt.claim.sub='00000001-0001-4001-8001-000000000001';\nSELECT public.r330_assert('r334-baseline-owner-A-three',(SELECT\
+        \ count(*) FROM public.taxacc_clients)::bigint,3);\nSELECT public.r330_assert('r334-baseline-owner-A-cannot-see-B',(SELECT\
+        \ count(*) FROM public.taxacc_clients WHERE office_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')::bigint,0);\nCOMMIT;\n\
+        -- No claim should leak beyond COMMIT with SET LOCAL.\nBEGIN;\nSELECT public.r330_assert('r334-local-sub-cleared-after-commit',(SELECT\
+        \ count(*) FROM public.taxacc_clients)::bigint,0);\nCOMMIT;\n-- ATTACK EMULATION: assuming untrusted SQL execution\
+        \ as the `authenticated` role,\n-- an arbitrary SET LOCAL claim changes the RLS principal. This is a known trust boundary.\n\
+        -- DO NOT interpret this as proof that the actual PostgREST API allows arbitrary SET.\nBEGIN;\nSET LOCAL request.jwt.claim.sub='00000005-0005-4005-8005-000000000005';\n\
+        SELECT public.r330_assert('r334-sql-claim-spoof-B-impersonated',(SELECT count(*) FROM public.taxacc_clients)::bigint,1);\n\
+        SELECT public.r330_assert('r334-sql-claim-spoof-B-no-office-A',(SELECT count(*) FROM public.taxacc_clients WHERE office_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')::bigint,0);\n\
+        SELECT public.r330_assert('r334-uid-decoder-trusts-unverified-GUC',(\n SELECT (qa_private.r330_uid()='00000005-0005-4005-8005-000000000005'::uuid)::int)::bigint,1);\n\
+        -- Switch principal within the SAME SQL transaction; RLS follows untrusted GUC!\nSET LOCAL request.jwt.claim.sub='00000001-0001-4001-8001-000000000001';\n\
+        SELECT public.r330_assert('r334-same-transaction-spoof-A-impersonated',(SELECT count(*) FROM public.taxacc_clients)::bigint,3);\n\
+        COMMIT;\nBEGIN;\nSELECT public.r330_assert('r334-spoofed-local-GUC-cleared',(SELECT count(*) FROM public.taxacc_clients)::bigint,0);\n\
+        COMMIT;\n-- Anti-pattern: session-scoped SET survives COMMIT and can influence subsequent request.\nSET request.jwt.claim.sub='00000005-0005-4005-8005-000000000005';\n\
+        BEGIN;\nSELECT public.r330_assert('r334-session-set-visible',(SELECT count(*) FROM public.taxacc_clients)::bigint,1);\n\
+        COMMIT;\nBEGIN;\nSELECT public.r330_assert('r334-session-set-still-present-next-tx',(SELECT count(*) FROM public.taxacc_clients)::bigint,1);\n\
+        COMMIT;\nRESET request.jwt.claim.sub;\nBEGIN;\nSELECT public.r330_assert('r334-session-GUC-reset-denies',(SELECT count(*)\
+        \ FROM public.taxacc_clients)::bigint,0);\nCOMMIT;\nRESET ROLE;\n-- Anonymous role cannot read even with injected\
+        \ sub.\nSET ROLE anon;\nBEGIN;\nSET LOCAL request.jwt.claim.sub='00000001-0001-4001-8001-000000000001';\nDO $r334_anon$\
+        \ BEGIN\n BEGIN\n  PERFORM count(*) FROM public.taxacc_clients;\n  RAISE EXCEPTION 'R334_UNSAFE_ANON_READ';\n EXCEPTION\
+        \ WHEN insufficient_privilege THEN\n  RAISE NOTICE 'R334_PASS: anonymous claim spoof blocked by explicit SQL GRANT\
+        \ barrier';\n END;\nEND $r334_anon$;\nCOMMIT;\nRESET ROLE;\n-- Invariant: DB helper has no JWT signature verifier;\
+        \ immutable role claims MUST come\n-- from a signature-validating app/request boundary, not an untrusted SQL SET.\n\
+        SELECT public.r333_gate();\nSELECT 'R334_SYNTHETIC_GUC_SPOOFABILITY_PROVED_APPLICATION_TRUST_GATE_REQUIRED__COMMERCIAL_HOLD'\
+        \ AS result;\nR334_SQL\n"
+    - name: R334 execute claim spoof and stale-session risk on ephemeral PG17; assert release HOLD
+      shell: bash
+      run: 'set -euo pipefail
+
+        pgid="${{ job.services.pg.id }}"
+
+        test -n "$pgid"
+
+        docker exec -i "$pgid" psql -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 < /tmp/r334_jwt_guc_boundary.sql >
+        /tmp/r334_result.log 2>&1 || { tail -100 /tmp/r334_result.log; exit 1; }
+
+        grep -E ''R334_(SYNTHETIC|PASS)|R330_PASS: r334-'' /tmp/r334_result.log | tail -55 || true
+
+        '
+    - name: R334 record HOLD because SQL claim context is not itself authenticated
+      shell: bash
+      run: 'set -euo pipefail
+
+        echo ''R334_SYNTHETIC_PG17_TRUST_BOUNDARY_PASS: r331_regression=402 r333_mutations=12 verified_node_suites=4 sql_spoofable_guc=true
+        persistent_set_is_unsafe=true set_local_cleans_up=true real_postgrest_jwt_unverified=true real_supabase=false cloudflare_worker_unchanged=true
+        commercial_release=HOLD''
+
+        '
+    - name: R335 build synthetic DB users, RLS policy and fixtures for actual PostgREST 12.2.8
+      shell: bash
+      run: "set -euo pipefail\ncat > /tmp/r335_fixture.sql <<'R335_FIXTURE'\n\\set ON_ERROR_STOP on\n-- Disposable PostgreSQL\
+        \ fixture. Real PostgREST, but NEVER shared Supabase.\n-- R331/R333 replay has already created these roles. Do not\
+        \ weaken or replace them.\nDO $r335_roles$ BEGIN\n IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='anon') OR\
+        \ NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN\n  RAISE EXCEPTION 'R335_BASELINE_ROLES_MISSING';\n\
+        \ END IF;\nEND $r335_roles$;\nCREATE ROLE r335_authenticator LOGIN NOINHERIT PASSWORD 'r335_fake_disposable_pw_1';\n\
+        GRANT anon, authenticated TO r335_authenticator;\nGRANT USAGE ON SCHEMA public TO anon, authenticated, r335_authenticator;\n\
+        CREATE SCHEMA r335_private;\nREVOKE ALL ON SCHEMA r335_private FROM PUBLIC, anon;\nCREATE TABLE public.r335_offices\
+        \ (\n  id uuid PRIMARY KEY, is_active boolean NOT NULL\n);\nCREATE TABLE public.r335_staff (\n  id uuid PRIMARY KEY,\
+        \ office_id uuid NOT NULL REFERENCES public.r335_offices(id),\n  auth_user_id uuid NOT NULL, role text NOT NULL,\n\
+        \  is_active boolean NOT NULL, can_view_all_clients boolean NOT NULL,\n  UNIQUE(office_id,id)\n);\nCREATE TABLE public.r335_clients\
+        \ (\n  id uuid PRIMARY KEY, office_id uuid NOT NULL REFERENCES public.r335_offices(id),\n  assigned_staff_id uuid\
+        \ NOT NULL, title text NOT NULL,\n  FOREIGN KEY (office_id,assigned_staff_id) REFERENCES public.r335_staff(office_id,id)\n\
+        );\nINSERT INTO public.r335_offices VALUES\n('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',true),('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',true);\n\
+        INSERT INTO public.r335_staff VALUES\n('10000000-0000-4000-8000-000000000001','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','00000001-0001-4001-8001-000000000001','owner',true,true),\n\
+        ('10000000-0000-4000-8000-000000000002','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','00000002-0002-4002-8002-000000000002','staff',true,false),\n\
+        ('10000000-0000-4000-8000-000000000003','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','00000003-0003-4003-8003-000000000003','owner',true,true),\n\
+        ('10000000-0000-4000-8000-000000000004','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','00000004-0004-4004-8004-000000000004','staff',false,false);\n\
+        INSERT INTO public.r335_clients VALUES\n('20000000-0000-4000-8000-000000000001','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','10000000-0000-4000-8000-000000000002','synthetic\
+        \ A assigned'),\n('20000000-0000-4000-8000-000000000002','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','10000000-0000-4000-8000-000000000001','synthetic\
+        \ A owner'),\n('20000000-0000-4000-8000-000000000003','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','10000000-0000-4000-8000-000000000003','synthetic\
+        \ B owner');\n-- PostgREST v12+ uses full JSON request.jwt.claims (not SQL-authenticated legacy `request.jwt.claim.sub`).\n\
+        CREATE FUNCTION r335_private.may_read_client(p_office uuid,p_assignee uuid)\nRETURNS boolean LANGUAGE sql STABLE SECURITY\
+        \ DEFINER SET search_path=pg_catalog AS $r335_policy$\n SELECT EXISTS (\n  SELECT 1 FROM public.r335_staff s JOIN\
+        \ public.r335_offices o ON o.id=s.office_id\n  WHERE s.auth_user_id::text = (nullif(current_setting('request.jwt.claims',true),'')::jsonb->>'sub')\n\
+        \    AND s.office_id=p_office AND o.is_active AND s.is_active\n    AND (s.role IN ('owner','admin') OR s.can_view_all_clients\
+        \ OR s.id=p_assignee)\n );\n$r335_policy$;\nREVOKE ALL ON FUNCTION r335_private.may_read_client(uuid,uuid) FROM PUBLIC,\
+        \ anon;\nGRANT USAGE ON SCHEMA r335_private TO authenticated;\nGRANT EXECUTE ON FUNCTION r335_private.may_read_client(uuid,uuid)\
+        \ TO authenticated;\nALTER TABLE public.r335_clients ENABLE ROW LEVEL SECURITY;\nALTER TABLE public.r335_clients FORCE\
+        \ ROW LEVEL SECURITY;\nCREATE POLICY r335_clients_authenticated_read ON public.r335_clients FOR SELECT TO authenticated\n\
+        USING (r335_private.may_read_client(office_id, assigned_staff_id));\nREVOKE ALL ON public.r335_clients, public.r335_staff,\
+        \ public.r335_offices FROM PUBLIC, anon, authenticated;\nGRANT SELECT ON public.r335_clients TO authenticated;\n--\
+        \ Show actual request JWT claims and role for authenticated traffic in a synthetic test-only view.\nCREATE VIEW public.r335_claim_probe\
+        \ WITH (security_invoker=true) AS SELECT\n (nullif(current_setting('request.jwt.claims',true),'')::jsonb->>'sub')::text\
+        \ AS verified_sub,\n coalesce(nullif(current_setting('request.jwt.claim.sub',true),''),'UNSET')::text AS legacy_sub,\n\
+        \ current_user::text AS db_role;\nREVOKE ALL ON public.r335_claim_probe FROM PUBLIC, anon;\nGRANT SELECT ON public.r335_claim_probe\
+        \ TO authenticated;\n-- Catalog invariants: no exposed write grants, only 1 policy, no anon reads.\nDO $r335_checks$\
+        \ BEGIN\n IF (SELECT count(*) FROM pg_policies WHERE tablename='r335_clients')<>1 THEN RAISE EXCEPTION 'R335_POLICY_COUNT';\
+        \ END IF;\n IF has_table_privilege('anon','public.r335_clients','SELECT') THEN RAISE EXCEPTION 'R335_ANON_READABLE';\
+        \ END IF;\n IF has_table_privilege('authenticated','public.r335_clients','INSERT,UPDATE,DELETE') THEN RAISE EXCEPTION\
+        \ 'R335_WRITE_GRANT'; END IF;\n IF (SELECT count(*) FROM pg_roles WHERE rolname IN ('anon','authenticated') AND rolbypassrls)<>0\
+        \ THEN RAISE EXCEPTION 'R335_ROLE_BYPASS'; END IF;\n IF (SELECT count(*) FROM public.r335_clients)<>3 THEN RAISE EXCEPTION\
+        \ 'R335_FIXTURES'; END IF;\n RAISE NOTICE 'R335_DB_FIXTURES_PASS: 2 synthetic offices 3 clients 4 staff, direct anon\
+        \ no grant, authenticated SELECT only';\nEND $r335_checks$;\nR335_FIXTURE\npgid=\"${{ job.services.pg.id }}\"\ntest\
+        \ -n \"$pgid\"\ndocker exec -i \"$pgid\" psql -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 < /tmp/r335_fixture.sql\
+        \ >/tmp/r335_db.log 2>&1 || { tail -80 /tmp/r335_db.log; exit 1; }\ngrep 'R335_DB_FIXTURES_PASS' /tmp/r335_db.log\n"
+    - name: R339 prepare intentionally unsafe synthetic definer RPC before PostgREST schema cache
+      shell: bash
+      run: "set -euo pipefail\ncat > /tmp/r339_exposed_rpc.sql <<'R339_RPC_CREATE'\n\\set ON_ERROR_STOP on\n-- DANGEROUS FUNCTION\
+        \ IS INTENTIONALLY CREATED ONLY INSIDE DISPOSABLE QA DB.\n-- The demonstration must NEVER be installed on a production\
+        \ or shared project.\n-- Mimic an accidentally published SECURITY DEFINER endpoint that bypasses RLS.\nCREATE FUNCTION\
+        \ public.r339_insecure_directory()\nRETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog\
+        \ AS $r339$\n SELECT jsonb_build_object(\n  'staff_count',(SELECT count(*) FROM public.r335_staff),\n  'office_count',(SELECT\
+        \ count(*) FROM public.r335_offices),\n  'office_ids',(SELECT jsonb_agg(x.id ORDER BY x.id) FROM public.r335_offices\
+        \ x)\n );\n$r339$;\n-- SECURITY DEFINER defaults to executable by PUBLIC unless explicitly revoked.\n-- Explicitly\
+        \ grant to model a common accidentally exposed API, synthetic only.\nGRANT EXECUTE ON FUNCTION public.r339_insecure_directory()\
+        \ TO PUBLIC,anon,authenticated;\nDO $r339_assert$ DECLARE a int;b int; BEGIN\n IF NOT has_function_privilege('anon','public.r339_insecure_directory()','EXECUTE')\
+        \ THEN RAISE EXCEPTION 'R339_EXPECTED_ANON_EXEC_MISSING'; END IF;\n IF NOT has_function_privilege('authenticated','public.r339_insecure_directory()','EXECUTE')\
+        \ THEN RAISE EXCEPTION 'R339_EXPECTED_AUTH_EXEC_MISSING'; END IF;\n SELECT count(*) INTO a FROM public.r335_staff;\n\
+        \ SELECT count(*) INTO b FROM public.r335_offices;\n IF a<>4 OR b<>2 THEN RAISE EXCEPTION 'R339_BAD_FIXTURE staff=%\
+        \ offices=%',a,b; END IF;\n RAISE NOTICE 'R339_DISPOSABLE_INSECURE_RPC_READY fake_staff=4 fake_offices=2 only_synthetic=true';\n\
+        END $r339_assert$;\nR339_RPC_CREATE\npgid=\"${{ job.services.pg.id }}\"\ntest -n \"$pgid\"\ndocker exec -i \"$pgid\"\
+        \ psql -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 < /tmp/r339_exposed_rpc.sql\n"
+    - name: R340 create three INTENTIONALLY unsafe definer-style views before PostgREST schema cache
+      shell: bash
+      run: "set -euo pipefail\ncat > /tmp/r340_views.sql <<'R340_VIEWS'\n\\set ON_ERROR_STOP on\n-- R340: view owner is PostgreSQL\
+        \ test superuser, intentionally demonstrating bypass.\n-- Only disposable PG17. Never deploy these intentionally unsafe\
+        \ views to a real project.\nCREATE VIEW public.r340_leaky_staff_view AS\n SELECT id,office_id,auth_user_id,role,is_active\
+        \ FROM public.r335_staff;\nCREATE VIEW public.r340_leaky_offices_view AS\n SELECT id,is_active FROM public.r335_offices;\n\
+        CREATE VIEW public.r340_leaky_clients_view AS\n SELECT id,office_id,title FROM public.r335_clients;\n-- Deliberately\
+        \ simulate an overly permissive view GRANT, for this test only.\nGRANT SELECT ON public.r340_leaky_staff_view, public.r340_leaky_offices_view,\n\
+        \                public.r340_leaky_clients_view TO anon,authenticated;\nDO $r340_before$ DECLARE n int; BEGIN\n SELECT\
+        \ count(*) INTO n FROM pg_class\n  WHERE oid IN('public.r340_leaky_staff_view'::regclass,\n               'public.r340_leaky_offices_view'::regclass,\n\
+        \               'public.r340_leaky_clients_view'::regclass)\n    AND relkind='v' AND (reloptions IS NULL OR NOT ('security_invoker=true'\
+        \ = ANY(reloptions)));\n IF n<>3 THEN RAISE EXCEPTION 'R340_UNSAFE_VIEW_FIXTURE_MISSING %',n; END IF;\n IF (SELECT\
+        \ count(*) FROM public.r335_staff)<>4 OR (SELECT count(*) FROM public.r335_offices)<>2\n THEN RAISE EXCEPTION 'R340_BASE_TABLE_FIXTURE_CHANGED';\
+        \ END IF;\n RAISE NOTICE 'R340_INTENTIONALLY_UNSAFE_VIEWS_READY count=3 synthetic_only=true';\nEND $r340_before$;\n\
+        R340_VIEWS\npgid=\"${{ job.services.pg.id }}\"\ntest -n \"$pgid\"\ndocker exec -i \"$pgid\" psql -X -U postgres -d\
+        \ r331_synthetic -v ON_ERROR_STOP=1 < /tmp/r340_views.sql\n"
+    - name: Start real PostgREST 12.2.8 against only disposable PostgreSQL 17
+      shell: bash
+      run: "set -euo pipefail\n# Pinned, publicly documented PostgREST image. All secrets, users and JWTs below are synthetic.\n\
+        docker pull postgrest/postgrest:v12.2.8\ndocker rm -f r335-postgrest >/dev/null 2>&1 || true\ndocker run --rm -d --name\
+        \ r335-postgrest --network host \\\n -e PGRST_DB_URI='postgres://r335_authenticator:r335_fake_disposable_pw_1@127.0.0.1:5432/r331_synthetic'\
+        \ \\\n -e PGRST_DB_SCHEMAS='public' \\\n -e PGRST_DB_ANON_ROLE='anon' \\\n -e PGRST_JWT_SECRET='R335_SYNTHETIC_JWT_SIGNING_KEY_NOT_REAL_1234567890'\
+        \ \\\n -e PGRST_SERVER_PORT='3000' \\\n -e PGRST_DB_CONFIG='false' \\\n postgrest/postgrest:v12.2.8\n# Even if the\
+        \ Node assertions fail, cleanup is performed in a separate always() step.\n"
+    - name: R335 create actual JWT-to-PostgREST-to-RLS HTTP tests (synthetic tokens only)
+      shell: bash
+      run: "set -euo pipefail\ncat > /tmp/r335_real_http.mjs <<'R335_HTTP'\nimport assert from 'node:assert/strict';\nimport\
+        \ {createHmac} from 'node:crypto';\n\nconst BASE='http://127.0.0.1:3000';\nconst SECRET='R335_SYNTHETIC_JWT_SIGNING_KEY_NOT_REAL_1234567890';\n\
+        const U={ownerA:'00000001-0001-4001-8001-000000000001',staffA:'00000002-0002-4002-8002-000000000002',ownerB:'00000003-0003-4003-8003-000000000003',disabled:'00000004-0004-4004-8004-000000000004',outsider:'00000005-0005-4005-8005-000000000005'};\n\
+        const A='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',B='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';\nconst enc=obj=>Buffer.from(JSON.stringify(obj)).toString('base64url');\n\
+        function token(sub,extra={},key=SECRET){\n const header=enc({alg:'HS256',typ:'JWT'});\n const payload=enc({sub,role:'authenticated',iat:Math.floor(Date.now()/1000)-10,exp:Math.floor(Date.now()/1000)+3600,...extra});\n\
+        \ return [header,payload,createHmac('sha256',key).update(header+'.'+payload).digest('base64url')].join('.');\n}\n\
+        const tok={ownerA:token(U.ownerA),staffA:token(U.staffA),ownerB:token(U.ownerB),disabled:token(U.disabled),outsider:token(U.outsider),wrongKey:token(U.ownerA,{},'WRONG_SYNTHETIC_SECRET_123456789012345'),expired:token(U.ownerA,{exp:Math.floor(Date.now()/1000)-3600}),invalidRole:token(U.ownerA,{role:'service_role'}),fakeOffice:token(U.ownerA,{office_id:B})};\n\
+        let checks=0;\nfunction check(name,actual,expect){assert.deepEqual(actual,expect,name);checks++;}\nasync function\
+        \ req(jwt,path='/r335_clients?select=id,office_id,title&order=id.asc',init={}){\n const h={'accept':'application/json',...(jwt?{authorization:'Bearer\
+        \ '+jwt}:{}),...(init.headers||{})};\n const res=await fetch(BASE+path,{method:init.method||'GET',headers:h,body:init.body,redirect:'manual',signal:AbortSignal.timeout(4500)});\n\
+        \ const content=await res.text();let body;try{body=JSON.parse(content)}catch{body={raw:content.slice(0,150)}}\n return\
+        \ {status:res.status,body,headers:res.headers};\n}\nfunction ids(r){return r.body.map(x=>x.id)}\nfunction allowStatus(label,r,statuses){assert.ok(statuses.includes(r.status),`${label}:\
+        \ expected ${statuses}, got ${r.status} ${JSON.stringify(r.body).slice(0,300)}`);checks++}\nfunction visible(name,r,expected){check(name+'-status',r.status,200);assert.ok(Array.isArray(r.body),name+'\
+        \ response array');check(name+'-visible-ids',ids(r),expected);checks++;}\nconst idA1='20000000-0000-4000-8000-000000000001',idA2='20000000-0000-4000-8000-000000000002',idB='20000000-0000-4000-8000-000000000003';\n\
+        // Probe actual PostgREST before tests. Non-200 responses on the data table from anon are expected.\nlet healthy=false;\n\
+        for(let i=0;i<40;i++){\n try{const r=await req(tok.ownerA,'/r335_claim_probe?select=verified_sub,legacy_sub,db_role');if(r.status===200&&Array.isArray(r.body)&&r.body.length===1){healthy=true;break}}\n\
+        \ catch{}\n await new Promise(resolve=>setTimeout(resolve,500));\n}\nassert.ok(healthy,'PostgREST real server not\
+        \ initialized within 20s');\nconst probe=await req(tok.ownerA,'/r335_claim_probe?select=verified_sub,legacy_sub,db_role');\n\
+        check('signed-claims-sub',probe.body[0].verified_sub,U.ownerA);\ncheck('signed-claims-role',probe.body[0].db_role,'authenticated');\n\
+        // Old per-claim GUC is not JWT trust proof; require JSON claims from the actual PostgREST server.\nconsole.log('R335_POSTGREST_CLAIM_SOURCE',JSON.stringify({claims_sub_matches:true,legacy_sub:probe.body[0].legacy_sub}));\n\
+        visible('owner-A',await req(tok.ownerA),[idA1,idA2]);\nvisible('staff-A',await req(tok.staffA),[idA1]);\nvisible('owner-B',await\
+        \ req(tok.ownerB),[idB]);\nvisible('disabled-staff',await req(tok.disabled),[]);\nvisible('non-member',await req(tok.outsider),[]);\n\
+        visible('forged-office-claim-still-owner-A',await req(tok.fakeOffice),[idA1,idA2]);\nvisible('filter-other-office-denied',await\
+        \ req(tok.ownerA,'/r335_clients?select=id,office_id,title&office_id=eq.'+B+'&order=id.asc'),[]);\nvisible('filter-other-office-denied-staff',await\
+        \ req(tok.staffA,'/r335_clients?select=id,office_id,title&office_id=eq.'+B+'&order=id.asc'),[]);\nfor(const [label,jwt]\
+        \ of [['missing-token',null],['wrong-hmac',tok.wrongKey],['expired',tok.expired]]){\n const r=await req(jwt);allowStatus(label,r,[401,403]);\n\
+        \ if(r.status===200)throw Error('R335_INVALID_JWT_ACCEPTED_'+label);\n}\n// Verified HS256 JWT with an unconfigured\
+        \ DB role must fail closed. In actual\n// PostgREST 12.2.8, nonexistent role yields HTTP 400 / SQLSTATE 22023 rather\n\
+        // than 401/403. Do NOT accept an arbitrary 400 response.\nconst noDbRole=await req(tok.invalidRole);\nif(noDbRole.status===400){\n\
+        \ check('role-no-db-grant-exact-sqlstate',noDbRole.body?.code,'22023');\n assert.equal(noDbRole.body?.message,'role\
+        \ \"service_role\" does not exist','role-no-db-grant-exact-database-denial');checks++;\n} else {\n allowStatus('role-no-db-grant-rejected',noDbRole,[401,403]);\n\
+        }\nconst [h,p,s]=tok.ownerA.split('.');const forgedPayload=enc({...JSON.parse(Buffer.from(p,'base64url').toString()),sub:U.ownerB});\n\
+        allowStatus('jwt-payload-bitflip-with-old-signature',await req([h,forgedPayload,s].join('.')),[401,403]);\nconst noAlg=enc({typ:'JWT',alg:'none'})+'.'+enc({sub:U.ownerA,role:'authenticated',exp:Math.floor(Date.now()/1000)+1000})+'.';\n\
+        allowStatus('algorithm-none-denied',await req(noAlg),[401,403]);\nconst spoofHeaders={'request.jwt.claim.sub':U.ownerB,'x-office-id':B,'x-user-id':U.ownerB};\n\
+        visible('fake-http-headers-cannot-change-identity',await req(tok.ownerA,undefined,{headers:spoofHeaders}),[idA1,idA2]);\n\
+        for(const [label,method,body] of [['insert','POST',JSON.stringify({office_id:A,assigned_staff_id:'10000000-0000-4000-8000-000000000001',title:'synthetic\
+        \ mutation'})],['update','PATCH',JSON.stringify({title:'changed'})],['delete','DELETE',null]]){\n const r=await req(tok.ownerA,'/r335_clients?id=eq.'+idA1,{method,body,headers:{'content-type':'application/json'}});\n\
+        \ allowStatus('deny-'+label,r,[401,403,405]);\n}\nvisible('no-writes-after-denial',await req(tok.ownerA),[idA1,idA2]);\n\
+        const perms=[['ownerA',tok.ownerA,[idA1,idA2]],['ownerB',tok.ownerB,[idB]],['staffA',tok.staffA,[idA1]],['disabled',tok.disabled,[]]];\n\
+        const all=await Promise.all(Array.from({length:24},async(_,i)=>{const [name,jwt,expect]=perms[i%4];return {name,expect,result:await\
+        \ req(jwt)}}));\nfor(let i=0;i<all.length;i++)visible('parallel-'+i+'-'+all[i].name,all[i].result,all[i].expect);\n\
+        check('parallel-requests',all.length,24);\n// Log a machine-readable pass attestation. Subsequent revocation verification\
+        \ runs after SQL mutation.\nconsole.log(JSON.stringify({suite:'DPRO_TAX_R335_REAL_POSTGREST_V12_SYNTHETIC_JWT_PG17_RLS',phase:'pre_revocation',checks,parallel:24,real_postgrest:true,synthetic_jwt:true,synthetic_postgres:true,real_supabase:false,commercial_release:'HOLD'}));\n\
+        R335_HTTP\nnode --check /tmp/r335_real_http.mjs\n"
+    - name: R335 verify signed HTTP JWT, tenant RLS, negative auth and 24 parallel requests
+      shell: bash
+      run: 'set -euo pipefail
+
+        node /tmp/r335_real_http.mjs > /tmp/r335_http.log 2>&1 || { tail -90 /tmp/r335_http.log; docker logs --tail 90 r335-postgrest
+        || true; exit 1; }
+
+        cat /tmp/r335_http.log
+
+        '
+    - name: R335 revoke active staff and prove same still-signed token loses DB access
+      shell: bash
+      run: 'set -euo pipefail
+
+        pgid="${{ job.services.pg.id }}"
+
+        test -n "$pgid"
+
+        docker exec "$pgid" psql -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 -c "UPDATE public.r335_staff SET is_active=false
+        WHERE auth_user_id=''00000001-0001-4001-8001-000000000001''::uuid" >/tmp/r335_revoke.log
+
+        grep -q ''UPDATE 1'' /tmp/r335_revoke.log
+
+        cat > /tmp/r335_revocation.mjs <<''R335_REVOKE''
+
+        import assert from ''node:assert/strict'';
+
+        import {createHmac} from ''node:crypto'';
+
+        const sub=''00000001-0001-4001-8001-000000000001'';const enc=x=>Buffer.from(JSON.stringify(x)).toString(''base64url'');
+
+        const a=enc({alg:''HS256'',typ:''JWT''}),b=enc({sub,role:''authenticated'',exp:Math.floor(Date.now()/1000)+3600});const
+        jwt=[a,b,createHmac(''sha256'',''R335_SYNTHETIC_JWT_SIGNING_KEY_NOT_REAL_1234567890'').update(a+''.''+b).digest(''base64url'')].join(''.'');
+
+        const r=await fetch(''http://127.0.0.1:3000/r335_clients?select=id'',{headers:{authorization:''Bearer ''+jwt,accept:''application/json''},signal:AbortSignal.timeout(4500)});assert.equal(r.status,200);const
+        rows=await r.json();assert.deepEqual(rows,[]);console.log(JSON.stringify({suite:''R335_REAL_POSTGREST_REVOCATION'',checks:2,identical_identity_can_no_longer_read:true,revocation_seen_next_request:true,commercial_release:''HOLD''}));
+
+        R335_REVOKE
+
+        node /tmp/r335_revocation.mjs
+
+        '
+    - name: R336 write synthetic count HEAD and claim-spoof HTTP test
+      shell: bash
+      run: "set -euo pipefail\ncat > /tmp/r336_http.mjs <<'R336_HTTP'\nimport assert from 'node:assert/strict';\nimport {createHmac}\
+        \ from 'node:crypto';\n\n// R336: only synthetic JWTs, synthetic identities, and localhost PostgREST.\nconst phase=process.env.R336_STAGE??'before';\n\
+        assert.ok(phase==='before'||phase==='after','unknown R336 phase');\nconst BASE='http://127.0.0.1:3000';\nconst SECRET='R335_SYNTHETIC_JWT_SIGNING_KEY_NOT_REAL_1234567890';\n\
+        const U={ownerA:'00000001-0001-4001-8001-000000000001',staffA:'00000002-0002-4002-8002-000000000002',ownerB:'00000003-0003-4003-8003-000000000003',disabled:'00000004-0004-4004-8004-000000000004',outsider:'00000005-0005-4005-8005-000000000005'};\n\
+        const a1='20000000-0000-4000-8000-000000000001',b1='20000000-0000-4000-8000-000000000003';\nconst officeA='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',officeB='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';\n\
+        const encode=o=>Buffer.from(JSON.stringify(o)).toString('base64url');\nfunction jwt(sub,claims={},secret=SECRET){\n\
+        \ const h=encode({alg:'HS256',typ:'JWT'});\n const p=encode({sub,role:'authenticated',iat:1700000000,exp:4102444800,...claims});\n\
+        \ return [h,p,createHmac('sha256',secret).update(h+'.'+p).digest('base64url')].join('.');\n}\nconst t={staffA:jwt(U.staffA),ownerB:jwt(U.ownerB),ownerA:jwt(U.ownerA),disabled:jwt(U.disabled),outsider:jwt(U.outsider)};\n\
+        let checks=0;\nfunction check(label,actual,expected){assert.deepEqual(actual,expected,`${phase} ${label}`);checks++}\n\
+        function accepted(label,condition){assert.ok(condition,`${phase} ${label}`);checks++}\nfunction path(query=''){return\
+        \ '/r335_clients?select=id&order=id.asc'+(query?'&'+query:'')}\nasync function get(token,uri=path(),method='GET',headers={}){\n\
+        \ const r=await fetch(BASE+uri,{method,headers:{'accept':'application/json','prefer':'count=exact','authorization':'Bearer\
+        \ '+token,...headers},redirect:'manual',signal:AbortSignal.timeout(5000)});\n const raw=await r.text();let body=null;\n\
+        \ if(method!=='HEAD'){try{body=JSON.parse(raw)}catch{throw Error(`R336_BAD_JSON_${r.status}`)}}\n return {status:r.status,body,raw,range:r.headers.get('content-range'),contentType:r.headers.get('content-type')};\n\
+        }\nfunction verify(label,response,ids,method='GET'){\n check(label+'-HTTP-status',response.status,200);\n accepted(label+'-content-range-present',typeof\
+        \ response.range==='string');\n const m=response.range?.match(/\\/(\\d+)$/);\n accepted(label+'-count-metadata-valid',Boolean(m));\n\
+        \ check(label+'-count-no-hidden-records',Number(m?.[1]),ids.length);\n if(method==='HEAD')check(label+'-HEAD-no-body',response.raw,'');\n\
+        \ else{\n  accepted(label+'-response-is-array',Array.isArray(response.body));\n  check(label+'-row-ids',response.body.map(x=>x.id),ids);\n\
+        \ }\n}\nconst actors=[\n ['staffA',t.staffA,phase==='before'?[a1]:[]],\n ['ownerB',t.ownerB,phase==='before'?[b1]:[]],\n\
+        \ ['ownerA-revoked-by-R335',t.ownerA,[]],\n ['disabled',t.disabled,[]],\n ['outsider',t.outsider,[]],\n];\nfor(const\
+        \ [name,token,ids] of actors){\n verify(name+'-GET',await get(token),ids);\n verify(name+'-HEAD',await get(token,path(),'HEAD'),ids,'HEAD');\n\
+        }\n// RLS must be applied to exact count and metadata even when the caller asks\n// for a foreign tenant, a foreign\
+        \ client, or an explicitly selected office.\nconst cross=[\n ['staffA-foreign-office',t.staffA,'office_id=eq.'+officeB],\n\
+        \ ['ownerB-foreign-office',t.ownerB,'office_id=eq.'+officeA],\n ['staffA-foreign-id',t.staffA,'id=eq.'+b1],\n ['ownerB-foreign-id',t.ownerB,'id=eq.'+a1],\n\
+        \ ['revoked-owner-foreign-office',t.ownerA,'office_id=eq.'+officeB],\n];\nfor(const [name,token,filter] of cross){\n\
+        \ verify(name+'-GET',await get(token,path(filter)),[]);\n verify(name+'-HEAD',await get(token,path(filter),'HEAD'),[],'HEAD');\n\
+        }\n// Untrusted HTTP headers and signed-but-untrusted application fields must\n// not replace the signed JWT sub,\
+        \ nor widen tenant RLS in PostgREST.\nconst spoofHeaders={\n 'x-jwt-claim-sub':U.ownerB,'x-user-id':U.ownerB,'x-office-id':officeB,\n\
+        \ 'x-role':'service_role','x-forwarded-user':U.ownerB,\n 'x-forwarded-email':'fake-admin@example.invalid',\n};\nfor(const\
+        \ [name,token,ids] of [['staffA',t.staffA,phase==='before'?[a1]:[]],['ownerB',t.ownerB,phase==='before'?[b1]:[]]]){\n\
+        \ verify(name+'-spoofed-headers',await get(token,path(),'GET',spoofHeaders),ids);\n const forgedClaims=name==='staffA'?{office_id:officeB,is_admin:true,app_metadata:{role:'service_role'}}:{office_id:officeA,is_admin:true,app_metadata:{role:'service_role'}};\n\
+        \ verify(name+'-forged-app-claims',await get(jwt(name==='staffA'?U.staffA:U.ownerB,forgedClaims)),ids);\n}\n// An\
+        \ anonymous PostgreSQL role remains unable to read any data, even with a\n// correctly signed (but least-privileged)\
+        \ synthetic token.\nconst anon=await get(jwt(U.staffA,{role:'anon'}));\naccepted('downgraded-db-role-denied',anon.status===401||anon.status===403);\n\
+        // Invalid signatures must never yield 200 on data or count requests.\nconst bad=await get(jwt(U.ownerB,{},'R336_INCORRECT_SYNTHETIC_SECRET_123456'));\n\
+        accepted('wrong-signature-not-200',bad.status!==200);\naccepted('wrong-signature-is-auth-error',bad.status===401||bad.status===403);\n\
+        console.log(JSON.stringify({suite:'R336_REAL_POSTGREST_COUNT_HEAD_AND_CLAIM_SPOOF_ISOLATED',phase,checks,actors:5,cross_tenant_probes:5,spoof_header_probes:2,metadata_verified:true,live_RLS_role_revocation:phase==='after',synthetic_only:true,real_supabase:false,release:'HOLD'}));\n\
+        R336_HTTP\nnode --check /tmp/r336_http.mjs\n"
+    - name: R336 ensure PostgREST count and HEAD hide foreign tenants before runtime revocation
+      shell: bash
+      run: 'set -euo pipefail
+
+        R336_STAGE=before node /tmp/r336_http.mjs
+
+        '
+    - name: R336 reassign staff case and disable another office in disposable PostgreSQL only
+      shell: bash
+      run: "set -euo pipefail\ncat > /tmp/r336_mutation.sql <<'R336_SQL'\n\\set ON_ERROR_STOP on\n-- Execute only in disposable\
+        \ PG17. R335 has already revoked owner A.\nDO $r336$ DECLARE a integer; b integer; BEGIN\n UPDATE public.r335_clients\
+        \ SET assigned_staff_id='10000000-0000-4000-8000-000000000001'::uuid\n  WHERE id='20000000-0000-4000-8000-000000000001'::uuid;\n\
+        \ GET DIAGNOSTICS a = ROW_COUNT;\n UPDATE public.r335_offices SET is_active=false WHERE id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'::uuid;\n\
+        \ GET DIAGNOSTICS b = ROW_COUNT;\n IF a<>1 OR b<>1 THEN RAISE EXCEPTION 'R336_DISPOSABLE_REVOCATION_TARGET_COUNT_MISMATCH:\
+        \ %, %',a,b; END IF;\n IF (SELECT assigned_staff_id FROM public.r335_clients WHERE id='20000000-0000-4000-8000-000000000001'::uuid)<>'10000000-0000-4000-8000-000000000001'::uuid\
+        \ THEN\n  RAISE EXCEPTION 'R336_CLIENT_REASSIGN_FAILED'; END IF;\n IF (SELECT is_active FROM public.r335_offices WHERE\
+        \ id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'::uuid) IS DISTINCT FROM false THEN\n  RAISE EXCEPTION 'R336_OFFICE_SHUTDOWN_FAILED';\
+        \ END IF;\n RAISE NOTICE 'R336_DISPOSABLE_RUNTIME_REVOKE_OK reassigned_client=1 deactivated_office=1 real_supabase=false';\n\
+        END $r336$;\nR336_SQL\npgid=\"${{ job.services.pg.id }}\"\ntest -n \"$pgid\"\ndocker exec -i \"$pgid\" psql -X -U\
+        \ postgres -d r331_synthetic -v ON_ERROR_STOP=1 < /tmp/r336_mutation.sql\n"
+    - name: R336 ensure same signed JWT immediately loses count and HEAD access
+      shell: bash
+      run: 'set -euo pipefail
+
+        R336_STAGE=after node /tmp/r336_http.mjs
+
+        '
+    - name: R336 retain commercial security release HOLD
+      shell: bash
+      run: 'set -euo pipefail
+
+        echo ''R336_REAL_POSTGREST_COUNT_HEAD_CROSS_TENANT_REVOCATION_PASS r335_pinned=true r331_regression=402 r333_mutations=12
+        before_after_actor_checks=true signed_jwt_unchanged=true synthetic_only=true real_supabase=false production_deployment=false
+        commercial_release=HOLD''
+
+        '
+    - name: R337 prepare synthetic multi-row tenant pagination data and read-only HTTP suite
+      shell: bash
+      run: "set -euo pipefail\ncat > /tmp/r337_fixture.sql <<'R337_FIXTURE'\n\\set ON_ERROR_STOP on\n-- R337 disposable PostgreSQL\
+        \ fixture: executed AFTER prior R335 and R336 tests pass.\nBEGIN;\nUPDATE public.r335_clients SET assigned_staff_id='10000000-0000-4000-8000-000000000002'::uuid\n\
+        \ WHERE id='20000000-0000-4000-8000-000000000001'::uuid;\nUPDATE public.r335_offices SET is_active=true WHERE id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'::uuid;\n\
+        INSERT INTO public.r335_clients(id,office_id,assigned_staff_id,title) VALUES\n ('20000000-0000-4000-8000-000000000004','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','10000000-0000-4000-8000-000000000002','synthetic\
+        \ A filtered 4'),\n ('20000000-0000-4000-8000-000000000005','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','10000000-0000-4000-8000-000000000002','synthetic\
+        \ A filtered 5'),\n ('20000000-0000-4000-8000-000000000006','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','10000000-0000-4000-8000-000000000002','synthetic\
+        \ A filtered 6'),\n ('20000000-0000-4000-8000-000000000007','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','10000000-0000-4000-8000-000000000003','synthetic\
+        \ B filtered 7'),\n ('20000000-0000-4000-8000-000000000008','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','10000000-0000-4000-8000-000000000003','synthetic\
+        \ B filtered 8');\nDO $r337_fixture$ BEGIN\n IF (SELECT count(*) FROM public.r335_clients)<>8 THEN RAISE EXCEPTION\
+        \ 'R337_FIXTURE_ROWS_8_EXPECTED'; END IF;\n IF (SELECT count(*) FROM public.r335_clients WHERE office_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid)<>5\
+        \ THEN RAISE EXCEPTION 'R337_FIXTURE_A_EXPECTED_5'; END IF;\n IF (SELECT count(*) FROM public.r335_clients WHERE office_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'::uuid)<>3\
+        \ THEN RAISE EXCEPTION 'R337_FIXTURE_B_EXPECTED_3'; END IF;\n IF (SELECT is_active FROM public.r335_staff WHERE auth_user_id='00000001-0001-4001-8001-000000000001'::uuid)\
+        \ IS DISTINCT FROM false THEN RAISE EXCEPTION 'R337_REVOKED_OWNER_SHOULD_STAY_OFF'; END IF;\n RAISE NOTICE 'R337_SYNTHETIC_PAGINATION_FIXTURE_PASS\
+        \ client_rows=8 office_A=5 office_B=3 revoked_owner_stays_inactive=true';\nEND $r337_fixture$;\nCOMMIT;\nR337_FIXTURE\n\
+        cat > /tmp/r337_http.mjs <<'R337_HTTP'\nimport assert from 'node:assert/strict';\nimport {createHmac} from 'node:crypto';\n\
+        // R337: only localhost PostgREST, synthetic HS256 tokens, and disposable PG17.\nconst ENDPOINT='http://127.0.0.1:3000/r335_clients';\n\
+        const SECRET='R335_SYNTHETIC_JWT_SIGNING_KEY_NOT_REAL_1234567890';\nconst USER={staffA:'00000002-0002-4002-8002-000000000002',ownerB:'00000003-0003-4003-8003-000000000003',revoked:'00000001-0001-4001-8001-000000000001',outsider:'00000005-0005-4005-8005-000000000005'};\n\
+        const A='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', B='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';\nconst client=n=>'20000000-0000-4000-8000-'+String(n).padStart(12,'0');\n\
+        const encode=obj=>Buffer.from(JSON.stringify(obj)).toString('base64url');\nfunction signed(sub,claims={}){\n const\
+        \ header=encode({alg:'HS256',typ:'JWT'}),payload=encode({sub,role:'authenticated',exp:4102444800,...claims});\n return\
+        \ header+'.'+payload+'.'+createHmac('sha256',SECRET).update(header+'.'+payload).digest('base64url');\n}\nconst token={staffA:signed(USER.staffA),ownerB:signed(USER.ownerB),revoked:signed(USER.revoked),outsider:signed(USER.outsider)};\n\
+        let checks=0;function eq(name,a,b){assert.deepEqual(a,b,name);checks++}\nfunction ok(name,v){assert.ok(v,name);checks++}\n\
+        async function req(jwt,query={},method='GET',headers={}){\n const u=new URL(ENDPOINT);u.searchParams.set('select','id,office_id,title');u.searchParams.set('order','id.asc');\n\
+        \ for(const [key,value] of Object.entries(query))u.searchParams.set(key,String(value));\n const resp=await fetch(u,{method,headers:{accept:'application/json',prefer:'count=exact',authorization:'Bearer\
+        \ '+jwt,...headers},redirect:'manual',signal:AbortSignal.timeout(6000)});\n const raw=await resp.text();let body=null;if(method!=='HEAD'){try{body=JSON.parse(raw)}catch{throw\
+        \ Error(`R337_BAD_JSON_${resp.status}_${raw.slice(0,100)}`)}}\n const range=resp.headers.get('content-range');const\
+        \ match=range?.match(/(?:^|\\/)\\s*(\\d+)$/);\n return {status:resp.status,body,raw,range,total:match?Number(match[1]):null};\n\
+        }\nfunction verify(label,r,expected,total,method='GET',rangeStart=null){\n ok(label+'-status-2xx',r.status===200||r.status===206);\n\
+        \ eq(label+'-RLS-total',r.total,total);\n ok(label+'-range-present',typeof r.range==='string');\n if(rangeStart!==null)ok(label+'-range-position',r.range.startsWith(String(rangeStart)+'-'));\n\
+        \ if(method==='HEAD')eq(label+'-HEAD-body-empty',r.raw,'');\n else{ok(label+'-body-array',Array.isArray(r.body));eq(label+'-ids',r.body.map(x=>x.id),expected)}\n\
+        }\nconst list={staffA:[client(1),client(4),client(5),client(6)],ownerB:[client(3),client(7),client(8)],revoked:[],outsider:[]};\n\
+        for(const [actor,ids] of Object.entries(list)){\n verify(actor+'-all-get',await req(token[actor]),ids,ids.length);\n\
+        \ verify(actor+'-all-head',await req(token[actor],{},'HEAD'),ids,ids.length,'HEAD');\n}\n// Multiple rows per tenant\
+        \ make total-count and range correctness observable.\nfor(const [actor,ids] of [['staffA',list.staffA],['ownerB',list.ownerB]]){\n\
+        \ for(let i=0;i<ids.length;i++){\n  verify(actor+'-paged-query-'+i,await req(token[actor],{limit:1,offset:i}),[ids[i]],ids.length,'GET',i);\n\
+        \  verify(actor+'-head-paged-'+i,await req(token[actor],{limit:1,offset:i},'HEAD'),[],ids.length,'HEAD',i);\n  verify(actor+'-range-header-'+i,await\
+        \ req(token[actor],{},'GET',{'range-unit':'items',range:`${i}-${i}`}),[ids[i]],ids.length,'GET',i);\n }\n}\nfor(const\
+        \ [actor,office,foreign,visible,hidden] of [\n ['staffA',A,B,client(1),client(3)],['ownerB',B,A,client(3),client(1)]]){\n\
+        \ const tok=token[actor];\n verify(actor+'-other-office',await req(tok,{office_id:'eq.'+foreign}),[],0);\n verify(actor+'-other-office-head',await\
+        \ req(tok,{office_id:'eq.'+foreign},'HEAD'),[],0,'HEAD');\n verify(actor+'-not-own-office',await req(tok,{office_id:'not.eq.'+office}),[],0);\n\
+        \ verify(actor+'-explicit-hidden-id',await req(tok,{id:'eq.'+hidden}),[],0);\n verify(actor+'-or-hidden-and-visible',await\
+        \ req(tok,{or:`(id.eq.${hidden},id.eq.${visible})`}),[visible],1);\n verify(actor+'-or-hidden-only',await req(tok,{or:`(office_id.eq.${foreign},id.eq.${hidden})`}),[],0);\n\
+        \ verify(actor+'-in-hidden-visible',await req(tok,{id:`in.(${hidden},${visible})`}),[visible],1);\n verify(actor+'-filter-hidden-and-range',await\
+        \ req(tok,{office_id:'eq.'+foreign,limit:1,offset:0}),[],0);\n}\n// Protect metadata under simultaneous requests with\
+        \ different identities and filters.\nconst parallel=await Promise.all(Array.from({length:48},async(_,i)=>{\n const\
+        \ actor=['staffA','ownerB','revoked','outsider'][i%4],ids=list[actor],filter=i%3===0?{limit:1,offset:0}:{};\n const\
+        \ expected=i%3===0?ids.slice(0,1):ids;\n return {actor,expected,count:ids.length,r:await req(token[actor],filter)};\n\
+        }));\nfor(let i=0;i<parallel.length;i++){const a=parallel[i];verify('concurrent-'+i+'-'+a.actor,a.r,a.expected,a.count)}\n\
+        eq('parallel-request-count',parallel.length,48);\nconsole.log(JSON.stringify({suite:'DPRO_TAX_R337_REAL_POSTGREST_PAGINATION_COMPLEX_FILTER_TENANT_ISOLATION',checks,parallel:48,active_offices:2,synthetic_client_rows:8,real_postgrest_v12:true,ephemeral_pg17:true,real_supabase:false,commercial_release:'HOLD'}));\n\
+        R337_HTTP\nnode --check /tmp/r337_http.mjs\n"
+    - name: R337 expand disposable PG17 fixtures without changing passed R335 and R336 phases
+      shell: bash
+      run: 'set -euo pipefail
+
+        pgid="${{ job.services.pg.id }}"
+
+        test -n "$pgid"
+
+        docker exec -i "$pgid" psql -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 < /tmp/r337_fixture.sql
+
+        '
+    - name: R337 verify real PostgREST pagination ranges count metadata OR IN NOT filters and 48 concurrent queries
+      shell: bash
+      run: 'set -euo pipefail
+
+        node /tmp/r337_http.mjs
+
+        '
+    - name: R337 record verified synthetic security scope and commercial HOLD
+      shell: bash
+      run: 'set -euo pipefail
+
+        echo ''R337_REAL_POSTGREST_PAGINATION_FILTER_RLS_PASS r336_source_pinned=true r335_regression=true mixed_tenant_range_count=true
+        synthetic_clients=8 concurrent_requests=48 real_supabase=false real_worker=false commercial_release=HOLD''
+
+        '
+    - name: R338 write disposable RLS defense-in-depth proof and actual HTTP regression
+      shell: bash
+      run: "set -euo pipefail\ncat > /tmp/r338_sql_proof_and_harden.sql <<'R338_1'\n\\set ON_ERROR_STOP on\n-- Only disposable\
+        \ synthetic PostgreSQL. Real Supabase is NEVER connected.\n-- R335 roles exist, R337 HTTP regression has already passed.\n\
+        DO $r338_pre$ BEGIN\n IF (SELECT count(*) FROM pg_class WHERE oid IN ('public.r335_staff'::regclass,'public.r335_offices'::regclass)\
+        \ AND relrowsecurity)=0\n AND NOT has_table_privilege('authenticated','public.r335_staff','SELECT')\n AND NOT has_table_privilege('authenticated','public.r335_offices','SELECT')\n\
+        \ THEN RAISE NOTICE 'R338_PRECONDITION_PASS: tables protected by GRANT but not RLS';\n ELSE RAISE EXCEPTION 'R338_BASELINE_CHANGED_ABORT';\
+        \ END IF;\nEND $r338_pre$;\n-- Intentionally introduce temporary excessive SELECT grants in disposable DB to prove\
+        \ the threat.\nBEGIN;\nGRANT SELECT ON public.r335_staff,public.r335_offices TO authenticated;\nSET LOCAL ROLE authenticated;\n\
+        DO $r338_unsafe$ DECLARE a int; b int; BEGIN\n SELECT count(*) INTO a FROM public.r335_staff;\n SELECT count(*) INTO\
+        \ b FROM public.r335_offices;\n IF a<>4 OR b<>2 THEN RAISE EXCEPTION 'R338_THREAT_NOT_REPRODUCED staff=% offices=%',a,b;\
+        \ END IF;\n RAISE NOTICE 'R338_EXCESSIVE_GRANT_THREAT_REPRODUCED: staff=4 offices=2 only_disposable_db=true';\nEND\
+        \ $r338_unsafe$;\nRESET ROLE;\nROLLBACK;\n-- Add a fail-closed SECOND LAYER without adding any read policies.\nALTER\
+        \ TABLE public.r335_staff ENABLE ROW LEVEL SECURITY;\nALTER TABLE public.r335_staff FORCE ROW LEVEL SECURITY;\nALTER\
+        \ TABLE public.r335_offices ENABLE ROW LEVEL SECURITY;\nALTER TABLE public.r335_offices FORCE ROW LEVEL SECURITY;\n\
+        DO $r338_after$ DECLARE n int; BEGIN\n SELECT count(*) INTO n FROM pg_class WHERE oid IN ('public.r335_staff'::regclass,'public.r335_offices'::regclass)\
+        \ AND relrowsecurity AND relforcerowsecurity;\n IF n<>2 THEN RAISE EXCEPTION 'R338_RLS_FORCE_INCOMPLETE_%',n; END\
+        \ IF;\n IF EXISTS(SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename IN ('r335_staff','r335_offices'))\
+        \ THEN\n RAISE EXCEPTION 'R338_REFERENCE_POLICY_MUST_STAY_EMPTY'; END IF;\n IF has_table_privilege('authenticated','public.r335_staff','SELECT')\
+        \ OR has_table_privilege('authenticated','public.r335_offices','SELECT') THEN\n RAISE EXCEPTION 'R338_EXCESSIVE_GRANT_PERSISTED';\
+        \ END IF;\n RAISE NOTICE 'R338_REFERENCE_TABLE_RLS_HARDENED: 2 tables force_rls enabled, 0 policies, no public grants';\n\
+        END $r338_after$;\n-- With RLS enabled, even an ACCIDENTAL excessive SQL GRANT cannot expose rows.\nBEGIN;\nGRANT\
+        \ SELECT ON public.r335_staff,public.r335_offices TO authenticated;\nSET LOCAL ROLE authenticated;\nDO $r338_protect$\
+        \ DECLARE a int; b int; BEGIN\n SELECT count(*) INTO a FROM public.r335_staff;\n SELECT count(*) INTO b FROM public.r335_offices;\n\
+        \ IF a<>0 OR b<>0 THEN RAISE EXCEPTION 'R338_REFERENCE_RLS_LEAK staff=% offices=%',a,b; END IF;\n RAISE NOTICE 'R338_ACCIDENTAL_GRANT_BLOCKED_BY_RLS:\
+        \ both_tables_zero_visible';\nEND $r338_protect$;\nRESET ROLE;\nROLLBACK;\n-- The PostgREST-only accidental-grant\
+        \ phase is performed after this script.\nR338_1\ncat > /tmp/r338_sql_disposable_grant.sql <<'R338_2'\n\\set ON_ERROR_STOP\
+        \ on\n-- Synthetic test only. The workflow itself runs in a disposable container.\nGRANT SELECT ON public.r335_staff,public.r335_offices\
+        \ TO authenticated;\nDO $r338_grant$ BEGIN\n IF NOT has_table_privilege('authenticated','public.r335_staff','SELECT')\
+        \ OR NOT has_table_privilege('authenticated','public.r335_offices','SELECT') THEN\n RAISE EXCEPTION 'R338_TEST_GRANT_MISSING';\
+        \ END IF;\n IF (SELECT count(*) FROM pg_class WHERE oid IN ('public.r335_staff'::regclass,'public.r335_offices'::regclass)\
+        \ AND relrowsecurity AND relforcerowsecurity)<>2 THEN\n RAISE EXCEPTION 'R338_RLS_PROTECTION_MISSING'; END IF;\n RAISE\
+        \ NOTICE 'R338_DISPOSABLE_HTTP_ACCIDENTAL_GRANT_ENABLED_AND_RLS_STILL_ON';\nEND $r338_grant$;\nR338_2\ncat > /tmp/r338_sql_restore_grant.sql\
+        \ <<'R338_3'\n\\set ON_ERROR_STOP on\nREVOKE SELECT ON public.r335_staff,public.r335_offices FROM authenticated;\n\
+        DO $r338_revoke$ BEGIN\n IF has_table_privilege('authenticated','public.r335_staff','SELECT') OR has_table_privilege('authenticated','public.r335_offices','SELECT')\
+        \ THEN\n RAISE EXCEPTION 'R338_FINAL_GRANTS_MUST_BE_DENIED'; END IF;\n IF (SELECT count(*) FROM pg_class WHERE oid\
+        \ IN ('public.r335_staff'::regclass,'public.r335_offices'::regclass) AND relrowsecurity AND relforcerowsecurity)<>2\
+        \ THEN\n RAISE EXCEPTION 'R338_FINAL_RLS_MISSING'; END IF;\n RAISE NOTICE 'R338_FINAL_LOCKDOWN_PASS: no_authenticated_reference_grants,\
+        \ 2xRLS_FORCE';\nEND $r338_revoke$;\nR338_3\ncat > /tmp/r338_reference_table_http.test.mjs <<'R338_4'\nimport assert\
+        \ from 'node:assert/strict';\nimport {createHmac} from 'node:crypto';\n// R338 uses only localhost real PostgREST\
+        \ and disposable PostgreSQL, no live secrets.\nconst phase=process.env.R338_PHASE;\nassert.ok(['locked','accidental_grant','restored'].includes(phase),'R338\
+        \ invalid stage');\nconst BASE='http://127.0.0.1:3000';\nconst SECRET='R335_SYNTHETIC_JWT_SIGNING_KEY_NOT_REAL_1234567890';\n\
+        const encode=o=>Buffer.from(JSON.stringify(o)).toString('base64url');\nfunction signed(sub){\n const a=encode({alg:'HS256',typ:'JWT'}),b=encode({sub,role:'authenticated',exp:4102444800});\n\
+        \ return a+'.'+b+'.'+createHmac('sha256',SECRET).update(a+'.'+b).digest('base64url');\n}\nconst jwt={staffA:signed('00000002-0002-4002-8002-000000000002'),ownerB:signed('00000003-0003-4003-8003-000000000003')};\n\
+        const id=n=>'20000000-0000-4000-8000-'+String(n).padStart(12,'0');\nconst expected={staffA:[1,4,5,6].map(id),ownerB:[3,7,8].map(id)};\n\
+        let checks=0;function eq(label,actual,expect){assert.deepEqual(actual,expect,`${phase} ${label}`);checks++}\nfunction\
+        \ ok(label,flag){assert.ok(flag,`${phase} ${label}`);checks++}\nasync function get(resource,token,method='GET',path=''){\n\
+        \ const response=await fetch(`${BASE}/${resource}${path}`,{method,redirect:'manual',headers:{accept:'application/json',prefer:'count=exact',...(token?{authorization:'Bearer\
+        \ '+token}:{})},signal:AbortSignal.timeout(6000)});\n const raw=await response.text();let data=null;\n if(method!=='HEAD'){try{data=JSON.parse(raw)}catch{throw\
+        \ Error('R338_NONJSON_RESPONSE_'+resource+'_'+response.status)}}\n return {status:response.status,raw,data,range:response.headers.get('content-range')};\n\
+        }\nfor(const [actor,token] of Object.entries(jwt)){\n // Hardening MUST NOT break the legitimate client API, including\
+        \ tenant filter and row counts.\n const r=await get('r335_clients',token,'GET','?select=id&order=id.asc');\n eq(actor+'-visible-still-200',r.status,200);\n\
+        \ eq(actor+'-client-ids',r.data.map(x=>x.id),expected[actor]);\n eq(actor+'-count',Number(r.range?.match(/\\/(\\d+)$/)?.[1]),expected[actor].length);\n\
+        \ for(const resource of ['r335_staff','r335_offices']){\n  for(const method of ['GET','HEAD']){\n   const response=await\
+        \ get(resource,token,method,'?select=*');\n   if(phase==='accidental_grant'){\n    eq(actor+'-'+resource+'-'+method+'-RLS-200',response.status,200);\n\
+        \    if(method==='GET')eq(actor+'-'+resource+'-'+method+'-empty',response.data,[]);\n    else eq(actor+'-'+resource+'-head-no-body',response.raw,'');\n\
+        \    eq(actor+'-'+resource+'-'+method+'-no-hidden-total',Number(response.range?.match(/\\/(\\d+)$/)?.[1]),0);\n  \
+        \ }else{\n    ok(actor+'-'+resource+'-'+method+'-no-grant',response.status===401||response.status===403);\n    if(method==='HEAD')eq(actor+'-'+resource+'-head-no-body',response.raw,'');\n\
+        \   }\n  }\n }\n}\nfor(const resource of ['r335_staff','r335_offices']){\n const anon=await get(resource,null,'GET','?select=*');\n\
+        \ ok('anon-'+resource+'-denied',anon.status===401||anon.status===403);\n}\n// PostgREST exposed schema must never\
+        \ provide direct RPC to private security definer.\nfor(const [actor,token] of Object.entries(jwt)){\n const r=await\
+        \ get('rpc/may_read_client',token,'GET','?p_office=eq.aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');\n ok(actor+'-private-rpc-not-routable',r.status===404||r.status===401||r.status===403||r.status===406);\n\
+        }\nconsole.log(JSON.stringify({suite:'DPRO_TAX_R338_REFERENCE_TABLE_DEFENSE_IN_DEPTH_REAL_POSTGREST',phase,checks,real_postgrest_v12:process.env.R338_LOCAL_MOCK!=='true',local_mock:process.env.R338_LOCAL_MOCK==='true',ephemeral_pg17:process.env.R338_LOCAL_MOCK!=='true',synthetic_jwt:true,real_supabase:false,production_mutations:false,commercial_release:'HOLD'}));\n\
+        R338_4\nnode --check /tmp/r338_reference_table_http.test.mjs\n"
+    - name: R338 prove and repair reference-table grant exposure in synthetic PG17
+      shell: bash
+      run: 'set -euo pipefail
+
+        pgid="${{ job.services.pg.id }}"
+
+        test -n "$pgid"
+
+        docker exec -i "$pgid" psql -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 < /tmp/r338_sql_proof_and_harden.sql
+
+        '
+    - name: R338 ensure reference tables denied without accidental grants and clients still visible
+      shell: bash
+      run: 'set -euo pipefail
+
+        R338_PHASE=locked node /tmp/r338_reference_table_http.test.mjs
+
+        '
+    - name: R338 inject disposable-only accidental reference SELECT grant
+      shell: bash
+      run: 'set -euo pipefail
+
+        pgid="${{ job.services.pg.id }}"
+
+        test -n "$pgid"
+
+        docker exec -i "$pgid" psql -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 < /tmp/r338_sql_disposable_grant.sql
+
+        '
+    - name: R338 prove excessive SELECT grant still cannot expose staff or office rows via real PostgREST
+      shell: bash
+      run: 'set -euo pipefail
+
+        R338_PHASE=accidental_grant node /tmp/r338_reference_table_http.test.mjs
+
+        '
+    - name: R338 revoke test-only grants and verify fail-closed lock restored
+      shell: bash
+      run: 'set -euo pipefail
+
+        pgid="${{ job.services.pg.id }}"
+
+        test -n "$pgid"
+
+        docker exec -i "$pgid" psql -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 < /tmp/r338_sql_restore_grant.sql
+
+        R338_PHASE=restored node /tmp/r338_reference_table_http.test.mjs
+
+        '
+    - name: R339 write HTTP RPC exploit and mitigation assertions (synthetic credentials only)
+      shell: bash
+      run: "set -euo pipefail\ncat > /tmp/r339_rpc_http.mjs <<'R339_HTTP'\nimport assert from 'node:assert/strict';\nimport\
+        \ {createHmac} from 'node:crypto';\n// QA ONLY: artificial users, secrets and database. Never target real Supabase.\n\
+        const stage=process.env.R339_STAGE;\nassert.ok(['exposed','revoked'].includes(stage));\nconst base=process.env.R339_LOCAL_MOCK==='true'?'http://127.0.0.1:33139':'http://127.0.0.1:3000';\n\
+        const signingSecret='R335_SYNTHETIC_JWT_SIGNING_KEY_NOT_REAL_1234567890';\nconst b64=o=>Buffer.from(JSON.stringify(o)).toString('base64url');\n\
+        function jwt(sub){const h=b64({alg:'HS256',typ:'JWT'}),p=b64({sub,role:'authenticated',exp:4102444800});return h+'.'+p+'.'+createHmac('sha256',signingSecret).update(h+'.'+p).digest('base64url')}\n\
+        const actors={anon:null,staffA:jwt('00000002-0002-4002-8002-000000000002'),ownerB:jwt('00000003-0003-4003-8003-000000000003')};\n\
+        const ids=['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'];\nlet checks=0;\nfunction\
+        \ eq(label,a,b){assert.deepEqual(a,b,stage+' '+label);checks++}\nfunction ok(label,p){assert.ok(p,stage+' '+label);checks++}\n\
+        async function call(path,token,method='GET'){\n const r=await fetch(base+path,{method,headers:{accept:'application/json',...(token?{authorization:'Bearer\
+        \ '+token}:{})},redirect:'manual',signal:AbortSignal.timeout(5000)});\n const raw=await r.text();let body=null;\n\
+        \ if(raw){try{body=JSON.parse(raw)}catch{throw Error('R339_UNEXPECTED_NON_JSON_'+r.status)}}\n return {status:r.status,body,raw};\n\
+        }\nfor(const [name,token] of Object.entries(actors)){\n const res=await call('/rpc/r339_insecure_directory',token);\n\
+        \ if(stage==='exposed'){\n  eq(name+'-dangerous-rpc-http-200',res.status,200);\n  eq(name+'-fake-staff-count-exposed',res.body?.staff_count,4);\n\
+        \  eq(name+'-fake-office-count-exposed',res.body?.office_count,2);\n  eq(name+'-cross-tenant-office-id-exposed',res.body?.office_ids,ids);\n\
+        \ }else{\n  ok(name+'-rpc-blocked',res.status===401||res.status===403||res.status===404);\n  ok(name+'-no-sensitive-response',!ids.some(i=>res.raw.includes(i)));\n\
+        \  ok(name+'-no-fake-staff-count',res.body?.staff_count!==4);\n }\n}\n// Legitimate users must retain correctly scoped\
+        \ client API access after revocation.\nfor(const [name,token,visible] of [\n ['staffA',actors.staffA,['20000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000004','20000000-0000-4000-8000-000000000005','20000000-0000-4000-8000-000000000006']],\n\
+        \ ['ownerB',actors.ownerB,['20000000-0000-4000-8000-000000000003','20000000-0000-4000-8000-000000000007','20000000-0000-4000-8000-000000000008']]]){\n\
+        \ const r=await call('/r335_clients?select=id&order=id.asc',token);\n eq(name+'-legitimate-client-read',r.status,200);\n\
+        \ eq(name+'-client-scope-unchanged',r.body?.map(x=>x.id),visible);\n}\nconsole.log(JSON.stringify({suite:'DPRO_TAX_R339_REAL_POSTGREST_SECURITY_DEFINER_RPC_LEAK_AND_REVOCATION',stage,checks,synthetic_only:true,real_postgrest:process.env.R339_LOCAL_MOCK!=='true',real_supabase:false,commercial_release:'HOLD'}));\n\
+        R339_HTTP\nnode --check /tmp/r339_rpc_http.mjs\ncat > /tmp/r339_rpc_revoke.sql <<'R339_REVOKE'\n\\set ON_ERROR_STOP\
+        \ on\n-- Fail closed: revoke EXECUTE including the implicit PUBLIC default.\nREVOKE ALL ON FUNCTION public.r339_insecure_directory()\
+        \ FROM PUBLIC,anon,authenticated;\nDO $r339_lock$ BEGIN\n IF has_function_privilege('anon','public.r339_insecure_directory()','EXECUTE')\
+        \ THEN RAISE EXCEPTION 'R339_ANON_RPC_STILL_EXECUTABLE'; END IF;\n IF has_function_privilege('authenticated','public.r339_insecure_directory()','EXECUTE')\
+        \ THEN RAISE EXCEPTION 'R339_AUTH_RPC_STILL_EXECUTABLE'; END IF;\n IF has_table_privilege('authenticated','public.r335_staff','SELECT')\
+        \ OR has_table_privilege('authenticated','public.r335_offices','SELECT') THEN\n RAISE EXCEPTION 'R339_REFERENCE_SELECT_GRANT_REGRESSION';\
+        \ END IF;\n IF (SELECT count(*) FROM pg_class WHERE oid IN ('public.r335_staff'::regclass,'public.r335_offices'::regclass)\n\
+        \ AND relrowsecurity AND relforcerowsecurity)<>2 THEN RAISE EXCEPTION 'R339_REFERENCE_RLS_REGRESSION'; END IF;\n RAISE\
+        \ NOTICE 'R339_RPC_EXECUTE_REVOKED_AND_R338_LOCKDOWN_PRESERVED';\nEND $r339_lock$;\nR339_REVOKE\n"
+    - name: R339 prove a public SECURITY DEFINER endpoint leaks synthetic rows despite reference-table RLS
+      shell: bash
+      run: 'set -euo pipefail
+
+        R339_STAGE=exposed node /tmp/r339_rpc_http.mjs
+
+        '
+    - name: R339 REVOKE public and authenticated execute privileges on synthetic RPC
+      shell: bash
+      run: 'set -euo pipefail
+
+        pgid="${{ job.services.pg.id }}"
+
+        test -n "$pgid"
+
+        docker exec -i "$pgid" psql -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 < /tmp/r339_rpc_revoke.sql
+
+        '
+    - name: R339 verify real PostgREST immediately rejects the formerly exposed RPC while legitimate scoped reads still pass
+      shell: bash
+      run: 'set -euo pipefail
+
+        R339_STAGE=revoked node /tmp/r339_rpc_http.mjs
+
+        '
+    - name: R339 security release HOLD remains mandatory
+      shell: bash
+      run: 'set -euo pipefail
+
+        echo ''R339_REAL_POSTGREST_DEFINER_RPC_REVOCATION_PASS R338_regression=78 R337_regression=474 artificial_cross_tenant_rpc_leak_proved=true
+        rpc_execute_revoked=true authenticated_scoped_reads_retained=true production_mutations=false commercial_release=HOLD''
+
+        '
+    - name: R340 create view security test (synthetic JWT, no production URL)
+      shell: bash
+      run: "set -euo pipefail\ncat > /tmp/r340_view_http.mjs <<'R340_NODE'\nimport assert from 'node:assert/strict';\nimport\
+        \ {createHmac} from 'node:crypto';\nconst phase=process.env.R340_PHASE;\nassert.ok(['exposed','invoker','accidental_grant','locked'].includes(phase),phase);\n\
+        const ROOT='http://127.0.0.1:3000';\nconst key='R335_SYNTHETIC_JWT_SIGNING_KEY_NOT_REAL_1234567890';\nconst b64=o=>Buffer.from(JSON.stringify(o)).toString('base64url');\n\
+        const jwt=sub=>{const h=b64({alg:'HS256',typ:'JWT'}),p=b64({sub,role:'authenticated',iat:Math.floor(Date.now()/1000)-10,exp:Math.floor(Date.now()/1000)+3600});return\
+        \ `${h}.${p}.${createHmac('sha256',key).update(`${h}.${p}`).digest('base64url')}`};\nconst actors={anon:null,staffA:jwt('00000002-0002-4002-8002-000000000002'),ownerB:jwt('00000003-0003-4003-8003-000000000003')};\n\
+        const A='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',B='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';\nconst client=n=>'20000000-0000-4000-8000-'+String(n).padStart(12,'0');\n\
+        const scopes={staffA:[1,4,5,6].map(client),ownerB:[3,7,8].map(client)};\nlet checks=0;\nconst eq=(name,x,y)=>{assert.deepEqual(x,y,`${phase}\
+        \ ${name}`);checks++};\nconst ok=(name,b)=>{assert.ok(b,`${phase} ${name}`);checks++};\nasync function get(resource,tok,method='GET'){\n\
+        \ const r=await fetch(`${ROOT}/${resource}?select=*&order=id.asc`,{method,headers:{accept:'application/json',prefer:'count=exact',...(tok?{authorization:`Bearer\
+        \ ${tok}`}:{})},redirect:'manual',signal:AbortSignal.timeout(6000)});\n const raw=await r.text();let body=null;\n\
+        \ if(method!=='HEAD' && raw){try{body=JSON.parse(raw)}catch{throw Error(`R340_NON_JSON_${resource}_${r.status}_${raw.slice(0,120)}`)}}\n\
+        \ return {status:r.status,raw,body,count:r.headers.get('content-range')};\n}\nfunction assertRows(name,r,count,expectedIds=null){\n\
+        \ eq(name+'-status',r.status,200);\n ok(name+'-array',Array.isArray(r.body));\n eq(name+'-row-count',r.body.length,count);\n\
+        \ if(expectedIds)eq(name+'-IDs',r.body.map(x=>x.id),expectedIds);\n eq(name+'-Content-Range',Number(r.count?.split('/').at(-1)),count);\n\
+        }\nconst resources={staff:'r340_leaky_staff_view',offices:'r340_leaky_offices_view',clients:'r340_leaky_clients_view'};\n\
+        for(const [actor,token] of Object.entries(actors)){\n for(const [type,resource] of Object.entries(resources)){\n \
+        \ const r=await get(resource,token);\n  if(phase==='exposed'){\n   const expected=type==='staff'?4:type==='offices'?2:8;\n\
+        \   assertRows(`${actor}-${type}-UNSAFE_VISIBLE`,r,expected);\n   if(type==='staff'||type==='clients'){\n    eq(`${actor}-${type}-cross-office-A`,r.body.some(x=>x.office_id===A),true);\n\
+        \    eq(`${actor}-${type}-cross-office-B`,r.body.some(x=>x.office_id===B),true);\n   }else eq(`${actor}-office-IDs`,r.body.map(x=>x.id),[A,B]);\n\
+        \  } else if(phase==='invoker'||phase==='accidental_grant'){\n   if(type==='clients'&&actor!=='anon')assertRows(`${actor}-clients-security-invoker`,r,scopes[actor].length,scopes[actor]);\n\
+        \   else if(phase==='accidental_grant'&&actor!=='anon'&&type!=='clients')assertRows(`${actor}-${type}-forced-RLS-empty`,r,0,[]);\n\
+        \   else {ok(`${actor}-${type}-denied`,[401,403].includes(r.status));ok(`${actor}-${type}-no-cross-tenant-ids`,!r.raw.includes(A)&&!r.raw.includes(B));}\n\
+        \  }else{\n   ok(`${actor}-${type}-view-revoked`,[401,403].includes(r.status));\n   ok(`${actor}-${type}-no-sensitive-json`,!r.raw.includes(A)&&!r.raw.includes(B));\n\
+        \  }\n }\n // HEAD metadata protection: sample one vulnerable view and the client view.\n for(const type of ['staff','clients']){\n\
+        \  const h=await get(resources[type],token,'HEAD');\n  eq(`${actor}-${type}-HEAD-no-response-body`,h.raw,'');\n  if(phase==='exposed'){\n\
+        \   eq(`${actor}-${type}-HEAD-status`,h.status,200);\n   eq(`${actor}-${type}-HEAD-leaked-count`,Number(h.count?.split('/').at(-1)),type==='staff'?4:8);\n\
+        \  }else if((phase==='invoker'||phase==='accidental_grant')&&type==='clients'&&actor!=='anon'){\n   eq(`${actor}-clients-HEAD-status`,h.status,200);\n\
+        \   eq(`${actor}-clients-HEAD-count`,Number(h.count?.split('/').at(-1)),scopes[actor].length);\n  }else if(phase==='accidental_grant'&&type==='staff'&&actor!=='anon'){\n\
+        \   eq(`${actor}-staff-HEAD-deny-leak`,h.status,200);\n   eq(`${actor}-staff-HEAD-zero`,Number(h.count?.split('/').at(-1)),0);\n\
+        \  }else ok(`${actor}-${type}-HEAD-denied`,[401,403].includes(h.status));\n }\n if(actor!=='anon'){\n  const direct=await\
+        \ get('r335_clients',token);\n  assertRows(`${actor}-direct-RLS-unchanged`,direct,scopes[actor].length,scopes[actor]);\n\
+        \ }\n}\nconsole.log(JSON.stringify({suite:'DPRO_TAX_R340_REAL_POSTGREST_SECURITY_INVOKER_VIEW_RLS_BYPASS',phase,checks,real_postgrest_v12:true,synthetic_pg17:true,protected_tables:3,production:false,commercial_release:'HOLD'}));\n\
+        R340_NODE\nnode --check /tmp/r340_view_http.mjs\n"
+    - name: R340 show unsafe owner-privileged views leak synthetic staff/offices/clients via real PostgREST
+      shell: bash
+      run: 'set -euo pipefail
+
+        R340_PHASE=exposed node /tmp/r340_view_http.mjs
+
+        '
+    - name: R340 fix 3 views using security_invoker=true (only disposable PG17)
+      shell: bash
+      run: "set -euo pipefail\ncat > /tmp/r340_invoker_mitigation_disposable.sql <<'R340_SQL'\n\\set ON_ERROR_STOP on\n--\
+        \ Critical: security_invoker forces permissions and row security of the calling SQL role.\nALTER VIEW public.r340_leaky_staff_view\
+        \ SET (security_invoker = true);\nALTER VIEW public.r340_leaky_offices_view SET (security_invoker = true);\nALTER\
+        \ VIEW public.r340_leaky_clients_view SET (security_invoker = true);\nDO $r340_invoker$ DECLARE n integer; BEGIN\n\
+        \ SELECT count(*) INTO n FROM pg_class\n WHERE oid IN ('public.r340_leaky_staff_view'::regclass,\n               'public.r340_leaky_offices_view'::regclass,\n\
+        \               'public.r340_leaky_clients_view'::regclass)\n AND relkind='v' AND 'security_invoker=true'=ANY(reloptions);\n\
+        \ IF n<>3 THEN RAISE EXCEPTION 'R340_SECURITY_INVOKER_MISSING_%',n; END IF;\n IF EXISTS (SELECT 1 FROM pg_policies\
+        \ WHERE schemaname='public' AND tablename IN ('r335_staff','r335_offices'))\n THEN RAISE EXCEPTION 'R340_REFERENCE_RLS_DRIFT';\
+        \ END IF;\n RAISE NOTICE 'R340_SECURITY_INVOKER_ON_ALL_VIEWS_PASS count=3 production=false';\nEND $r340_invoker$;\n\
+        R340_SQL\npgid=\"${{ job.services.pg.id }}\"\ntest -n \"$pgid\"\ndocker exec -i \"$pgid\" psql -X -U postgres -d r331_synthetic\
+        \ -v ON_ERROR_STOP=1 < /tmp/r340_invoker_mitigation_disposable.sql\n"
+    - name: R340 prove invoker views respect underlying GRANT and tenant RLS
+      shell: bash
+      run: 'set -euo pipefail
+
+        R340_PHASE=invoker node /tmp/r340_view_http.mjs
+
+        '
+    - name: R340 inject accidental SELECT grants to reference tables (disposable only)
+      shell: bash
+      run: "set -euo pipefail\ncat > /tmp/r340_accidental_grant_disposable.sql <<'R340_SQL'\n\\set ON_ERROR_STOP on\n-- Second-layer\
+        \ demo: even if an authenticated base SELECT grant regresses, FORCE RLS denies rows.\nGRANT SELECT ON public.r335_staff,public.r335_offices\
+        \ TO authenticated;\nDO $r340_acc$ BEGIN\n IF NOT has_table_privilege('authenticated','public.r335_staff','SELECT')\n\
+        \ OR NOT has_table_privilege('authenticated','public.r335_offices','SELECT') THEN\n RAISE EXCEPTION 'R340_SYNTHETIC_ACCIDENTAL_GRANT_NOT_REPRODUCED';\
+        \ END IF;\n IF NOT EXISTS (SELECT 1 FROM pg_class WHERE oid='public.r335_staff'::regclass AND relrowsecurity AND relforcerowsecurity)\n\
+        \ OR NOT EXISTS (SELECT 1 FROM pg_class WHERE oid='public.r335_offices'::regclass AND relrowsecurity AND relforcerowsecurity)\n\
+        \ THEN RAISE EXCEPTION 'R340_R338_FORCE_RLS_MISSING'; END IF;\n RAISE NOTICE 'R340_ACCIDENTAL_BASE_SELECT_GRANT_ISSUED_SYNTHETIC_ONLY';\n\
+        END $r340_acc$;\nR340_SQL\npgid=\"${{ job.services.pg.id }}\"\ntest -n \"$pgid\"\ndocker exec -i \"$pgid\" psql -X\
+        \ -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 < /tmp/r340_accidental_grant_disposable.sql\n"
+    - name: R340 confirm force-RLS remains fail closed via invoker views after excessive GRANT
+      shell: bash
+      run: 'set -euo pipefail
+
+        R340_PHASE=accidental_grant node /tmp/r340_view_http.mjs
+
+        '
+    - name: R340 revoke excessive base/view GRANTs and preserve invoker configuration
+      shell: bash
+      run: "set -euo pipefail\ncat > /tmp/r340_restore_permissions_disposable.sql <<'R340_SQL'\n\\set ON_ERROR_STOP on\n--\
+        \ Restore least-privilege direct table permissions, then remove views from exposed roles.\nREVOKE ALL ON public.r335_staff,public.r335_offices\
+        \ FROM authenticated;\nREVOKE ALL ON public.r340_leaky_staff_view,public.r340_leaky_offices_view,\n              public.r340_leaky_clients_view\
+        \ FROM PUBLIC,anon,authenticated;\nDO $r340_lock$ DECLARE n integer; BEGIN\n SELECT count(*) INTO n FROM pg_class\n\
+        \ WHERE oid IN ('public.r340_leaky_staff_view'::regclass,\n               'public.r340_leaky_offices_view'::regclass,\n\
+        \               'public.r340_leaky_clients_view'::regclass)\n AND 'security_invoker=true'=ANY(reloptions);\n IF n<>3\
+        \ THEN RAISE EXCEPTION 'R340_INVOKER_REVERTED'; END IF;\n IF has_table_privilege('authenticated','public.r335_staff','SELECT')\n\
+        \ OR has_table_privilege('authenticated','public.r335_offices','SELECT')\n THEN RAISE EXCEPTION 'R340_EXCESSIVE_DIRECT_GRANT_REMAINED';\
+        \ END IF;\n IF has_table_privilege('anon','public.r340_leaky_clients_view','SELECT')\n OR has_table_privilege('authenticated','public.r340_leaky_clients_view','SELECT')\n\
+        \ OR has_table_privilege('authenticated','public.r340_leaky_offices_view','SELECT')\n OR has_table_privilege('anon','public.r340_leaky_staff_view','SELECT')\n\
+        \ THEN RAISE EXCEPTION 'R340_LEAKY_VIEW_GRANTS_REMAINED'; END IF;\n RAISE NOTICE 'R340_VIEW_AND_BASE_LEAST_PRIVILEGE_RESTORED\
+        \ production=false';\nEND $r340_lock$;\nR340_SQL\npgid=\"${{ job.services.pg.id }}\"\ntest -n \"$pgid\"\ndocker exec\
+        \ -i \"$pgid\" psql -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 < /tmp/r340_restore_permissions_disposable.sql\n"
+    - name: R340 confirm all exposed views locked and legitimate client endpoint intact
+      shell: bash
+      run: 'set -euo pipefail
+
+        R340_PHASE=locked node /tmp/r340_view_http.mjs
+
+        '
+    - name: R340 mandatory commercial release HOLD
+      shell: bash
+      run: 'set -euo pipefail
+
+        echo ''R340_REAL_POSTGREST_SECURITY_INVOKER_VIEW_BYPASS_MITIGATION_PASS: R339_pinned=true r337_regression=474 r338_regression=78
+        r339_regression=29 view_exposure=demonstrated view_security_invoker=verified accidental_base_grant=blocked final_view_grants=revoked
+        real_supabase=false real_worker=false commercial_release=HOLD''
+
+        '
+    - name: R341 snapshot exact 8 client rows and prove no existing write policy
+      shell: bash
+      run: "set -euo pipefail\ncat > /tmp/r341_snapshot.sql <<'R341_SQL'\n\\set ON_ERROR_STOP on\n-- Isolated audit snapshot\
+        \ after R340 completed all phases, no real customer data.\nCREATE SCHEMA r341_audit;\nREVOKE ALL ON SCHEMA r341_audit\
+        \ FROM PUBLIC,anon,authenticated;\nCREATE TABLE r341_audit.clients_before AS SELECT * FROM public.r335_clients;\n\
+        CREATE TABLE r341_audit.staff_before AS SELECT * FROM public.r335_staff;\nCREATE TABLE r341_audit.offices_before AS\
+        \ SELECT * FROM public.r335_offices;\nREVOKE ALL ON ALL TABLES IN SCHEMA r341_audit FROM PUBLIC,anon,authenticated;\n\
+        DO $r341_snapshot$ BEGIN\n IF (SELECT count(*) FROM r341_audit.clients_before)<>8 OR\n    (SELECT count(*) FROM r341_audit.staff_before)<>4\
+        \ OR\n    (SELECT count(*) FROM r341_audit.offices_before)<>2\n THEN RAISE EXCEPTION 'R341_UNEXPECTED_FIXTURE_COUNTS';\
+        \ END IF;\n IF NOT EXISTS (SELECT 1 FROM pg_class WHERE oid='public.r335_clients'::regclass AND relrowsecurity AND\
+        \ relforcerowsecurity)\n THEN RAISE EXCEPTION 'R341_FORCE_RLS_MISSING'; END IF;\n IF (SELECT count(*) FROM pg_policies\
+        \ WHERE schemaname='public' AND tablename='r335_clients' AND cmd<>'SELECT')<>0\n THEN RAISE EXCEPTION 'R341_UNEXPECTED_WRITE_POLICY_EXISTS';\
+        \ END IF;\n IF has_table_privilege('authenticated','public.r335_clients','INSERT') OR\n    has_table_privilege('authenticated','public.r335_clients','UPDATE')\
+        \ OR\n    has_table_privilege('authenticated','public.r335_clients','DELETE')\n THEN RAISE EXCEPTION 'R341_BASELINE_WRITE_GRANT_UNEXPECTED';\
+        \ END IF;\n RAISE NOTICE 'R341_SNAPSHOT_READONLY_BASELINE_PASS clients=8 staff=4 offices=2 no_write_policies=true';\n\
+        END $r341_snapshot$;\nR341_SQL\npgid=\"${{ job.services.pg.id }}\"\ntest -n \"$pgid\"\ndocker exec -i \"$pgid\" psql\
+        \ -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 < /tmp/r341_snapshot.sql\n"
+    - name: R341 prepare real HTTP write attempts against disposable PostgreSQL only
+      shell: bash
+      run: "set -euo pipefail\ncat > /tmp/r341_http.mjs <<'R341_NODE'\nimport assert from 'node:assert/strict';\nimport {createHmac}\
+        \ from 'node:crypto';\nconst phase=process.env.R341_PHASE;\nassert.ok(['baseline','excessive_grant','restored'].includes(phase));\n\
+        const host='http://127.0.0.1:3000';\nconst key='R335_SYNTHETIC_JWT_SIGNING_KEY_NOT_REAL_1234567890';\nconst b64=o=>Buffer.from(JSON.stringify(o)).toString('base64url');\n\
+        const jwt=sub=>{let h=b64({alg:'HS256',typ:'JWT'}),p=b64({sub,role:'authenticated',iat:Math.floor(Date.now()/1000)-10,exp:Math.floor(Date.now()/1000)+3600});return\
+        \ `${h}.${p}.${createHmac('sha256',key).update(h+'.'+p).digest('base64url')}`;};\nconst office={A:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',B:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'};\n\
+        const staff={A:'10000000-0000-4000-8000-000000000002',B:'10000000-0000-4000-8000-000000000003'};\nconst client=n=>'20000000-0000-4000-8000-'+String(n).padStart(12,'0');\n\
+        const actors={staffA:jwt('00000002-0002-4002-8002-000000000002'),ownerB:jwt('00000003-0003-4003-8003-000000000003'),anon:null};\n\
+        let checks=0;\nfunction eq(n,a,b){assert.deepEqual(a,b,`${phase} ${n}`);checks++}\nfunction ok(n,v){assert.ok(v,`${phase}\
+        \ ${n}`);checks++}\nasync function request(token,path,method='GET',body,prefer){\n const r=await fetch(host+path,{method,headers:{accept:'application/json',...(token?{authorization:'Bearer\
+        \ '+token}:{}),...(body?{'content-type':'application/json'}:{}),...(prefer?{prefer}:{})},body:body?JSON.stringify(body):undefined,redirect:'manual',signal:AbortSignal.timeout(6000)});\n\
+        \ const raw=await r.text();let json=null;if(raw){try{json=JSON.parse(raw)}catch{throw Error(`R341_NON_JSON_RESPONSE_${method}_${r.status}_${raw.slice(0,100)}`)}}\n\
+        \ return {status:r.status,raw,json};\n}\nconst createRow=(o,s,n)=>({id:client(n),office_id:o,assigned_staff_id:s,title:'R341_UNAUTHORIZED_SYNTHETIC_WRITE'});\n\
+        async function noMutation(n,result,method){\n // INSERT and UPSERT must return a clear rejection. PATCH and DELETE\
+        \ may safely affect 0 rows.\n if(method==='POST'){\n  ok(n+'-write-rejected',[401,403].includes(result.status));\n\
+        \ }else if([401,403].includes(result.status)){\n  ok(n+'-write-rejected',true);\n }else{\n  ok(n+'-zero-row-success-status',[200,204].includes(result.status));\n\
+        \  ok(n+'-zero-row-body',result.raw==='' || (Array.isArray(result.json) && result.json.length===0));\n }\n ok(n+'-no-secret-body',!result.raw.includes('R341_UNAUTHORIZED_SYNTHETIC_WRITE'));\n\
+        }\nfor(const [actor,token] of Object.entries(actors)){\n const o=actor==='ownerB'?office.B:office.A,s=actor==='ownerB'?staff.B:staff.A,target=actor==='ownerB'?client(3):client(1);\n\
+        \ const newRow=createRow(o,s,actor==='ownerB'?901:902);\n await noMutation(actor+'-insert',await request(token,'/r335_clients','POST',newRow,'return=representation'),'POST');\n\
+        \ const upsertRow={...newRow,id:target};\n await noMutation(actor+'-upsert',await request(token,'/r335_clients?on_conflict=id','POST',upsertRow,'resolution=merge-duplicates,return=representation'),'POST');\n\
+        \ await noMutation(actor+'-patch',await request(token,'/r335_clients?id=eq.'+target,'PATCH',{title:'R341_UNAUTHORIZED_SYNTHETIC_WRITE'},'return=representation'),'PATCH');\n\
+        \ await noMutation(actor+'-delete',await request(token,'/r335_clients?id=eq.'+target,'DELETE',undefined,'return=representation'),'DELETE');\n\
+        \ const r=await request(token,'/r335_clients?select=id,title&order=id.asc');\n if(actor==='anon')ok(actor+'-select-denied',[401,403].includes(r.status));\n\
+        \ else {eq(actor+'-read-kept',r.status,200);ok(actor+'-rows-positive',Array.isArray(r.json)&&r.json.length>0);ok(actor+'-not-mutated',!r.raw.includes('R341_UNAUTHORIZED_SYNTHETIC_WRITE'));}\n\
+        }\nconsole.log(JSON.stringify({suite:'DPRO_TAX_R341_REAL_POSTGREST_WRITE_BARRIER',phase,checks,actions:['POST','UPSERT','PATCH','DELETE'],actors:3,synthetic_postgresql17:true,actual_postgrest_v12:true,production:false,commercial_release:'HOLD'}));\n\
+        R341_NODE\nnode --check /tmp/r341_http.mjs\n"
+    - name: R341 actual PostgREST HTTP write barrier baseline
+      shell: bash
+      run: 'set -euo pipefail
+
+        R341_PHASE=baseline node /tmp/r341_http.mjs
+
+        '
+    - name: R341 inject over-broad authenticated INSERT UPDATE DELETE grants on synthetic table only
+      shell: bash
+      run: "set -euo pipefail\ncat > /tmp/r341_intentional_write_grants.sql <<'R341_SQL'\n\\set ON_ERROR_STOP on\n-- Intentionally\
+        \ introduce excessive privileges in disposable PG17 only.\nGRANT INSERT,UPDATE,DELETE ON public.r335_clients TO authenticated;\n\
+        DO $r341_grant$ BEGIN\n IF NOT has_table_privilege('authenticated','public.r335_clients','INSERT') OR\n    NOT has_table_privilege('authenticated','public.r335_clients','UPDATE')\
+        \ OR\n    NOT has_table_privilege('authenticated','public.r335_clients','DELETE')\n THEN RAISE EXCEPTION 'R341_EXCESSIVE_GRANT_SETUP_MISSING';\
+        \ END IF;\n IF (SELECT count(*) FROM pg_policies WHERE schemaname='public' AND tablename='r335_clients' AND cmd<>'SELECT')<>0\n\
+        \ THEN RAISE EXCEPTION 'R341_WRITE_POLICY_DRIFT'; END IF;\n RAISE NOTICE 'R341_SYNTHETIC_WRITE_GRANT_INJECTED RLS_WRITE_POLICIES=0';\n\
+        END $r341_grant$;\nR341_SQL\npgid=\"${{ job.services.pg.id }}\"\ntest -n \"$pgid\"\ndocker exec -i \"$pgid\" psql\
+        \ -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 < /tmp/r341_intentional_write_grants.sql\n"
+    - name: R341 actual PostgREST HTTP write barrier excessive_grant
+      shell: bash
+      run: 'set -euo pipefail
+
+        R341_PHASE=excessive_grant node /tmp/r341_http.mjs
+
+        '
+    - name: R341 verify row-level data unchanged under failed malicious write requests
+      shell: bash
+      run: "set -euo pipefail\ncat > /tmp/r341_exact_audit.sql <<'R341_SQL'\n\\set ON_ERROR_STOP on\n-- Verify exact row sets\
+        \ are unchanged; count-only audits are not sufficient.\nDO $r341_audit$ BEGIN\n IF EXISTS (\n   (SELECT * FROM public.r335_clients\
+        \ EXCEPT SELECT * FROM r341_audit.clients_before)\n   UNION ALL\n   (SELECT * FROM r341_audit.clients_before EXCEPT\
+        \ SELECT * FROM public.r335_clients)\n ) THEN RAISE EXCEPTION 'R341_UNAUTHORIZED_CLIENT_DATA_MUTATED'; END IF;\n IF\
+        \ EXISTS (\n   (SELECT * FROM public.r335_staff EXCEPT SELECT * FROM r341_audit.staff_before)\n   UNION ALL\n   (SELECT\
+        \ * FROM r341_audit.staff_before EXCEPT SELECT * FROM public.r335_staff)\n ) THEN RAISE EXCEPTION 'R341_STAFF_DATA_MUTATED';\
+        \ END IF;\n IF EXISTS (\n   (SELECT * FROM public.r335_offices EXCEPT SELECT * FROM r341_audit.offices_before)\n \
+        \  UNION ALL\n   (SELECT * FROM r341_audit.offices_before EXCEPT SELECT * FROM public.r335_offices)\n ) THEN RAISE\
+        \ EXCEPTION 'R341_OFFICE_DATA_MUTATED'; END IF;\n IF (SELECT count(*) FROM public.r335_clients)<>8 THEN RAISE EXCEPTION\
+        \ 'R341_ROW_COUNT_CHANGE'; END IF;\n RAISE NOTICE 'R341_AUDIT_UNCHANGED: 8 clients 4 staff 2 offices, exact row-data\
+        \ equality';\nEND $r341_audit$;\nR341_SQL\npgid=\"${{ job.services.pg.id }}\"\ntest -n \"$pgid\"\ndocker exec -i \"\
+        $pgid\" psql -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 < /tmp/r341_exact_audit.sql\n"
+    - name: R341 restore normal least privilege and deny all direct write grants
+      shell: bash
+      run: "set -euo pipefail\ncat > /tmp/r341_restore.sql <<'R341_SQL'\n\\set ON_ERROR_STOP on\nREVOKE INSERT,UPDATE,DELETE\
+        \ ON public.r335_clients FROM authenticated;\nDO $r341_restore$ BEGIN\n IF has_table_privilege('authenticated','public.r335_clients','INSERT')\
+        \ OR\n    has_table_privilege('authenticated','public.r335_clients','UPDATE') OR\n    has_table_privilege('authenticated','public.r335_clients','DELETE')\n\
+        \ THEN RAISE EXCEPTION 'R341_WRITE_PRIVILEGES_NOT_REVOKED'; END IF;\n IF NOT has_table_privilege('authenticated','public.r335_clients','SELECT')\n\
+        \ THEN RAISE EXCEPTION 'R341_LEGITIMATE_READ_ACCESS_BROKEN'; END IF;\n IF (SELECT count(*) FROM pg_policies WHERE\
+        \ schemaname='public' AND tablename='r335_clients' AND cmd<>'SELECT')<>0\n THEN RAISE EXCEPTION 'R341_WRITE_POLICY_DRIFT';\
+        \ END IF;\n RAISE NOTICE 'R341_WRITE_GRANTS_REVOKED original_readonly_protection_restored';\nEND $r341_restore$;\n\
+        R341_SQL\npgid=\"${{ job.services.pg.id }}\"\ntest -n \"$pgid\"\ndocker exec -i \"$pgid\" psql -X -U postgres -d r331_synthetic\
+        \ -v ON_ERROR_STOP=1 < /tmp/r341_restore.sql\n"
+    - name: R341 actual PostgREST HTTP write barrier restored
+      shell: bash
+      run: 'set -euo pipefail
+
+        R341_PHASE=restored node /tmp/r341_http.mjs
+
+        '
+    - name: R341 recheck full row integrity after grant removal
+      shell: bash
+      run: "set -euo pipefail\ncat > /tmp/r341_exact_audit.sql <<'R341_SQL'\n\\set ON_ERROR_STOP on\n-- Verify exact row sets\
+        \ are unchanged; count-only audits are not sufficient.\nDO $r341_audit$ BEGIN\n IF EXISTS (\n   (SELECT * FROM public.r335_clients\
+        \ EXCEPT SELECT * FROM r341_audit.clients_before)\n   UNION ALL\n   (SELECT * FROM r341_audit.clients_before EXCEPT\
+        \ SELECT * FROM public.r335_clients)\n ) THEN RAISE EXCEPTION 'R341_UNAUTHORIZED_CLIENT_DATA_MUTATED'; END IF;\n IF\
+        \ EXISTS (\n   (SELECT * FROM public.r335_staff EXCEPT SELECT * FROM r341_audit.staff_before)\n   UNION ALL\n   (SELECT\
+        \ * FROM r341_audit.staff_before EXCEPT SELECT * FROM public.r335_staff)\n ) THEN RAISE EXCEPTION 'R341_STAFF_DATA_MUTATED';\
+        \ END IF;\n IF EXISTS (\n   (SELECT * FROM public.r335_offices EXCEPT SELECT * FROM r341_audit.offices_before)\n \
+        \  UNION ALL\n   (SELECT * FROM r341_audit.offices_before EXCEPT SELECT * FROM public.r335_offices)\n ) THEN RAISE\
+        \ EXCEPTION 'R341_OFFICE_DATA_MUTATED'; END IF;\n IF (SELECT count(*) FROM public.r335_clients)<>8 THEN RAISE EXCEPTION\
+        \ 'R341_ROW_COUNT_CHANGE'; END IF;\n RAISE NOTICE 'R341_AUDIT_UNCHANGED: 8 clients 4 staff 2 offices, exact row-data\
+        \ equality';\nEND $r341_audit$;\nR341_SQL\npgid=\"${{ job.services.pg.id }}\"\ntest -n \"$pgid\"\ndocker exec -i \"\
+        $pgid\" psql -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 < /tmp/r341_exact_audit.sql\n"
+    - name: R341 mandatory release HOLD with explicit write-gate evidence
+      shell: bash
+      run: 'set -euo pipefail
+
+        echo ''R341_REAL_POSTGREST_READONLY_WRITE_BARRIER_PASS r340_source_pinned=true insert_upsert_patch_delete_tested=true
+        3_actor_classes=true accidental_write_grants_injected_then_revoked=true exact_db_rows_unchanged=true production_worker=false
+        real_supabase=false commercial_release=HOLD''
+
+        '
+    - name: R342 create isolated NOLOGIN DB RPC executor and scoped atomic document-request function
+      shell: bash
+      run: "set -euo pipefail\ncat > /tmp/r342_scoped_rpc.sql <<'R342_SQL'\n\\set ON_ERROR_STOP on\n-- Everything below is\
+        \ exclusively for disposable PostgreSQL 17 QA; no production DDL.\n-- A NOLOGIN, non-BYPASSRLS function owner limits\
+        \ RPC escalation compared with postgres ownership.\nCREATE ROLE r342_executor NOLOGIN NOINHERIT;\nGRANT USAGE ON SCHEMA\
+        \ public TO r342_executor;\nGRANT SELECT ON public.r335_staff,public.r335_offices,public.r335_clients TO r342_executor;\n\
+        -- Internal read policies ONLY for the non-login executor. External user roles cannot assume it.\nCREATE POLICY r342_executor_staff_internal_read\
+        \ ON public.r335_staff FOR SELECT TO r342_executor USING (true);\nCREATE POLICY r342_executor_office_internal_read\
+        \ ON public.r335_offices FOR SELECT TO r342_executor USING (true);\nCREATE POLICY r342_executor_client_internal_read\
+        \ ON public.r335_clients FOR SELECT TO r342_executor USING (true);\nCREATE UNIQUE INDEX r342_client_office_id_unique\
+        \ ON public.r335_clients(office_id,id);\nCREATE TABLE public.r342_requests(\n id uuid PRIMARY KEY DEFAULT gen_random_uuid(),\n\
+        \ office_id uuid NOT NULL,\n client_id uuid NOT NULL,\n actor_auth_id uuid NOT NULL,\n request_key text NOT NULL CHECK\
+        \ (request_key ~ '^[A-Za-z0-9_-]{12,64}$'),\n status text NOT NULL DEFAULT 'requested' CHECK (status='requested'),\n\
+        \ created_at timestamptz NOT NULL DEFAULT clock_timestamp(),\n UNIQUE(office_id,actor_auth_id,request_key),\n UNIQUE(office_id,id),\n\
+        \ FOREIGN KEY (office_id,client_id) REFERENCES public.r335_clients(office_id,id) ON DELETE RESTRICT\n);\nCREATE TABLE\
+        \ public.r342_audit(\n id uuid PRIMARY KEY DEFAULT gen_random_uuid(),\n office_id uuid NOT NULL,\n request_id uuid\
+        \ NOT NULL,\n actor_auth_id uuid NOT NULL,\n action text NOT NULL CHECK (action='request_created'),\n created_at timestamptz\
+        \ NOT NULL DEFAULT clock_timestamp(),\n FOREIGN KEY (office_id,request_id) REFERENCES public.r342_requests(office_id,id)\
+        \ ON DELETE RESTRICT,\n UNIQUE(request_id,action)\n);\nALTER TABLE public.r342_requests ENABLE ROW LEVEL SECURITY;\n\
+        ALTER TABLE public.r342_requests FORCE ROW LEVEL SECURITY;\nALTER TABLE public.r342_audit ENABLE ROW LEVEL SECURITY;\n\
+        ALTER TABLE public.r342_audit FORCE ROW LEVEL SECURITY;\nREVOKE ALL ON public.r342_requests,public.r342_audit FROM\
+        \ PUBLIC,anon,authenticated;\nGRANT SELECT,INSERT ON public.r342_requests,public.r342_audit TO r342_executor;\nCREATE\
+        \ POLICY r342_executor_requests_read ON public.r342_requests FOR SELECT TO r342_executor USING (true);\nCREATE POLICY\
+        \ r342_executor_requests_write ON public.r342_requests FOR INSERT TO r342_executor WITH CHECK (true);\nCREATE POLICY\
+        \ r342_executor_audit_read ON public.r342_audit FOR SELECT TO r342_executor USING (true);\nCREATE POLICY r342_executor_audit_write\
+        \ ON public.r342_audit FOR INSERT TO r342_executor WITH CHECK (true);\n\nCREATE FUNCTION public.r342_create_request(p_office\
+        \ uuid,p_client uuid,p_key text)\nRETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog\n\
+        AS $r342_rpc$\nDECLARE\n v_claims jsonb; v_sub text; v_actor uuid; v_assignee uuid;\n v_allowed boolean; v_id uuid;\
+        \ v_existing_client uuid; v_new boolean;\nBEGIN\n -- In live PostgREST, only PostgREST's JWT verifier sets these claims.\
+        \ SQL GUC spoofing remains a distinct threat.\n v_claims:=nullif(current_setting('request.jwt.claims',true),'')::jsonb;\n\
+        \ v_sub:=v_claims->>'sub';\n IF (v_claims->>'role') IS DISTINCT FROM 'authenticated'\n    OR v_sub IS NULL OR v_sub\
+        \ !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'\n THEN RAISE EXCEPTION 'R342_ACCESS_DENIED'\
+        \ USING ERRCODE='42501'; END IF;\n IF p_office IS NULL OR p_client IS NULL OR p_key IS NULL OR p_key !~ '^[A-Za-z0-9_-]{12,64}$'\n\
+        \ THEN RAISE EXCEPTION 'R342_INVALID_REQUEST' USING ERRCODE='22023'; END IF;\n v_actor:=v_sub::uuid;\n SELECT c.assigned_staff_id\
+        \ INTO v_assignee\n FROM public.r335_clients c WHERE c.office_id=p_office AND c.id=p_client;\n IF NOT FOUND THEN RAISE\
+        \ EXCEPTION 'R342_ACCESS_DENIED' USING ERRCODE='42501'; END IF;\n SELECT EXISTS(\n  SELECT 1 FROM public.r335_staff\
+        \ s JOIN public.r335_offices o ON o.id=s.office_id\n  WHERE s.auth_user_id=v_actor AND s.office_id=p_office AND s.is_active\
+        \ AND o.is_active\n    AND (s.role IN ('owner','admin') OR s.can_view_all_clients OR s.id=v_assignee)\n ) INTO v_allowed;\n\
+        \ IF NOT v_allowed THEN RAISE EXCEPTION 'R342_ACCESS_DENIED' USING ERRCODE='42501'; END IF;\n -- Atomic and idempotent:\
+        \ one creation + one audit row per (office,actor,key).\n INSERT INTO public.r342_requests(office_id,client_id,actor_auth_id,request_key)\n\
+        \ VALUES(p_office,p_client,v_actor,p_key)\n ON CONFLICT(office_id,actor_auth_id,request_key) DO NOTHING\n RETURNING\
+        \ id INTO v_id;\n v_new := v_id IS NOT NULL;\n IF NOT v_new THEN\n  SELECT id,client_id INTO v_id,v_existing_client\n\
+        \  FROM public.r342_requests\n  WHERE office_id=p_office AND actor_auth_id=v_actor AND request_key=p_key;\n  IF v_id\
+        \ IS NULL THEN RAISE EXCEPTION 'R342_RETRY_CONFLICT' USING ERRCODE='40001'; END IF;\n  IF v_existing_client<>p_client\
+        \ THEN\n   RAISE EXCEPTION 'R342_IDEMPOTENCY_KEY_REUSE_FOR_DIFFERENT_CLIENT' USING ERRCODE='22023';\n  END IF;\n ELSE\n\
+        \  INSERT INTO public.r342_audit(office_id,request_id,actor_auth_id,action)\n  VALUES(p_office,v_id,v_actor,'request_created');\n\
+        \ END IF;\n RETURN jsonb_build_object('id',v_id,'created',v_new,'status','requested');\nEND;\n$r342_rpc$;\nALTER FUNCTION\
+        \ public.r342_create_request(uuid,uuid,text) OWNER TO r342_executor;\nREVOKE ALL ON FUNCTION public.r342_create_request(uuid,uuid,text)\
+        \ FROM PUBLIC,anon;\nGRANT EXECUTE ON FUNCTION public.r342_create_request(uuid,uuid,text) TO authenticated;\n-- Re-enable\
+        \ office B only after ALL earlier R335-R341 tests completed (synthetic only).\nUPDATE public.r335_offices SET is_active=true\
+        \ WHERE id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'::uuid;\nDO $r342_guard$ DECLARE n int; BEGIN\n IF (SELECT rolbypassrls\
+        \ OR rolcanlogin FROM pg_roles WHERE rolname='r342_executor') IS DISTINCT FROM false\n THEN RAISE EXCEPTION 'R342_EXECUTOR_ROLE_PRIVILEGES_UNSAFE';\
+        \ END IF;\n IF has_table_privilege('authenticated','public.r342_requests','SELECT') OR\n    has_table_privilege('authenticated','public.r342_requests','INSERT')\
+        \ OR\n    has_table_privilege('authenticated','public.r342_audit','SELECT') OR\n    has_table_privilege('anon','public.r342_requests','SELECT')\n\
+        \ THEN RAISE EXCEPTION 'R342_DIRECT_DATA_GRANT'; END IF;\n IF (SELECT count(*) FROM pg_class WHERE oid IN ('public.r342_requests'::regclass,'public.r342_audit'::regclass)\n\
+        \      AND relrowsecurity AND relforcerowsecurity)<>2 THEN RAISE EXCEPTION 'R342_FORCE_RLS_MISSING'; END IF;\n IF\
+        \ (SELECT count(*) FROM public.r342_requests)<>0 OR (SELECT count(*) FROM public.r342_audit)<>0\n THEN RAISE EXCEPTION\
+        \ 'R342_NONEMPTY_START'; END IF;\n IF (SELECT count(*) FROM pg_proc WHERE proname='r342_create_request' AND prosecdef)<>1\n\
+        \ THEN RAISE EXCEPTION 'R342_DEFINER_MISSING'; END IF;\n RAISE NOTICE 'R342_SYNTHETIC_RESTRICTED_EXECUTOR_READY: NOLOGIN\
+        \ no BYPASSRLS, direct table grants zero';\nEND $r342_guard$;\nR342_SQL\npgid=\"${{ job.services.pg.id }}\"\ntest\
+        \ -n \"$pgid\"\ndocker exec -i \"$pgid\" psql -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 < /tmp/r342_scoped_rpc.sql\n\
+        docker restart r335-postgrest >/dev/null\n"
+    - name: R342 exercise real signed JWT scoped write, cross-tenant denial, audit and 16 concurrent retries
+      shell: bash
+      run: "set -euo pipefail\ncat > /tmp/r342_rpc_http.mjs <<'R342_JS'\nimport assert from 'node:assert/strict';\nimport\
+        \ {createHmac} from 'node:crypto';\nconst HOST='http://127.0.0.1:3000';\nconst SECRET='R335_SYNTHETIC_JWT_SIGNING_KEY_NOT_REAL_1234567890';\n\
+        const encode=o=>Buffer.from(JSON.stringify(o)).toString('base64url');\nfunction token(sub,extras={},secret=SECRET){\n\
+        \ const h=encode({alg:'HS256',typ:'JWT'}),p=encode({sub,role:'authenticated',iat:Math.floor(Date.now()/1000)-5,exp:Math.floor(Date.now()/1000)+3600,...extras});\n\
+        \ return `${h}.${p}.${createHmac('sha256',secret).update(h+'.'+p).digest('base64url')}`;\n}\nconst office={A:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',B:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'};\n\
+        const client=n=>'20000000-0000-4000-8000-'+String(n).padStart(12,'0');\nconst t={staffA:token('00000002-0002-4002-8002-000000000002'),ownerB:token('00000003-0003-4003-8003-000000000003'),revokedA:token('00000001-0001-4001-8001-000000000001'),inactiveA:token('00000004-0004-4004-8004-000000000004'),outsider:token('00000005-0005-4005-8005-000000000005'),wrong:token('00000002-0002-4002-8002-000000000002',{},'FAKE_BAD_SIGNATURE_123456'),anon:null};\n\
+        let checks=0,created=[];\nfunction eq(tag,a,b){assert.deepEqual(a,b,tag);checks++}\nfunction ok(tag,x){assert.ok(x,tag);checks++}\n\
+        async function http(path,auth,method='POST',args={}){\n const response=await fetch(HOST+path,{method,headers:{accept:'application/json',...(auth?{authorization:'Bearer\
+        \ '+auth}:{}),...(method==='POST'?{'content-type':'application/json'}:{})},body:method==='POST'?JSON.stringify(args):undefined,signal:AbortSignal.timeout(6500),redirect:'manual'});\n\
+        \ const raw=await response.text();let data=null;try{data=raw?JSON.parse(raw):null}catch{throw Error('R342_UNEXPECTED_NON_JSON\
+        \ '+response.status+' '+raw.slice(0,200))};return {status:response.status,data,raw};\n}\nasync function invoke(who,office_id,client_id,key){return\
+        \ http('/rpc/r342_create_request',t[who], 'POST',{p_office:office_id,p_client:client_id,p_key:key});}\nasync function\
+        \ accepted(label,who,off,c,k){const r=await invoke(who,off,c,k);eq(label+'-status',r.status,200);ok(label+'-uuid',typeof\
+        \ r.data?.id==='string'&&/^[0-9a-f-]{36}$/.test(r.data.id));eq(label+'-created',r.data.created,true);eq(label+'-state',r.data.status,'requested');created.push(r.data.id);return\
+        \ r;}\nasync function denied(label,who,off,c,k,codes=[400,401,403,404]){const r=await invoke(who,off,c,k);ok(label+'-rejected',codes.includes(r.status));ok(label+'-no-request-returned',!r.data?.id);return\
+        \ r;}\n// PostgREST schema cache refresh must expose the new function before testing.\nlet ready=false;for(let i=0;i<35;i++){const\
+        \ r=await http('/rpc/r342_create_request',t.staffA,'POST',{p_office:office.A,p_client:client(4),p_key:'short'});if(r.status!==404){ready=true;break}await\
+        \ new Promise(res=>setTimeout(res,400));}\nok('rpc-in-schema-cache',ready);\nconst first=await accepted('assigned-staff-A','staffA',office.A,client(4),'R342_A_REQ_000001');\n\
+        let again=await invoke('staffA',office.A,client(4),'R342_A_REQ_000001');eq('repeat-status',again.status,200);eq('repeat-created',again.data.created,false);eq('repeat-id',again.data.id,first.data.id);\n\
+        await denied('idempotency-key-other-client','staffA',office.A,client(5),'R342_A_REQ_000001',[400]);\nawait accepted('assigned-other-client','staffA',office.A,client(5),'R342_A_REQ_000002');\n\
+        await accepted('owner-B','ownerB',office.B,client(3),'R342_B_REQ_000001');\nawait denied('cross-tenant-staff','staffA',office.B,client(3),'R342_CROSS_000001');\n\
+        await denied('cross-tenant-owner','ownerB',office.A,client(4),'R342_CROSS_000002');\nawait denied('wrong-office-client-pair','staffA',office.A,client(3),'R342_CROSS_000003');\n\
+        await denied('unassigned-client','staffA',office.A,client(2),'R342_OTHER_000001');\nawait denied('revoked-owner','revokedA',office.A,client(4),'R342_OTHER_000002');\n\
+        await denied('inactive-staff','inactiveA',office.A,client(4),'R342_OTHER_000003');\nawait denied('outsider','outsider',office.A,client(4),'R342_OTHER_000004');\n\
+        await denied('anonymous','anon',office.A,client(4),'R342_OTHER_000005');\nawait denied('bad-signature','wrong',office.A,client(4),'R342_OTHER_000006');\n\
+        await denied('key-too-short','staffA',office.A,client(4),'short',[400]);\nawait denied('key-invalid','staffA',office.A,client(4),'R342_bad.key.0001',[400]);\n\
+        const roleMismatch=token('00000002-0002-4002-8002-000000000002',{role:'anon'});const badRole=await http('/rpc/r342_create_request',roleMismatch,'POST',{p_office:office.A,p_client:client(4),p_key:'R342_OTHER_000007'});ok('wrong-signed-role-denied',[400,401,403,404].includes(badRole.status));\n\
+        // Public direct REST endpoints must refuse writes and SELECT even if RPC allows creation.\nfor(const name of ['r342_requests','r342_audit']){\n\
+        \ for(const who of ['staffA','anon']){\n  const r=await http('/'+name+'?select=*',t[who],'GET');ok(name+'-'+who+'-get-denied',[401,403].includes(r.status));\n\
+        \  const w=await http('/'+name,t[who],'POST',{office_id:office.A,client_id:client(4),request_key:'R342_INJECTION_0001'});ok(name+'-'+who+'-post-denied',[400,401,403].includes(w.status));\n\
+        \ }\n}\n// Parallel retries with the same key must lead to one and only one created record.\nconst race=await Promise.all(Array.from({length:16},()=>invoke('staffA',office.A,client(4),'R342_PARALLEL_0001')));\n\
+        for(let i=0;i<race.length;i++){eq('race-'+i+'-status',race[i].status,200);ok('race-'+i+'-uuid',!!race[i].data?.id)}\n\
+        eq('race-one-unique-id',new Set(race.map(r=>r.data.id)).size,1);\neq('race-one-created',race.filter(r=>r.data.created).length,1);\n\
+        console.log(JSON.stringify({suite:'R342_SCOPED_AUDITED_IDEMPOTENT_WRITE_RPC_REAL_POSTGREST',checks,new_requests:4,concurrent_retries:16,signature_real_postgrest:true,nonlogin_definer:true,real_supabase:false,commercial_release:'HOLD'}));\n\
+        R342_JS\nnode --check /tmp/r342_rpc_http.mjs\nnode /tmp/r342_rpc_http.mjs\n"
+    - name: R342 verify SQL atomic audit, identity and idempotency after HTTP mutations
+      shell: bash
+      run: "set -euo pipefail\ncat > /tmp/r342_sql_audit.sql <<'R342_SQL'\n\\set ON_ERROR_STOP on\nDO $r342_audit$\nDECLARE\
+        \ a integer; b integer; c integer; BEGIN\n SELECT count(*) INTO a FROM public.r342_requests;\n SELECT count(*) INTO\
+        \ b FROM public.r342_audit;\n SELECT count(DISTINCT id) INTO c FROM public.r342_requests;\n IF a<>4 OR b<>4 OR c<>4\
+        \ THEN RAISE EXCEPTION 'R342_ATOMIC_IDEMPOTENCY_COUNT requests=% audit=% ids=%',a,b,c; END IF;\n IF (SELECT count(*)\
+        \ FROM public.r342_requests WHERE office_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid)<>3\n  OR (SELECT count(*)\
+        \ FROM public.r342_requests WHERE office_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'::uuid)<>1\n THEN RAISE EXCEPTION\
+        \ 'R342_TENANT_CREATE_LEAK'; END IF;\n IF EXISTS(\n  SELECT 1 FROM public.r342_requests r LEFT JOIN public.r342_audit\
+        \ a ON a.request_id=r.id AND a.office_id=r.office_id\n  WHERE a.request_id IS NULL OR r.actor_auth_id<>a.actor_auth_id\n\
+        \ ) THEN RAISE EXCEPTION 'R342_ATOMIC_AUDIT_MISMATCH'; END IF;\n IF EXISTS(SELECT 1 FROM public.r342_requests r JOIN\
+        \ public.r335_clients c ON c.id=r.client_id WHERE r.office_id<>c.office_id)\n THEN RAISE EXCEPTION 'R342_CROSS_TENANT_FK';\
+        \ END IF;\n IF has_table_privilege('authenticated','public.r342_requests','INSERT') OR\n    has_table_privilege('authenticated','public.r342_requests','SELECT')\
+        \ OR\n    has_table_privilege('authenticated','public.r342_audit','SELECT')\n THEN RAISE EXCEPTION 'R342_DIRECT_GRANT_REGRESSION';\
+        \ END IF;\n IF (SELECT rolbypassrls OR rolcanlogin FROM pg_roles WHERE rolname='r342_executor') THEN\n RAISE EXCEPTION\
+        \ 'R342_EXECUTOR_NOT_RESTRICTED'; END IF;\n RAISE NOTICE 'R342_SQL_AUDIT_PASS requests=4 audit=4 A=3 B=1 same-client-idempotency=proved\
+        \ direct_grants=0';\nEND $r342_audit$;\nR342_SQL\npgid=\"${{ job.services.pg.id }}\"\ntest -n \"$pgid\"\ndocker exec\
+        \ -i \"$pgid\" psql -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 < /tmp/r342_sql_audit.sql\n"
+    - name: R342 retain strict commercial HOLD and production isolation evidence
+      shell: bash
+      run: 'set -euo pipefail
+
+        echo ''R342_EPHEMERAL_SCOPED_AUDITED_IDEMPOTENT_RPC_PASS r341_source_pinned=true r341_write_barrier=97 r337_pagination=474
+        r340_views=229 executor_login=false executor_bypassrls=false direct_grants=false synthetic_only=true real_supabase=false
+        real_worker=false commercial_release=HOLD''
+
+        '
+    - name: R343 establish exact R342 completed 4-request audit baseline
+      shell: bash
+      run: "set -euo pipefail\ncat >/tmp/r343_baseline.sql <<'R343_SQL'\n\\set ON_ERROR_STOP on\nDO $r343_baseline$ BEGIN\n\
+        \ IF (SELECT count(*) FROM public.r342_requests)<>4 OR (SELECT count(*) FROM public.r342_audit)<>4 THEN RAISE EXCEPTION\
+        \ 'R343_R342_BASELINE_DRIFT'; END IF;\n IF (SELECT count(*) FROM public.r335_staff WHERE auth_user_id='00000002-0002-4002-8002-000000000002'::uuid\
+        \ AND is_active)<>1\n OR (SELECT count(*) FROM public.r335_offices WHERE id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'::uuid\
+        \ AND is_active)<>1\n THEN RAISE EXCEPTION 'R343_ACTIVE_PREREQUISITES_MISSING'; END IF;\n IF (SELECT rolcanlogin OR\
+        \ rolbypassrls FROM pg_roles WHERE rolname='r342_executor') THEN RAISE EXCEPTION 'R343_EXECUTOR_ROLE_UNSAFE'; END\
+        \ IF;\n IF pg_has_role('authenticated','r342_executor','MEMBER') OR pg_has_role('anon','r342_executor','MEMBER') THEN\
+        \ RAISE EXCEPTION 'R343_EXECUTOR_ROLE_DELEGATED'; END IF;\n RAISE NOTICE 'R343_R342_BASELINE_READY: 4 requests 4 audit\
+        \ executor_nologin_no_bypass';\nEND $r343_baseline$;\nR343_SQL\npgid=\"${{ job.services.pg.id }}\"\ntest -n \"$pgid\"\
+        \ndocker exec -i \"$pgid\" psql -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 </tmp/r343_baseline.sql\n"
+    - name: R343 prepare real signed JWT replay, revocation and RLS drift HTTP assertions
+      shell: bash
+      run: "set -euo pipefail\ncat >/tmp/r343_http.mjs <<'R343_JS'\nimport assert from 'node:assert/strict';\nimport {createHmac}\
+        \ from 'node:crypto';\nimport {readFileSync,writeFileSync} from 'node:fs';\nconst STAGE=process.env.R343_STAGE??'before';\n\
+        const URL='http://127.0.0.1:3000';\nconst secret='R335_SYNTHETIC_JWT_SIGNING_KEY_NOT_REAL_1234567890';\nconst enc=o=>Buffer.from(JSON.stringify(o)).toString('base64url');\n\
+        function token(sub){const a=enc({alg:'HS256',typ:'JWT'});const b=enc({sub,role:'authenticated',iat:Math.floor(Date.now()/1000)-10,exp:Math.floor(Date.now()/1000)+3600});return\
+        \ `${a}.${b}.${createHmac('sha256',secret).update(`${a}.${b}`).digest('base64url')}`;}\nconst U={staffA:token('00000002-0002-4002-8002-000000000002'),ownerB:token('00000003-0003-4003-8003-000000000003')};\n\
+        const O={staffA:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',ownerB:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'};\nconst C={staffA:'20000000-0000-4000-8000-000000000004',ownerB:'20000000-0000-4000-8000-000000000003'};\n\
+        const SUB={staffA:'00000002-0002-4002-8002-000000000002',ownerB:'00000003-0003-4003-8003-000000000003'};\nconst OLD={staffA:'R342_A_REQ_000001',ownerB:'R342_B_REQ_000001'};\n\
+        const SHARE='R343_SHARED_KEY_00001';const NEW={staffA:'R343_AFTER_0000001',ownerB:'R343_AFTER_0000002'};\nlet checks=0;const\
+        \ equals=(tag,v,expected)=>{assert.deepEqual(v,expected,tag);checks++};const ensure=(tag,x)=>{assert.ok(x,tag);checks++};\n\
+        async function http(path,who,method='GET',body){const headers={accept:'application/json',authorization:'Bearer '+U[who]};if(body!==undefined)headers['content-type']='application/json';const\
+        \ r=await fetch(URL+path,{method,headers,body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(7000),redirect:'manual'});const\
+        \ raw=await r.text();let data=null;try{data=raw?JSON.parse(raw):null}catch{throw Error('R343_NONJSON_'+r.status+'_'+raw.slice(0,130))}return\
+        \ {status:r.status,data,headers:r.headers};}\nconst rpc=(who,key)=>http('/rpc/r342_create_request',who,'POST',{p_office:O[who],p_client:C[who],p_key:key});\n\
+        async function accepted(who,key,created){const r=await rpc(who,key);equals(`${STAGE}-${who}-${key}-http`,r.status,200);equals(`${STAGE}-${who}-${key}-created`,r.data.created,created);ensure(`${STAGE}-${who}-${key}-id`,/^[0-9a-f-]{36}$/i.test(r.data.id));equals(`${STAGE}-${who}-${key}-state`,r.data.status,'requested');return\
+        \ r.data.id;}\nasync function denied(who,key){const r=await rpc(who,key);ensure(`${STAGE}-${who}-${key}-reject`,[400,401,403].includes(r.status));equals(`${STAGE}-${who}-${key}-access-denied`,r.data?.code,'42501');ensure(`${STAGE}-${who}-${key}-no-id`,!r.data?.id);}\n\
+        const owners=['staffA','ownerB'];\nif(STAGE==='before'){\n const ids={};for(const who of owners){ids[who]=await accepted(who,SHARE,true);await\
+        \ accepted(who,OLD[who],false)}\n ensure('cross-office-same-key-independent',ids.staffA!==ids.ownerB);\n writeFileSync('/tmp/r343_created.json',JSON.stringify(ids));\n\
+        }else if(STAGE==='revoked'){\n for(const who of owners){await denied(who,OLD[who]);await denied(who,SHARE);await denied(who,NEW[who]);}\n\
+        }else if(STAGE==='restored'){\n const ids=JSON.parse(readFileSync('/tmp/r343_created.json','utf8'));\n for(const who\
+        \ of owners){const original=await accepted(who,SHARE,false);equals(`${who}-idempotent-same-id`,original,ids[who]);await\
+        \ accepted(who,NEW[who],true);}\n}else if(STAGE==='grant_drift'){\n for(const who of owners){for(const table of ['r342_requests','r342_audit']){\n\
+        \   const get=await http(`/${table}?select=*&order=id.asc`,who);equals(`${who}-${table}-get-rls-empty-status`,get.status,200);equals(`${who}-${table}-get-rls-empty-rows`,get.data,[]);\n\
+        \   // Valid complete payload: a failure must come from RLS, not column errors.\n   const fake=table==='r342_requests'?{office_id:O[who],client_id:C[who],actor_auth_id:SUB[who],request_key:'R343_INJECTION_'+(who==='staffA'?'A':'B')+'_001'}:{office_id:O[who],request_id:JSON.parse(readFileSync('/tmp/r343_created.json','utf8'))[who],actor_auth_id:SUB[who],action:'request_created'};\n\
+        \   const post=await http('/'+table,who,'POST',fake);ensure(`${who}-${table}-insert-rejected`,[400,401,403].includes(post.status));equals(`${who}-${table}-insert-rls-error`,post.data?.code,'42501');\n\
+        \ }\n const valid=await accepted(who,SHARE,false);equals(`${who}-rpc-retains-access-during-grant-drift`,valid,JSON.parse(readFileSync('/tmp/r343_created.json','utf8'))[who]);}\n\
+        }else if(STAGE==='locked'){\n for(const who of owners){for(const table of ['r342_requests','r342_audit']){const r=await\
+        \ http('/'+table+'?select=*',who);ensure(`${who}-${table}-direct-get-denied-after-revoke`,[401,403].includes(r.status));}\n\
+        \ await accepted(who,NEW[who],false);}\n}else throw Error('INVALID_R343_STAGE_'+STAGE);\nconsole.log(JSON.stringify({suite:'R343_SIGNED_JWT_POSTGREST_RPC_REVOCATION_GRANT_DRIFT',stage:STAGE,checks,real_postgrest:true,ephemeral_pg17:true,real_supabase:false,commercial_release:'HOLD'}));\n\
+        R343_JS\nnode --check /tmp/r343_http.mjs\n"
+    - name: R343 signed JWT HTTP phase before
+      shell: bash
+      run: 'set -euo pipefail
+
+        R343_STAGE=before node /tmp/r343_http.mjs
+
+        '
+    - name: R343 disable assigned staff and active office without JWT rotation
+      shell: bash
+      run: "set -euo pipefail\ncat >/tmp/r343_revoke.sql <<'R343_SQL'\n\\set ON_ERROR_STOP on\nUPDATE public.r335_staff SET\
+        \ is_active=false WHERE auth_user_id='00000002-0002-4002-8002-000000000002'::uuid;\nUPDATE public.r335_offices SET\
+        \ is_active=false WHERE id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'::uuid;\nDO $r343_revoke$ BEGIN\n IF EXISTS(SELECT\
+        \ 1 FROM public.r335_staff WHERE auth_user_id='00000002-0002-4002-8002-000000000002'::uuid AND is_active)\n OR EXISTS(SELECT\
+        \ 1 FROM public.r335_offices WHERE id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'::uuid AND is_active) THEN RAISE EXCEPTION\
+        \ 'R343_REVOCATION_NOT_APPLIED'; END IF;\n IF (SELECT count(*) FROM public.r342_requests)<>6 OR (SELECT count(*) FROM\
+        \ public.r342_audit)<>6 THEN RAISE EXCEPTION 'R343_BEFORE_REVOKE_COUNT'; END IF;\n RAISE NOTICE 'R343_LIVE_REVOKE_APPLIED\
+        \ staffA_and_officeB disabled; signed_JWT_unchanged';\nEND $r343_revoke$;\nR343_SQL\npgid=\"${{ job.services.pg.id\
+        \ }}\"\ntest -n \"$pgid\"\ndocker exec -i \"$pgid\" psql -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 </tmp/r343_revoke.sql\n"
+    - name: R343 signed JWT HTTP phase revoked
+      shell: bash
+      run: 'set -euo pipefail
+
+        R343_STAGE=revoked node /tmp/r343_http.mjs
+
+        '
+    - name: R343 re-enable staff and office only in disposable PG17
+      shell: bash
+      run: "set -euo pipefail\ncat >/tmp/r343_restore.sql <<'R343_SQL'\n\\set ON_ERROR_STOP on\nUPDATE public.r335_staff SET\
+        \ is_active=true WHERE auth_user_id='00000002-0002-4002-8002-000000000002'::uuid;\nUPDATE public.r335_offices SET\
+        \ is_active=true WHERE id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'::uuid;\nDO $r343_restore$ BEGIN\n IF (SELECT count(*)\
+        \ FROM public.r335_staff WHERE auth_user_id='00000002-0002-4002-8002-000000000002'::uuid AND is_active)<>1\n OR (SELECT\
+        \ count(*) FROM public.r335_offices WHERE id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'::uuid AND is_active)<>1 THEN RAISE\
+        \ EXCEPTION 'R343_RESTORE_FAILED'; END IF;\n IF (SELECT count(*) FROM public.r342_requests)<>6 OR (SELECT count(*)\
+        \ FROM public.r342_audit)<>6 THEN RAISE EXCEPTION 'R343_REVOKED_SIDE_EFFECT'; END IF;\n RAISE NOTICE 'R343_MEMBERSHIP_RESTORED\
+        \ without stale idempotency duplication';\nEND $r343_restore$;\nR343_SQL\npgid=\"${{ job.services.pg.id }}\"\ntest\
+        \ -n \"$pgid\"\ndocker exec -i \"$pgid\" psql -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 </tmp/r343_restore.sql\n"
+    - name: R343 signed JWT HTTP phase restored
+      shell: bash
+      run: 'set -euo pipefail
+
+        R343_STAGE=restored node /tmp/r343_http.mjs
+
+        '
+    - name: R343 deliberately grant excessive direct DML to authenticated in synthetic tables
+      shell: bash
+      run: "set -euo pipefail\ncat >/tmp/r343_grant.sql <<'R343_SQL'\n\\set ON_ERROR_STOP on\nGRANT SELECT, INSERT, UPDATE,\
+        \ DELETE ON public.r342_requests,public.r342_audit TO authenticated;\nDO $r343_grant$ BEGIN\n IF NOT has_table_privilege('authenticated','public.r342_requests','INSERT')\
+        \ OR NOT has_table_privilege('authenticated','public.r342_audit','SELECT') THEN RAISE EXCEPTION 'R343_GRANT_SIMULATION_MISSING';\
+        \ END IF;\n IF (SELECT count(*) FROM pg_policies WHERE schemaname='public' AND tablename IN ('r342_requests','r342_audit')\
+        \ AND 'authenticated'=any(roles))>0 THEN RAISE EXCEPTION 'R343_DIRECT_RLS_BROKEN'; END IF;\n RAISE NOTICE 'R343_ACCIDENTAL_DIRECT_GRANTS_SIMULATED\
+        \ RLS_restricts_authenticated';\nEND $r343_grant$;\nR343_SQL\npgid=\"${{ job.services.pg.id }}\"\ntest -n \"$pgid\"\
+        \ndocker exec -i \"$pgid\" psql -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 </tmp/r343_grant.sql\n"
+    - name: R343 signed JWT HTTP phase grant_drift
+      shell: bash
+      run: 'set -euo pipefail
+
+        R343_STAGE=grant_drift node /tmp/r343_http.mjs
+
+        '
+    - name: R343 remove all simulated direct table GRANTs and restore locked state
+      shell: bash
+      run: "set -euo pipefail\ncat >/tmp/r343_lock.sql <<'R343_SQL'\n\\set ON_ERROR_STOP on\nREVOKE ALL ON public.r342_requests,public.r342_audit\
+        \ FROM authenticated,anon,PUBLIC;\nDO $r343_lock$ BEGIN\n IF has_table_privilege('authenticated','public.r342_requests','SELECT')\
+        \ OR has_table_privilege('authenticated','public.r342_requests','INSERT') OR has_table_privilege('authenticated','public.r342_audit','SELECT')\
+        \ THEN RAISE EXCEPTION 'R343_DIRECT_GRANT_STILL_PRESENT'; END IF;\n RAISE NOTICE 'R343_DIRECT_GRANT_REVOKED';\nEND\
+        \ $r343_lock$;\nR343_SQL\npgid=\"${{ job.services.pg.id }}\"\ntest -n \"$pgid\"\ndocker exec -i \"$pgid\" psql -X\
+        \ -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 </tmp/r343_lock.sql\n"
+    - name: R343 signed JWT HTTP phase locked
+      shell: bash
+      run: 'set -euo pipefail
+
+        R343_STAGE=locked node /tmp/r343_http.mjs
+
+        '
+    - name: R343 prove exact request and audit integrity after revocation and grant drift
+      shell: bash
+      run: "set -euo pipefail\ncat >/tmp/r343_audit.sql <<'R343_SQL'\n\\set ON_ERROR_STOP on\nDO $r343_audit$ DECLARE n integer;\
+        \ BEGIN\n IF (SELECT count(*) FROM public.r342_requests)<>8 OR (SELECT count(*) FROM public.r342_audit)<>8 THEN RAISE\
+        \ EXCEPTION 'R343_FINAL_REQUEST_AUDIT_COUNT'; END IF;\n IF EXISTS (SELECT 1 FROM public.r342_requests r LEFT JOIN\
+        \ public.r342_audit a ON a.request_id=r.id AND a.office_id=r.office_id AND a.actor_auth_id=r.actor_auth_id WHERE a.request_id\
+        \ IS NULL) THEN RAISE EXCEPTION 'R343_MISSING_ATOMIC_AUDIT'; END IF;\n IF EXISTS (SELECT 1 FROM public.r342_requests\
+        \ WHERE request_key LIKE 'R343_INJECTION_%') THEN RAISE EXCEPTION 'R343_DIRECT_INSERT_LEAK'; END IF;\n IF (SELECT\
+        \ count(*) FROM public.r342_requests WHERE request_key='R343_SHARED_KEY_00001')<>2 THEN RAISE EXCEPTION 'R343_CROSS_OFFICE_IDEMPOTENCY_FAILURE';\
+        \ END IF;\n IF EXISTS (SELECT 1 FROM public.r342_requests r JOIN public.r335_clients c ON c.id=r.client_id AND r.office_id<>c.office_id)\
+        \ THEN RAISE EXCEPTION 'R343_TENANT_CROSSOVER'; END IF;\n IF pg_has_role('authenticated','r342_executor','MEMBER')\
+        \ OR (SELECT rolbypassrls FROM pg_roles WHERE rolname='r342_executor') THEN RAISE EXCEPTION 'R343_RPC_PRIVILEGE_REGRESSION';\
+        \ END IF;\n RAISE NOTICE 'R343_SQL_AUDIT_PASS requests=8 audit=8 before=4 new_before=2 new_after=2 revoked_attempts=0\
+        \ direct_grant_leaks=0';\nEND $r343_audit$;\nR343_SQL\npgid=\"${{ job.services.pg.id }}\"\ntest -n \"$pgid\"\ndocker\
+        \ exec -i \"$pgid\" psql -X -U postgres -d r331_synthetic -v ON_ERROR_STOP=1 </tmp/r343_audit.sql\n"
+    - name: R343 print isolated security gate evidence and commercial HOLD
+      shell: bash
+      run: 'set -euo pipefail
+
+        echo ''R343_REAL_POSTGREST_RPC_REVOCATION_GRANT_DRIFT_PASS baseline_r342_requests=4 added_requests=4 total_requests=8
+        audit=8 signed_jwt_reuse_rejected_while_revoked=true duplicate_retry_after_restore=false direct_dml_grant_bypass=false
+        r342_source_pinned=true synthetic_only=true real_supabase=false real_worker=false commercial_release=HOLD''
+
+        '
+    - name: R338 retain security release HOLD (only synthetic coverage)
+      shell: bash
+      run: 'set -euo pipefail
+
+        echo ''R338_REFERENCE_TABLE_DEFENSE_IN_DEPTH_PASS: r337_regression=474 previous_regressions=preserved synthetic_reference_tables=2
+        accidental_select_grant_blocked_by_RLS=true private_RPC_blocked=true real_postgrest=v12.2.8 real_supabase=false real_worker=false
+        commercial_release=HOLD''
+
+        '
+    - name: R335 assert no production connectivity and retain security release HOLD
+      shell: bash
+      run: 'set -euo pipefail
+
+        echo ''R335_REAL_POSTGREST_PG17_SIGNED_JWT_RLS_PASS: r331_regression=402 r333_mutations=12 r334_guc_boundary_replayed=true
+        actual_postgrest=v12.2.8 synthetic_hs256=true real_supabase=false real_worker=false production_deployment=false commercial_release=HOLD''
+
+        '
+    - name: Clean disposable PostgREST container even after test failure
+      if: always()
+      shell: bash
+      run: 'docker rm -f r335-postgrest >/dev/null 2>&1 || true
+
+        echo R335_EPHEMERAL_POSTGREST_DESTROYED
+
+        rm -f /tmp/r336_http.mjs /tmp/r336_mutation.sql
+
+        rm -f /tmp/r337_fixture.sql /tmp/r337_http.mjs
+
+        rm -f /tmp/r338_sql_*.sql /tmp/r338_reference_table_http.test.mjs
+
+
+        rm -f /tmp/r339_*.sql /tmp/r339_rpc_http.mjs
+
+
+        rm -f /tmp/r340_*.sql /tmp/r340_view_http.mjs
+
+
+        rm -f /tmp/r341_*.sql /tmp/r341_http.mjs
+
+
+        rm -f /tmp/r342_*.sql /tmp/r342_rpc_http.mjs
+
+
+        rm -f /tmp/r343_*.sql /tmp/r343_http.mjs /tmp/r343_created.json
+
+        '
